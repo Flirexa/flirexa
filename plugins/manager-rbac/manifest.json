@@ -1,0 +1,9 @@
+{
+  "name": "manager-rbac",
+  "version": "1.0.0",
+  "display_name": "Manager Roles & RBAC",
+  "description": "Multi-admin role-based access control: separate Admin and Manager accounts with permission scopes (clients-only, servers-only, support-only, etc.).",
+  "requires_license_feature": "manager_rbac",
+  "min_tier": "enterprise",
+  "author": "flirexa"
+}

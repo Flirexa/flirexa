@@ -1,0 +1,9 @@
+{
+  "name": "promo-codes",
+  "version": "1.0.0",
+  "display_name": "Promo Codes & Auto-Renewal",
+  "description": "Customer acquisition + retention tools: promo codes with percent/free-day discounts, auto-renewal with email notifications, basic referral tracking.",
+  "requires_license_feature": "promo_codes",
+  "min_tier": "starter",
+  "author": "flirexa"
+}

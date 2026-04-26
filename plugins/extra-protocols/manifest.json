@@ -1,0 +1,10 @@
+{
+  "name": "extra-protocols",
+  "version": "1.0.0",
+  "display_name": "Extra Protocols (Hysteria2 + TUIC)",
+  "description": "Adds Hysteria2 and TUIC proxy-protocol support on top of the FREE-tier WireGuard + AmneziaWG. Required for users who need DPI-resistant transports beyond what the open core provides.",
+  "requires_license_feature": "proxy_protocols",
+  "min_tier": "starter",
+  "author": "flirexa",
+  "homepage": "https://example.com/plugins/extra-protocols"
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=SpongeBot Client Portal
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/spongebot/current
+EnvironmentFile=/opt/spongebot/.env
+Environment="PATH=/opt/spongebot/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/opt/spongebot/venv/bin/python /opt/spongebot/current/client_portal_main.py
+Restart=always
+RestartSec=5
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=spongebot-client-portal
+
+[Install]
+WantedBy=multi-user.target

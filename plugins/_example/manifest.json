@@ -1,0 +1,10 @@
+{
+  "name": "_example",
+  "version": "0.1.0",
+  "display_name": "Example Plugin",
+  "description": "Reference plugin scaffolding — copy this directory to start a new plugin.",
+  "requires_license_feature": "_example_feature_that_no_one_has",
+  "min_tier": "business",
+  "author": "flirexa",
+  "homepage": "https://example.com/plugins/example"
+}

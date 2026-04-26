@@ -1,0 +1,23 @@
+[Unit]
+Description=VPN Management Studio Client Portal
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/vpnmanager/current
+EnvironmentFile=/opt/vpnmanager/.env
+Environment="PATH=/opt/vpnmanager/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/opt/vpnmanager/venv/bin/python /opt/vpnmanager/current/client_portal_main.py
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vpnmanager-client-portal
+
+[Install]
+WantedBy=multi-user.target

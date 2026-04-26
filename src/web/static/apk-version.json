@@ -1,0 +1,7 @@
+{
+  "version": "1.6.4",
+  "version_code": 164,
+  "filename": "VPNManager-v1.6.4.apk",
+  "date": "2026-03-02",
+  "changelog": "Smooth widget glow (layered gradient), fix widget tap glitch on cold start (open main app instead of TunnelToggleActivity)"
+}

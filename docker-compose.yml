@@ -1,0 +1,118 @@
+# VPN Manager — Docker Compose
+# Usage:
+#   1. Copy .env.example to .env and configure
+#   2. docker compose up -d
+#   3. Open http://localhost:10086 to set up admin account
+#   4. Activate license in Settings
+#
+# Services:
+#   - db:             PostgreSQL database
+#   - api:            Admin panel + REST API (port 10086)
+#   - client-portal:  Client self-service portal (port 10090)
+#   - admin-bot:      Telegram admin bot (optional)
+#   - client-bot:     Telegram client bot (optional)
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-vpnmanager}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-vpnmanager}
+      POSTGRES_DB: ${DB_NAME:-vpnmanager_db}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-vpnmanager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-10086}:10086"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv4.ip_forward=1
+    volumes:
+      - /etc/wireguard:/etc/wireguard
+      - backups:/app/backups
+    command: python main.py api --host 0.0.0.0 --port 10086
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:10086/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  client-portal:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${CLIENT_PORTAL_PORT:-10090}:10090"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command: python client_portal_main.py
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+      WORKER_ENABLED: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command: python worker_main.py
+
+  admin-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - /etc/wireguard:/etc/wireguard
+    command: python main.py admin-bot
+    profiles:
+      - bots
+
+  client-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python main.py client-bot
+    profiles:
+      - bots
+
+volumes:
+  pgdata:
+  backups:

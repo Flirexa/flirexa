@@ -1,0 +1,9 @@
+{
+  "name": "white-label-basic",
+  "version": "1.0.0",
+  "display_name": "White-Label Branding (Basic)",
+  "description": "Custom logo and colors. Operators can replace flirexa branding with their own across the admin panel and client portal.",
+  "requires_license_feature": "white_label_basic",
+  "min_tier": "business",
+  "author": "flirexa"
+}

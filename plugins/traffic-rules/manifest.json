@@ -1,0 +1,9 @@
+{
+  "name": "traffic-rules",
+  "version": "1.0.0",
+  "display_name": "Traffic Rules & Auto-Throttling",
+  "description": "Define per-client and global traffic rules: bandwidth caps, monthly quotas, automatic throttling on threshold.",
+  "requires_license_feature": "traffic_rules",
+  "min_tier": "business",
+  "author": "flirexa"
+}

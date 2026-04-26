@@ -1,0 +1,23 @@
+[Unit]
+Description=VPN Management Studio Background Worker
+After=network.target postgresql.service vpnmanager-api.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/vpnmanager/current
+EnvironmentFile=/opt/vpnmanager/.env
+Environment="WORKER_ENABLED=true"
+ExecStart=/opt/vpnmanager/venv/bin/python /opt/vpnmanager/current/worker_main.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=25
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vpnmanager-worker
+
+[Install]
+WantedBy=multi-user.target

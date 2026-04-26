@@ -1,0 +1,18 @@
+[Unit]
+Description=VPN Management Studio API Server
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/vpnmanager/current
+EnvironmentFile=/opt/vpnmanager/.env
+ExecStart=/opt/vpnmanager/venv/bin/python /opt/vpnmanager/current/main.py api
+Restart=always
+RestartSec=5
+# Allow child processes (e.g. update_apply.sh) to survive service stop
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

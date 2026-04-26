@@ -1,0 +1,5 @@
+# VPN Manager Agent dependencies
+# Installed into /opt/vpnmanager-agent/venv/ (isolated from system packages)
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+psutil>=5.9.0

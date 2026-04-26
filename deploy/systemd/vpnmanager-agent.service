@@ -1,0 +1,22 @@
+[Unit]
+Description=VPN Management Studio Agent - WireGuard Management Agent
+After=network.target wg-quick@wg0.service
+Requires=wg-quick@wg0.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/vpnmanager-agent
+EnvironmentFile=/opt/vpnmanager-agent/.env
+# Set AGENT_API_KEY in .env (should match the key configured for this remote server)
+Environment="WG_INTERFACE=wg0"
+Environment="WG_CONFIG_PATH=/etc/wireguard/wg0.conf"
+Environment="AGENT_PORT=8001"
+ExecStart=/usr/bin/python3 /opt/vpnmanager-agent/agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

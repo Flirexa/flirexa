@@ -1,0 +1,9 @@
+{
+  "name": "auto-backup",
+  "version": "1.0.0",
+  "display_name": "Automatic Backups",
+  "description": "Schedule automatic backups, mount remote storage (S3, FTP, NFS), retain N revisions. Manual backup / restore stays in core for FREE installs.",
+  "requires_license_feature": "auto_backup",
+  "min_tier": "business",
+  "author": "flirexa"
+}

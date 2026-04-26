@@ -1,0 +1,16 @@
+[Unit]
+Description=VPN Management Studio Client Telegram Bot
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/vpnmanager/current
+EnvironmentFile=/opt/vpnmanager/.env
+ExecStart=/opt/vpnmanager/venv/bin/python /opt/vpnmanager/current/main.py client-bot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
