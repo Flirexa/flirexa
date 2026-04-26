@@ -1,0 +1,9 @@
+{
+  "name": "corporate-vpn",
+  "version": "1.0.0",
+  "display_name": "Corporate VPN (Site-to-Site)",
+  "description": "Multi-site WireGuard mesh with subnet allocation, full-mesh routing, network diagnostics. Targets ISPs, MSPs, and companies needing branch-office connectivity.",
+  "requires_license_feature": "corporate_vpn",
+  "min_tier": "enterprise",
+  "author": "flirexa"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "client-tg-bot",
+  "version": "1.0.0",
+  "display_name": "Client Telegram Bot",
+  "description": "Self-service Telegram bot for end users: register, browse plans, pay in crypto, download VPN configs without ever opening the web portal.",
+  "requires_license_feature": "telegram_client_bot",
+  "min_tier": "business",
+  "author": "flirexa"
+}

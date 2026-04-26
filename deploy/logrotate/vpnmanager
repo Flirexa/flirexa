@@ -1,0 +1,10 @@
+/var/log/vpnmanager/*.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}

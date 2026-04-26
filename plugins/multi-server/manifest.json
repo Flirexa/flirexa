@@ -1,0 +1,10 @@
+{
+  "name": "multi-server",
+  "version": "1.0.0",
+  "display_name": "Multi-Server Management",
+  "description": "Manage multiple VPN servers from one panel: remote-server discovery, agent install/uninstall, agent-mode switching, and aggregated stats. The Business-tier killer feature.",
+  "requires_license_feature": "multi_server",
+  "min_tier": "business",
+  "author": "flirexa",
+  "homepage": "https://example.com/plugins/multi-server"
+}

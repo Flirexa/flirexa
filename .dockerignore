@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+*.tar.gz
+*.pyc
+__pycache__
+.pytest_cache
+venv/
+node_modules/
+*.egg-info
+src/web/frontend/node_modules/
+src/web/client-portal/node_modules/
+CLAUDE.md
+PLAN.md
+package.sh
+tests/

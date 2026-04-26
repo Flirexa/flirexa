@@ -1,0 +1,53 @@
+# Secrets / local config
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+venv/
+.venv/
+build/
+dist/
+
+# Node / Vue
+node_modules/
+src/web/static/dist/
+src/web/client-portal-dist/
+src/web/frontend/dist/
+*.log
+
+# Databases / artifacts
+*.db
+*.sqlite
+*.sqlite3
+*.tar.gz
+
+# Keys / certs
+*.pem
+*.key
+*.crt
+license_private*
+update_private*
+server_verify_private*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local data dirs
+data/
+backups/
+staging/
+
+# Project-specific
+*.bug.log
+2026-*.txt
