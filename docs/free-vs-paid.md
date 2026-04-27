@@ -8,7 +8,7 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 
 ## TL;DR
 
-**FREE** is a complete VPN service for one operator on one server with up to 80 clients. WireGuard + AmneziaWG, panel, client portal, crypto payments via NOWPayments, Telegram admin bot, manual backups. Forever, no online check, no kill switch.
+**FREE** is a complete VPN service for one operator on one server with up to 80 clients. WireGuard + AmneziaWG, panel, client portal, crypto payments via NOWPayments, Telegram admin bot, manual backups. MIT-licensed, install once, run forever — no payment, no expiry.
 
 **Starter ($19/mo)** adds Hysteria2, TUIC, promo codes, auto-renewal.
 
@@ -35,7 +35,7 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 | **Manual backup / restore** | yes |
 | **Scheduled backups** | not available (Business+ feature) |
 | **Auto-updates** | yes, from GitHub Releases |
-| **License check** | none — never contacts a server, no expiry, no kill switch |
+| **License check** | none — FREE installs never contact a license server, never expire, and cannot be remotely disabled |
 | **Source code** | all of it, MIT-licensed |
 
 ### Limits in numbers
@@ -52,11 +52,11 @@ For solo operators who started monetizing and outgrew the FREE protocol set or w
 
 **Adds:**
 
-- 🆕 **Hysteria2** support — QUIC-based proxy, censorship-resistant
-- 🆕 **TUIC** support — alternative QUIC proxy, useful when Hysteria2 is fingerprinted
-- 🆕 **Promo codes** — percent-off, free-day extensions, tier-restricted, expiring
-- 🆕 **Auto-renewal** — reminder emails N days before expiry, optional auto-charge
-- 🆕 **Up to 500 clients** (vs 80 on FREE)
+- **Hysteria2** support — QUIC-based proxy, censorship-resistant
+- **TUIC** support — alternative QUIC proxy, useful when Hysteria2 is fingerprinted
+- **Promo codes** — percent-off, free-day extensions, tier-restricted, expiring
+- **Auto-renewal** — reminder emails N days before expiry, optional auto-charge
+- **Up to 300 clients** (vs 80 on FREE)
 
 Stays on **1 server**.
 
@@ -70,12 +70,12 @@ The headline-feature tier. This is what serious commercial operators actually pa
 
 **Adds:**
 
-- 🆕 **Multi-server orchestration** — manage up to 10 servers from one panel. Push clients to specific servers, balance load, see per-server traffic. Remote VPN nodes run a tiny `vpnmanager-agent` HTTP service.
-- 🆕 **Full client Telegram bot** — end users can register, browse plans, pay in crypto, download configs, all via Telegram. Most operators in Russia / Iran / Turkey markets prefer this over the web portal.
-- 🆕 **Traffic rules** — per-client and global throttling, automatic enforcement when a quota threshold is hit
-- 🆕 **White-label (basic)** — replace the Flirexa logo, change brand colors, remove the "Powered by Flirexa" footer attribution
-- 🆕 **Scheduled backups** — daily automatic backups; mount remote storage (S3, FTP, NFS, SMB); retain N revisions
-- 🆕 **Up to 2,000 clients** across up to 10 servers
+- **Multi-server orchestration** — manage up to 10 servers from one panel. Push clients to specific servers, balance load, see per-server traffic. Remote VPN nodes run a tiny `vpnmanager-agent` HTTP service.
+- **Full client Telegram bot** — end users can register, browse plans, pay in crypto, download configs, all via Telegram. Most operators in Russia / Iran / Turkey markets prefer this over the web portal.
+- **Traffic rules** — per-client and global throttling, automatic enforcement when a quota threshold is hit
+- **White-label (basic)** — replace the Flirexa logo, change brand colors, remove the "Powered by Flirexa" footer attribution
+- **Scheduled backups** — daily automatic backups; mount remote storage (S3, FTP, NFS, SMB); retain N revisions
+- **Up to 2,000 clients** across up to 10 servers
 
 **Why $49:** for a Business-tier customer the price is ~1–2% of monthly revenue. It pays for itself within hours of automatic billing reminders alone.
 
@@ -87,10 +87,10 @@ For ISPs, MSPs, and companies who don't run an end-user VPN service but need sit
 
 **Adds:**
 
-- 🆕 **Corporate VPN (site-to-site)** — multi-site WireGuard mesh with subnet allocation, full-mesh routing, per-site config generation, network diagnostics. The use case is "branch-office connectivity": three offices in different cities, all employees on a private VPN, traffic routed peer-to-peer through Flirexa-managed config.
-- 🆕 **Full white-label** — custom domain on the client portal, custom `From` address on outbound emails, custom favicon and browser tab title
-- 🆕 **Manager RBAC** — additional admin accounts with permission scopes (clients-only, servers-only, support-only), audit log of who did what
-- 🆕 **Unlimited clients and servers**
+- **Corporate VPN (site-to-site)** — multi-site WireGuard mesh with subnet allocation, full-mesh routing, per-site config generation, network diagnostics. The use case is "branch-office connectivity": three offices in different cities, all employees on a private VPN, traffic routed peer-to-peer through Flirexa-managed config.
+- **Full white-label** — custom domain on the client portal, custom `From` address on outbound emails, custom favicon and browser tab title
+- **Manager RBAC** — additional admin accounts with permission scopes (clients-only, servers-only, support-only), audit log of who did what
+- **Unlimited clients and servers**
 
 **Why $149:** the corporate-VPN feature alone replaces commercial products like OpenVPN Cloud / ZeroTier / Pritunl that charge $200–$500/month for equivalent capability.
 
