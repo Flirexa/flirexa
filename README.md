@@ -107,6 +107,8 @@ The paid plugins live in `plugins/<name>/` as license-gated declarations. Withou
 | **Business** | $49 | + `multi-server`, `client-tg-bot`, `traffic-rules`, `white-label-basic`, `auto-backup` |
 | **Enterprise** | $149 | + `corporate-vpn` (site-to-site mesh), `manager-rbac` (multi-admin RBAC) |
 
+**Subscriptions are crypto-only.** We accept BTC, USDT (TRC-20 / ERC-20), Monero, ETH, and 50+ other currencies via NOWPayments recurring subscriptions. No fiat, no Visa/Mastercard — keeps onboarding simple in the jurisdictions where most Flirexa operators actually run their services. If you need a fiat invoice for accounting purposes, email `support@flirexa.biz` and we'll issue one and accept the crypto-equivalent.
+
 Pricing and licensing: [flirexa.biz](https://flirexa.biz)
 
 > **Why open-core?** The self-hosted VPN management space has good free tools (Marzban, Hiddify, 3X-UI) and good closed tools — but very little in between. Flirexa is what we wished existed: a genuinely useful free product that small operators can grow with, plus paid plugins for serious commercial operators who need multi-server, white-label, and B2B features.
@@ -221,7 +223,7 @@ See [docs/plugins.md](docs/plugins.md) for the full plugin authoring guide and [
 
 Active items, in rough order. See [ROADMAP.md](ROADMAP.md) for the full picture.
 
-- **2026 Q2** — Subscription billing on `flirexa.biz` (Stripe + recurring NOWPayments)
+- **2026 Q2** — Crypto subscription billing on `flirexa.biz` (NOWPayments recurring)
 - **2026 Q2** — Signed plugin distribution from license server (paid plugins as `.tar.gz` packages)
 - **2026 Q3** — Public demo instance (`demo.flirexa.biz`)
 - **2026 Q3** — Plugin marketplace (community-authored plugins)
@@ -235,8 +237,7 @@ If Flirexa saves you time or money, consider:
 
 - ⭐ **Starring this repository** — costs nothing, helps massively with visibility.
 - 💬 **Telling us what worked / what didn't** — open an issue or [discussion](https://github.com/Flirexa/flirexa/discussions).
-- 💖 **Sponsoring on GitHub** — *coming soon*.
-- ₿ **Crypto donations** for one-off contributions:
+- ₿ **Crypto donations** — any amount, one-off, no account needed:
 
   | Currency | Network | Address |
   |---|---|---|
@@ -245,7 +246,11 @@ If Flirexa saves you time or money, consider:
   | USDT | Ethereum (ERC-20) | `0xc9428847bf4a741c946cfc33a726a293fd97cc07` |
   | USDT | Tron (TRC-20) | `TGGQrmJqsjmbnieXhfeRBMyUML3zGWKY3x` |
 
-If you want commercial support (priority response, custom integrations, training): `support@flirexa.biz`.
+  > Why no GitHub Sponsors / Patreon / Buy Me a Coffee? They all settle through Stripe or PayPal, neither of which we can use from our jurisdiction. Direct crypto bypasses that entirely. Marzban, Hiddify, and most projects in this niche operate the same way.
+
+- 💼 **Recurring sponsorship via crypto** — email `support@flirexa.biz` if you want to set up a $5/$25/$100/month NOWPayments recurring sponsorship; we'll send a payment link and credit you in the README.
+
+For commercial support (priority response, custom integrations, training): `support@flirexa.biz`.
 
 ---
 
