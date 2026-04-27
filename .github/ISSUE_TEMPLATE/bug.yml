@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a defect in Flirexa core
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Flirexa version
+      description: "Output of `cat VERSION` on the install"
+      placeholder: "1.5.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Install method
+      options:
+        - "One-liner (curl ... | sudo bash)"
+        - "From source (git clone)"
+        - "Docker / docker-compose"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / kernel
+      placeholder: "Ubuntu 22.04, 5.15.0-92-generic"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: "What did you try, what did you expect, what did you actually get?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "Lines from `journalctl -u vpnmanager-api`, browser console, etc. **Redact any secrets / tokens / IP addresses you don't want public.**"
+      render: shell

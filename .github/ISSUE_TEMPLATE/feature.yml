@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a new feature for Flirexa core
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: "Concrete user-facing description, and an idea of where it would live in the codebase if you have one."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Where should this live?
+      options:
+        - "FREE / open core"
+        - "Paid plugin (Starter / Business / Enterprise)"
+        - "Community plugin (third-party)"
+        - "Not sure"
+    validations:
+      required: true

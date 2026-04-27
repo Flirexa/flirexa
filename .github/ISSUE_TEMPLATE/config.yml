@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Flirexa/flirexa/blob/main/SECURITY.md
+    about: Don't open a public issue. See SECURITY.md for the disclosure process.
+  - name: Commercial / support enquiries
+    url: mailto:support@flirexa.biz
+    about: Pricing, support contracts, custom integrations.
