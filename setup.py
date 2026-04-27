@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SpongeBot Setup
+Flirexa Setup
 """
 
 from setuptools import setup, find_packages
@@ -12,20 +12,21 @@ with open("requirements.txt", "r", encoding="utf-8") as f:
     requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 setup(
-    name="spongebot",
-    version="5.0.0",
-    author="SpongeBot Team",
-    description="WireGuard VPN Management Platform",
+    name="flirexa",
+    version="1.5.0",
+    author="Flirexa",
+    author_email="support@flirexa.biz",
+    description="Open-core VPN management for WireGuard, AmneziaWG, Hysteria2, TUIC",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/spongebot/spongebot",
+    url="https://github.com/Flirexa/flirexa",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.10",
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "spongebot=main:main",
+            "flirexa=src.cli.main:main",
             "vpnmanager=src.cli.main:main",
         ],
     },
