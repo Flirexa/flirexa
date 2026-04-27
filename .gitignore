@@ -51,3 +51,33 @@ staging/
 # Project-specific
 *.bug.log
 2026-*.txt
+
+# ── Secrets — NEVER COMMIT ─────────────────────────────────────────────────
+# Centralised secrets reference lives at /root/.flirexa-secrets/SECRETS.md
+# (outside any repo). This block also blocks any in-repo accidents.
+SECRETS.md
+SECRETS
+secrets/
+.secrets/
+.flirexa-secrets/
+*.secret
+*.token
+.token
+*_token
+*.pat
+*credentials*
+.credentials
+.npmrc
+.netrc
+# Private keys and signed material
+*.pem
+*.key
+*.key.priv
+id_rsa
+id_ed25519
+id_*.priv
+# Dotfile env (already in some repos, ensuring uniform coverage)
+.env
+.env.local
+.env.*.local
+.env.production
