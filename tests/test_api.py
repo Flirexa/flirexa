@@ -108,6 +108,7 @@ class TestSystemEndpoints:
         data = response.json()
         assert data["status"] == "healthy"
 
+    @pytest.mark.skip(reason="corporate-vpn is a paid plugin extracted from open core")
     def test_client_portal_features_reports_corporate_access(self, client, db_for_test):
         user = ClientUser(email="corp-feature@example.com", username="corpfeature", password_hash="x")
         db_for_test.add(user)
