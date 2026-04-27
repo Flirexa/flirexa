@@ -1,417 +1,204 @@
-# API Reference
+# API reference
 
-The admin panel exposes a REST API at `http://YOUR_SERVER:10086/api/v1/`. All endpoints (except auth and a few public ones) require a Bearer token in the `Authorization` header.
+The Flirexa admin API is a documented FastAPI app. The fastest way to explore it is **Swagger UI**:
 
-Interactive API documentation is available at:
 ```
-http://YOUR_SERVER:10086/api/docs
+http://<your-server-ip>:10086/docs
 ```
+
+This page is the conceptual companion: it explains the auth model, route grouping, and what to expect when calling paid endpoints from a FREE install.
 
 ---
 
 ## Authentication
 
-### Get a Token
+### Admin API (`/api/v1/...`)
+
+Admin endpoints require a JWT bearer token. To obtain one:
 
 ```bash
-POST /api/v1/auth/login
-Content-Type: application/json
-
-{"username": "admin", "password": "your-password"}
+curl -X POST http://your-server:10086/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"your-password"}'
 ```
 
 Response:
 
 ```json
 {
-  "access_token": "eyJ...",
-  "token_type": "bearer",
-  "expires_in": 86400
+  "access_token":  "eyJhbGciOi...",
+  "refresh_token": "eyJhbGciOi...",
+  "token_type":    "bearer",
+  "expires_in":    1800
 }
 ```
 
-Use the token in all subsequent requests:
+Pass the access token on subsequent requests:
 
 ```bash
-curl -H "Authorization: Bearer eyJ..." http://localhost:10086/api/v1/servers
+curl http://your-server:10086/api/v1/clients \
+  -H 'Authorization: Bearer eyJhbGciOi...'
 ```
 
-Brute-force protection is active: after 5 failed attempts, the account is locked for 5 minutes.
+Tokens expire in 30 minutes. Use the refresh token at `/api/v1/auth/refresh` to get a new access token without re-logging in.
+
+### Client portal API (`/client-portal/...`)
+
+End-user accounts use a separate JWT scope. The flow is the same — `POST /client-portal/auth/login` with the user's email and password — but the issued token only authorises portal endpoints, never the admin API.
+
+### Internal service API (`/api/v1/internal/...`)
+
+Service-to-service traffic between the admin API and the client portal uses a shared `SERVICE_API_TOKEN` from `.env` instead of JWT. End users never need to call these endpoints; they exist for the portal to reach the admin's client-creation logic without piggy-backing on user JWTs.
 
 ---
 
-## Servers
+## Routes by domain
 
-### List Servers
+### Always available (FREE-friendly)
 
-```bash
-GET /api/v1/servers
-```
+| Prefix | What it does |
+|---|---|
+| `/api/v1/auth` | Login, refresh, change password, manage admin accounts |
+| `/api/v1/clients` | CRUD on VPN clients, configs, QR codes, traffic stats, expiry, limits |
+| `/api/v1/servers` | List servers; create / start / stop / restart; reconcile drift; bootstrap; backup/restore. (Multi-server creation gated; agent install gated.) |
+| `/api/v1/payments` | Subscription plans, payment providers status (gated by `payments` feature on URL prefix middleware) |
+| `/api/v1/tariffs` | Tariff CRUD for the operator's pricing |
+| `/api/v1/system` | License state, branding, SMTP, public IP, web access, audit logs, app logs |
+| `/api/v1/health` | Quick + full system health checks |
+| `/api/v1/portal-users` | End-user portal account management |
+| `/api/v1/backup` | Manual backup, list, verify, restore, delete |
+| `/api/v1/updates` | Check / apply / rollback updates; channel switching; restart |
+| `/api/v1/internal` | Service-to-service endpoints (service token auth, not JWT) |
+| `/api/v1/public` | Branding, login-page metadata (no auth) |
 
-### Get Server
+### Gated by license feature
 
-```bash
-GET /api/v1/servers/{id}
-```
+These endpoints exist on every install but return **403** with a clear upgrade hint when the active license doesn't grant the required feature:
 
-### Add Server
+| Prefix / Endpoint | Gated by feature |
+|---|---|
+| `/api/v1/servers` POST creating Hysteria2/TUIC | `proxy_protocols` |
+| `/api/v1/servers/{id}/install-agent`, `/discover` | `multi_server` |
+| `/api/v1/agent/{id}/install`, `/uninstall`, `/switch-mode` | `multi_server` |
+| `/api/v1/bots/client/start`, `/stop`, `/restart` | `telegram_client_bot` |
+| `/api/v1/system/branding` POST, `/branding/logo` POST | `white_label_basic` |
+| `/api/v1/system/backup-mount`, `/backup-unmount`, `/backup-test-write` | `auto_backup` |
+| `/api/v1/traffic-rules` (whole router) | `traffic_rules` |
+| `/api/v1/promo-codes` (whole router) | `promo_codes` |
+| `/api/v1/app-accounts` (whole router) | `manager_rbac` |
+| `/api/v1/corporate` and `/client-portal/corporate` (whole routers) | `corporate_vpn` |
+| `/client-portal/create-invoice` with non-NOWPayments providers | provider-specific |
 
-```bash
-POST /api/v1/servers
-Content-Type: application/json
-
-{
-  "name": "Amsterdam",
-  "endpoint": "203.0.113.10:51820",
-  "interface": "wg0",
-  "server_type": "wireguard",
-  "address_pool_ipv4": "10.66.66.0/24",
-  "ssh_host": "203.0.113.10",
-  "ssh_user": "root",
-  "ssh_password": "secret"
-}
-```
-
-### Install Agent
-
-```bash
-POST /api/v1/servers/{id}/install-agent
-Content-Type: application/json
-
-{"port": 8001}
-```
-
-### Reconcile Drift
-
-Trigger drift detection and auto-reconciliation for a single server:
-
-```bash
-POST /api/v1/servers/{id}/reconcile
-```
-
-Response:
+Sample 403 response:
 
 ```json
 {
-  "server_id": 1,
-  "server_name": "Amsterdam",
-  "drift_detected": false,
-  "issues": [],
-  "reconciled": ["alice-laptop (PK1a2b3c...)"]
+  "detail":  "This action requires the 'multi_server' feature. Current plan: free. Upgrade to enable it.",
+  "status_code": 403
 }
 ```
 
-### Delete Server
+The plugin loader exposes `app.state.plugin_loader.loaded_features()` for clients that want to render UI conditionally without making a probe request.
 
-```bash
-DELETE /api/v1/servers/{id}
-```
+### Plugin status
 
-Add `?force=true` to remove even if the server is offline.
+Each loaded paid plugin exposes a `GET /api/v1/plugins/<name>/status` endpoint (e.g. `/api/v1/plugins/multi-server/status`). On FREE installs these endpoints don't exist — the plugin shells aren't mounted.
 
 ---
 
-## Clients
+## OpenAPI
 
-### List Clients
+The full OpenAPI 3.1 schema is available at:
 
-```bash
-GET /api/v1/clients
+```
+http://your-server:10086/openapi.json
 ```
 
-Query parameters:
-- `server_id` — filter by server
-- `status` — filter by status (`active`, `disabled`, `expired`)
-- `search` — search by name
-
-### Get Client
-
-```bash
-GET /api/v1/clients/{id}
-```
-
-### Create Client
-
-```bash
-POST /api/v1/clients
-Content-Type: application/json
-
-{
-  "name": "alice-laptop",
-  "server_id": 1,
-  "expiry_date": "2026-12-31T00:00:00Z",
-  "traffic_limit_mb": 51200,
-  "bandwidth_limit": 50
-}
-```
-
-### Download Client Config
-
-```bash
-GET /api/v1/clients/{id}/config
-```
-
-Returns the WireGuard `.conf` file as plain text.
-
-### Enable / Disable Client
-
-```bash
-POST /api/v1/clients/{id}/enable
-POST /api/v1/clients/{id}/disable
-```
-
-### Delete Client
-
-```bash
-DELETE /api/v1/clients/{id}
-```
+You can generate clients in any language with the standard OpenAPI generators. The schema reflects the active install — paid plugin endpoints appear in the schema only when the plugin is loaded.
 
 ---
 
-## Health Monitoring
+## Common patterns
 
-### System Health
-
-```bash
-GET /api/v1/health/system
-GET /api/v1/health/system?full=true   # includes external pings
-POST /api/v1/health/system/refresh    # force refresh
-```
-
-### All Servers Health
+### Creating a client
 
 ```bash
-GET /api/v1/health/servers
-GET /api/v1/health/servers?full=true  # includes wg stats + system metrics
+curl -X POST http://your-server:10086/api/v1/clients \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "alice-laptop",
+    "server_id": 1,
+    "traffic_limit_gb": 100,
+    "expiry_days": 30
+  }'
 ```
 
-Response includes a `drift` field per server:
+The response includes an `id`, the generated WireGuard config as a string, and metadata. To download the `.conf` file or the QR code:
+
+```
+GET /api/v1/clients/{id}/config/download   →  binary .conf
+GET /api/v1/clients/{id}/qrcode            →  PNG image
+```
+
+### Listing servers (paginated)
+
+```bash
+curl "http://your-server:10086/api/v1/servers?page=1&size=20" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Health probe (no auth)
+
+```bash
+curl http://your-server:10086/health
+```
+
+Returns 200 with a small JSON `{"status": "ok", "version": "1.5.0"}` when the API process is up. Useful for upstream load balancer health checks.
+
+---
+
+## Webhooks (incoming)
+
+Payment providers POST to dedicated webhook endpoints:
+
+| Provider | Endpoint | Auth |
+|---|---|---|
+| NOWPayments | `/client-portal/webhooks/nowpayments` | HMAC-SHA512 over body, `x-nowpayments-sig` header |
+| CryptoPay | `/client-portal/webhooks/cryptopay` | HMAC-SHA256 over body, `crypto-pay-api-signature` header |
+| PayPal | `/client-portal/webhooks/paypal` | PayPal cert chain |
+| Stripe (paid plugin) | `/webhooks/stripe` | Stripe signing secret |
+
+All providers verify signatures and respond with 200 only after the subscription state has been persisted. Replay attempts on the same `payment_id` are idempotent — the second delivery sees the subscription already active and exits cleanly.
+
+---
+
+## Rate limits
+
+There are no hard rate limits in 1.5.0. The admin API is intended to be used by operators (not end-users) and the client portal API has implicit limits via auth. We're tracking real-world usage and will add per-IP limits in a later release if abuse becomes an issue.
+
+---
+
+## Errors
+
+Error responses follow FastAPI conventions:
 
 ```json
-{
-  "servers": [
-    {
-      "server_id": 1,
-      "server_name": "Amsterdam",
-      "status": "healthy",
-      "drift": {
-        "detected": false,
-        "details": null,
-        "detected_at": null,
-        "last_reconcile_at": "2026-03-15T10:00:00Z"
-      }
-    }
-  ]
-}
+{ "detail": "Human-readable message" }
 ```
 
-### Single Server Health
-
-```bash
-GET /api/v1/health/servers/{id}
-POST /api/v1/health/servers/{id}/refresh
-GET /api/v1/health/servers/{id}/history
-```
-
----
-
-## Updates
-
-### Check Status
-
-```bash
-GET /api/v1/updates/status
-```
-
-Response:
-
-```json
-{
-  "current_version": "1.1.0",
-  "channel": "stable",
-  "available_update": {
-    "version": "1.2.0",
-    "update_type": "minor",
-    "changelog": "...",
-    "has_db_migrations": true
-  },
-  "update_in_progress": false
-}
-```
-
-### Apply Update
-
-```bash
-POST /api/v1/updates/apply
-Content-Type: application/json
-
-{"version": "1.2.0"}
-```
-
-### Check Progress
-
-```bash
-GET /api/v1/updates/progress/{update_id}
-```
-
-### Rollback
-
-```bash
-POST /api/v1/updates/rollback/{update_id}
-```
-
-### History
-
-```bash
-GET /api/v1/updates/history
-```
-
-### Change Channel
-
-```bash
-POST /api/v1/updates/channel
-Content-Type: application/json
-
-{"channel": "stable"}
-```
-
----
-
-## System
-
-### Get Status
-
-```bash
-GET /api/v1/system/status
-```
-
-### Get Configuration
-
-```bash
-GET /api/v1/system/config
-```
-
-### Update Configuration
-
-```bash
-PATCH /api/v1/system/config
-Content-Type: application/json
-
-{"key": "backup_enabled", "value": "true"}
-```
-
----
-
-## Backup
-
-### Create Backup
-
-```bash
-POST /api/v1/backup/create
-```
-
-### Download Backup
-
-```bash
-GET /api/v1/backup/download
-```
-
-Returns a `.tar.gz` archive.
-
-### List Backups
-
-```bash
-GET /api/v1/backup/list
-```
-
----
-
-## Tariffs and Subscriptions
-
-### List Plans
-
-```bash
-GET /api/v1/tariffs
-```
-
-### Create Plan
-
-```bash
-POST /api/v1/tariffs
-Content-Type: application/json
-
-{
-  "name": "Basic",
-  "price_month": 9.99,
-  "traffic_limit_gb": 100,
-  "duration_days": 30,
-  "max_devices": 3
-}
-```
-
----
-
-## Portal Users
-
-### List Users
-
-```bash
-GET /api/v1/portal-users
-```
-
-### Get User
-
-```bash
-GET /api/v1/portal-users/{id}
-```
-
-### Manage Subscription
-
-```bash
-POST /api/v1/portal-users/{id}/subscription
-Content-Type: application/json
-
-{
-  "action": "extend",
-  "days": 30,
-  "tier": "pro"
-}
-```
-
----
-
-## Error Format
-
-All errors return JSON:
-
-```json
-{
-  "detail": "Human-readable error message"
-}
-```
-
-| HTTP Status | Meaning |
-|-------------|---------|
-| 400 | Bad request — invalid parameters |
-| 401 | Not authenticated — missing or invalid token |
-| 403 | Forbidden — license tier insufficient |
-| 404 | Not found |
-| 409 | Conflict — e.g. another update is in progress |
-| 422 | Validation error — request body schema mismatch |
-| 500 | Internal error — check API logs |
-
----
-
-## Rate Limiting
-
-Login endpoint: 5 attempts per 5-minute window per IP.
-
-There are no rate limits on other endpoints currently. In high-traffic deployments, put a reverse proxy (nginx) in front of the API.
-
----
-
-## Complete API Documentation
-
-The interactive Swagger UI at `/api/docs` documents every endpoint with request/response schemas, example values, and the ability to try requests directly in the browser.
-
-ReDoc format is available at `/api/redoc`.
+Status codes:
+
+| Code | Meaning |
+|---|---|
+| 200 / 201 | Success |
+| 400 | Bad request — validation error, missing fields, invalid IP |
+| 401 | Not authenticated (missing or expired JWT) |
+| 403 | Authenticated but not authorised — also returned for license-gated paid features |
+| 404 | Resource doesn't exist |
+| 409 | Conflict — duplicate name, etc. |
+| 429 | Too many requests (currently only on auth login brute-force protection) |
+| 500 | Internal error — file an issue with the request ID from `X-Request-ID` |
+| 503 | License verification temporarily unavailable; retry shortly |
+
+Every response carries an `X-Request-ID` header. Include it when reporting bugs — it lets us correlate with server-side logs immediately.

@@ -2,7 +2,7 @@
 
 ## Update Model
 
-VPN Management Studio uses a signed package update system with:
+Flirexa uses a signed package update system with:
 - update channels: `test` and `stable`
 - signed manifest
 - package checksum verification

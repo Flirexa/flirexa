@@ -1,6 +1,8 @@
-# Agent Mode
+# Agent mode
 
-The VPN Manager agent is a lightweight FastAPI process that runs on each remote server. It provides a local HTTP API for WireGuard management, replacing the need for ongoing SSH connections.
+> **Paid feature** — agent mode is part of the **multi-server** plugin (Business tier and up). FREE installs run on a single local server; the agent isn't relevant. See [free-vs-paid.md](free-vs-paid.md).
+
+The Flirexa agent is a lightweight FastAPI process that runs on each remote server. It provides a local HTTP API for WireGuard management, replacing the need for ongoing SSH connections.
 
 ---
 

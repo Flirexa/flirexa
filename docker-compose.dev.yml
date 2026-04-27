@@ -1,0 +1,38 @@
+# docker-compose.dev.yml — minimal stack for Flirexa development.
+#
+# Brings up just the services Flirexa itself talks to (PostgreSQL).
+# The Flirexa API runs on the host so you get live reload + breakpoints.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# Then on the host:
+#   source venv/bin/activate
+#   alembic upgrade head
+#   python main.py
+#
+# Tear down:
+#   docker compose -f docker-compose.dev.yml down -v   (also wipes the DB volume)
+
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: flirexa-dev-postgres
+    environment:
+      POSTGRES_USER: flirexa
+      POSTGRES_PASSWORD: flirexa-dev
+      POSTGRES_DB: flirexa_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - flirexa_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flirexa -d flirexa_dev"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  flirexa_dev_pgdata:

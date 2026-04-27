@@ -1,6 +1,8 @@
-# Adding Servers
+# Adding servers
 
-VPN Management Studio can manage WireGuard on multiple servers. The local server is registered automatically during installation. Additional remote servers are added through the admin panel.
+> **Paid feature** — adding more than one server requires the **multi-server** plugin (Business tier and up). FREE installs are limited to the single local server set up by `install.sh`. See [free-vs-paid.md](free-vs-paid.md).
+
+Flirexa can manage WireGuard on multiple servers. The local server is registered automatically during installation. Additional remote servers are added through the admin panel.
 
 ---
 
@@ -174,7 +176,7 @@ journalctl -u vpnmanager-agent -n 50 --no-pager
 
 ## Drift Detection
 
-VPN Management Studio periodically compares the database state (what peers *should* be on the interface) against the live WireGuard interface (what peers *are* actually configured). This runs every 5 minutes.
+Flirexa periodically compares the database state (what peers *should* be on the interface) against the live WireGuard interface (what peers *are* actually configured). This runs every 5 minutes.
 
 **Safe drift** — a peer is in the database but missing from the live interface. This happens after a reboot or manual `wg` command. The system automatically re-adds the peer using `wg set`.
 

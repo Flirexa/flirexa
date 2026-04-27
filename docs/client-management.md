@@ -1,6 +1,6 @@
 # Client Management
 
-A **client** in VPN Management Studio represents a single WireGuard peer — one device, one IP, one configuration file.
+A **client** in Flirexa represents a single WireGuard peer — one device, one IP, one configuration file.
 
 ---
 
