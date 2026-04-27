@@ -127,7 +127,7 @@ LICENSE_TIERS = {
         ]
     },
     LicenseType.STANDARD: {
-        "max_clients": 500,
+        "max_clients": 300,
         "max_servers": 1,
         "features": [
             "wireguard",
@@ -161,7 +161,7 @@ LICENSE_TIERS = {
     # extended with feature flags introduced after the tier rename so signed
     # keys generated before the rename still unlock the right capabilities.
     LicenseType.STARTER: {
-        "max_clients": 500,
+        "max_clients": 300,
         "max_servers": 1,
         "features": [
             "basic_management",
