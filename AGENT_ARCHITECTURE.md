@@ -270,10 +270,10 @@ GET /api/v1/agent/2/status
 | Get stats | ~2-3s (first) / 0.2s (cached) | ~0.3s |
 | Bandwidth limit | ~2-3s | ~0.3s |
 
-Agent mode is **~10x faster** because:
-- No SSH handshake overhead
-- Persistent HTTP connection
-- Local command execution
+Why agent mode is faster:
+- No SSH handshake on every command (paramiko opens a fresh transport per call)
+- Reuses a long-lived HTTP connection
+- Commands run locally on the remote host, no network round-trip per `wg`/`tc` invocation
 
 ---
 
@@ -424,9 +424,12 @@ ssh root@203.0.113.10 "journalctl -u vpnmanager-agent -n 20"
 
 ## Summary
 
-✅ **SSH code preserved** - used only for bootstrap
-✅ **Agent mode** - HTTP API for ongoing management
-✅ **Backward compatible** - existing managers unchanged
-✅ **Instant fallback** - switch to SSH if agent fails
-✅ **10x faster** - no SSH overhead
-✅ **Easy migration** - one API call to install agent
+SSH stays in the codebase — bootstrap uses it, and the master can fall back
+to it whenever the agent is unhealthy. Agent mode is the default for new
+servers added on Business+ tiers; on FREE/Starter (which only support a
+single server) the agent code is loaded but never reached because the
+local server doesn't need a remote transport.
+
+The agent's API is intentionally narrow (peer create / delete / enable /
+disable / set bandwidth / stats / health). Anything that touches DB,
+billing, or per-client lifecycle stays on the master.

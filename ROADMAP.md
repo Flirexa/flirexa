@@ -68,7 +68,7 @@ To set expectations honestly, these are things Flirexa **will not** become:
 
 For reference — what shipped in the open-core launch:
 
-- FREE tier with 80 clients / 1 server / no online check / no expiry
+- FREE tier: 80 clients on 1 server, MIT-licensed, runs entirely offline, no expiry
 - Generic plugin loader with manifest validation and license-feature gating
 - Nine paid-plugin shells declared (`extra-protocols`, `multi-server`, `corporate-vpn`, …)
 - Hysteria2/TUIC and Corporate VPN implementations extracted to private `flirexa-pro` repo
