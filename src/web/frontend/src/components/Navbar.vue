@@ -47,6 +47,11 @@
       <button class="topbar-icon-btn d-none d-sm-flex" @click="refreshData" title="Refresh">
         <i class="mdi mdi-refresh"></i>
       </button>
+
+      <!-- Support the author -->
+      <button class="topbar-icon-btn topbar-donate-btn" @click="$emit('open-donate')" :title="$t('donate.tooltip')">
+        <i class="mdi mdi-heart"></i>
+      </button>
     </div>
   </div>
 </template>
@@ -56,6 +61,8 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSystemStore } from '../stores/system'
+
+defineEmits(['open-donate'])
 
 const route = useRoute()
 const system = useSystemStore()
