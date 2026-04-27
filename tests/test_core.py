@@ -289,6 +289,7 @@ class TestServerManager:
         assert updated.status == ServerStatus.MAINTENANCE
         assert updated.lifecycle_status == "degraded"
 
+    @pytest.mark.skip(reason="Hysteria2 is a paid plugin (extra-protocols) extracted from open core")
     def test_create_hysteria2_server_persists_proxy_auth_password(self, db_session):
         sm = ServerManager(db_session)
         server = sm.create_server(
