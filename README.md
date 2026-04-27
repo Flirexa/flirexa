@@ -6,11 +6,12 @@ Run your own VPN service — for yourself, your friends, or as a business — wi
 
 ```bash
 # Quick install on a fresh Ubuntu/Debian server (single command):
-curl -fsSL https://flirexa.com/install.sh | sudo bash
+curl -fsSL https://flirexa.biz/install.sh | sudo bash
 ```
 
-> Public domain (`flirexa.com`) is being migrated; until it's live, set
-> `FLIREXA_DOMAIN` and `LICENSE_SERVER_URL` env vars to your own server.
+> If you're running your own brand on top of Flirexa, set `LICENSE_SERVER_URL`
+> and the support contact env vars to point at your own infrastructure.
+> Defaults point at `flirexa.biz` (the upstream license server for paid plugins).
 
 ---
 
@@ -47,7 +48,7 @@ The paid plugins live in `plugins/<name>/` as license-gated declarations. Withou
 | **Enterprise** ($149/mo) | `corporate-vpn` | Site-to-site mesh VPN for branch offices |
 | Enterprise | `manager-rbac` | Multi-admin roles with permission scopes |
 
-Pricing and licenses: see [flirexa.com/pricing](https://flirexa.com/pricing) (when available).
+Pricing and licenses: see [flirexa.biz/pricing](https://flirexa.biz/pricing) (when available).
 
 ## Why this exists
 
@@ -72,7 +73,7 @@ More: [`docs/architecture.md`](docs/architecture.md), [`AGENT_ARCHITECTURE.md`](
 ### Quick install (Ubuntu 22.04+ / Debian 12+)
 
 ```bash
-curl -fsSL https://flirexa.com/install.sh | sudo bash
+curl -fsSL https://flirexa.biz/install.sh | sudo bash
 ```
 
 ### From source
@@ -99,7 +100,7 @@ Everything is `.env`. Key vars:
 LICENSE_KEY=
 
 # License server (required for paid tiers, ignored on FREE)
-LICENSE_SERVER_URL=https://flirexa.com
+LICENSE_SERVER_URL=https://flirexa.biz
 
 # Telegram (optional — admin bot)
 ADMIN_BOT_TOKEN=
