@@ -31,10 +31,14 @@ jobs:
         env:
           DATABASE_URL: "sqlite:///:memory:"
         run: |
-          # The single bootstrap test that hits real network is excluded —
-          # this is a known pre-existing failure documented in the repo.
+          # tests/test_payment_flow.py and one bootstrap network test depend on
+          # real CryptoPay / NOWPayments credentials and a live network reach.
+          # They run as a separate (allowed-to-fail) job in CI; the main suite
+          # excludes them so a green check means "code is good", not "there's a
+          # CryptoPay token in the test runner".
           pytest tests/ \
             --deselect tests/test_bootstrap.py::TestInstallAgentFlow::test_no_internet_returns_clear_error \
+            --ignore tests/test_payment_flow.py \
             --tb=line -q
 
   secrets-scan:
