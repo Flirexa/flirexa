@@ -1093,4 +1093,16 @@ export default {
     createAdminAccount: 'Crear cuenta admin',
     passwordsDoNotMatch: 'Las contraseñas no coinciden',
   },
+
+  donate: {
+    tooltip: 'Apoyar al autor',
+    title: 'Flirexa es gratis — y seguirá siéndolo.',
+    lede: 'Sin anuncios, sin telemetría, sin ventas adicionales. Si Flirexa te ahorra tiempo o dinero, apoya al autor que lo crea y lo mantiene.',
+    point1: 'Open-core bajo MIT — tuyo para siempre',
+    point2: 'No requiere suscripción para el nivel gratuito',
+    point3: 'Las donaciones financian funciones, no inversores',
+    cta: 'Apoyar en GitHub',
+    later: 'Quizás más tarde',
+    close: 'Cerrar',
+  },
 }
