@@ -1,20 +1,10 @@
-"""
-extra-protocols plugin — Hysteria2 + TUIC support gate.
+"""License gate for Hysteria2 + TUIC support.
 
-The actual protocol implementations live in src/core/{hysteria2,tuic}.py
-inside the open-core codebase; this plugin's role is to:
-
-1. Declare the `proxy_protocols` license feature requirement so the
-   generic plugin loader skips loading it on FREE installs.
-2. Expose a tiny status route (/api/v1/plugins/extra-protocols/status)
-   so admins can verify the plugin is active.
-3. Surface in the introspection API (/system/plugins, app.state.plugin_loader)
-   so the admin UI can show "Hysteria2/TUIC: enabled" instead of probing
-   license features directly.
-
-Server-side enforcement of the proxy_protocols feature is in
-src/api/routes/servers.py — the create-server endpoint blocks
-hysteria2/tuic when the feature flag is absent.
+Protocol implementations live in src/core/{hysteria2,tuic}.py. This file
+declares the license-feature flag and exposes a status endpoint so the
+admin UI can render Hysteria2/TUIC affordances when the plugin is active.
+Server-side enforcement (blocking server creation with these protocols on
+FREE) is in src/api/routes/servers.py.
 """
 
 from fastapi import APIRouter

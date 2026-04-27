@@ -1,24 +1,9 @@
-"""
-multi-server plugin — orchestration of remote VPN servers.
+"""License gate for the multi_server feature.
 
-Like extra-protocols, the implementation lives in the open-core codebase
-(src/api/routes/servers.py for create/list/discover, src/api/routes/agent.py
-for the agent lifecycle, src/core/agent_client.py for HTTP transport).
-This plugin's role is the license boundary, not the implementation:
-
-1. Declare the `multi_server` feature so the plugin loader skips it on
-   FREE installs (the loader already prevents 1-server lockouts: FREE
-   has max_servers=1, so users never see multi-server UI affordances).
-2. Centralise the upgrade-prompt copy in /api/v1/plugins/multi-server/status
-   so admin UI banners stay consistent.
-3. Surface in app.state.plugin_loader for introspection.
-
-Server-side enforcement of the multi_server feature lives in:
-- src/api/routes/servers.py: create-server limit + /discover + /install-agent
-- src/api/routes/agent.py: install/uninstall/switch-mode
-
-(Read-only endpoints — list servers, agent-status — stay open so admins
-who downgrade can still observe their inherited fleet.)
+Implementation lives in src/api/routes/{servers,agent}.py. This file only
+declares the license-feature flag so the plugin loader skips it on FREE.
+Read-only endpoints (list servers, agent status) stay open so users who
+downgrade can still see servers they had on a paid period.
 """
 
 from fastapi import APIRouter

@@ -1,13 +1,17 @@
-# SpongeBot Agent Architecture
+# Agent architecture
 
 ## Overview
 
-SpongeBot поддерживает два режима управления удаленными серверами:
+The master panel manages remote VPN nodes in one of two modes:
 
-1. **SSH Mode (legacy)** - прямое выполнение команд через SSH
-2. **Agent Mode (new)** - HTTP API через установленный агент
+1. **SSH mode** — commands run over SSH each time (the original transport).
+2. **Agent mode** — a small FastAPI process on the remote node accepts
+   HTTP commands from the master.
 
-**SSH используется только для bootstrap** - первой установки агента. После установки все управление идет через HTTP API.
+SSH is still used to bootstrap the agent (one-shot install). Once the agent
+is up, the master switches to HTTP for all subsequent operations. Either
+mode can be used at any time per server; a fallback to SSH is always
+available.
 
 ---
 
@@ -78,7 +82,7 @@ SpongeBot поддерживает два режима управления уд
 
 **Auth:** API key in `X-API-Key` header
 
-**Systemd:** `spongebot-agent.service`
+**Systemd:** `vpnmanager-agent.service`
 
 **Environment:**
 ```bash
@@ -96,7 +100,7 @@ AGENT_PORT=8001
 
 **Process:**
 1. SSH connect to remote server
-2. Create `/opt/spongebot-agent/` directory
+2. Create `/opt/vpnmanager-agent/` directory
 3. Upload `agent.py` via SFTP
 4. Install Python dependencies (`pip3 install fastapi uvicorn psutil`)
 5. Create systemd service with generated API key
@@ -312,15 +316,15 @@ POST /api/v1/agent/{server_id}/switch-mode?mode=ssh
 
 ```bash
 # On child server
-systemctl restart spongebot-agent
-systemctl status spongebot-agent
+systemctl restart vpnmanager-agent
+systemctl status vpnmanager-agent
 ```
 
 ### Agent Logs
 
 ```bash
 # On child server
-journalctl -u spongebot-agent -f
+journalctl -u vpnmanager-agent -f
 ```
 
 ### Agent Uninstall
@@ -330,10 +334,10 @@ journalctl -u spongebot-agent -f
 POST /api/v1/agent/{server_id}/uninstall
 
 # Or manually on child server
-systemctl stop spongebot-agent
-systemctl disable spongebot-agent
-rm -rf /opt/spongebot-agent
-rm /etc/systemd/system/spongebot-agent.service
+systemctl stop vpnmanager-agent
+systemctl disable vpnmanager-agent
+rm -rf /opt/vpnmanager-agent
+rm /etc/systemd/system/vpnmanager-agent.service
 systemctl daemon-reload
 ```
 
@@ -401,7 +405,7 @@ curl -X POST http://203.0.113.1:10086/api/v1/clients \
 ssh root@203.0.113.10 "wg show"
 
 # 4. Check agent logs
-ssh root@203.0.113.10 "journalctl -u spongebot-agent -n 20"
+ssh root@203.0.113.10 "journalctl -u vpnmanager-agent -n 20"
 ```
 
 ---

@@ -1,37 +1,37 @@
-# Agent Mode - Quick Start
+# Agent mode — quick start
 
-## Install Agent on Remote Server (One Command)
+Multi-server installs run a small agent process on each remote VPN node. The
+master panel talks to the agents over HTTP instead of SSH. SSH is only used
+once, to install the agent.
+
+This is faster (no SSH round-trip per command) and more reliable on flaky
+networks, but it's strictly optional — every agent-mode operation has an SSH
+fallback.
+
+## Install the agent on a remote server
+
+From the master, with the server already added to the panel (replace `2` with
+the server id):
 
 ```bash
-curl -X POST http://203.0.113.1:10086/api/v1/agent/2/install \
-  -H "Content-Type: application/json" \
+curl -X POST http://<panel-host>:10086/api/v1/agent/2/install \
+  -H 'Content-Type: application/json' \
   -d '{
     "agent_code_path": "/opt/vpnmanager/agent.py",
     "port": 8001
   }'
 ```
 
-**What happens:**
-1. SSH connects to remote server
-2. Uploads agent.py
-3. Installs dependencies (fastapi, uvicorn, psutil)
-4. Creates systemd service
-5. Starts agent
-6. Switches server to agent mode
+The installer SSHes into the remote node, uploads `agent.py`, installs the
+runtime dependencies (`fastapi`, `uvicorn`, `psutil`), drops a systemd unit,
+starts the service, and switches the server's mode to `agent` in the master DB.
 
-**Result:**
-- All future operations use HTTP API (10x faster)
-- SSH only used for install (one time)
-
----
-
-## Check Agent Status
+## Check status
 
 ```bash
-curl http://203.0.113.1:10086/api/v1/agent/2/status
+curl http://<panel-host>:10086/api/v1/agent/2/status
 ```
 
-**Response:**
 ```json
 {
   "server_id": 2,
@@ -42,100 +42,78 @@ curl http://203.0.113.1:10086/api/v1/agent/2/status
 }
 ```
 
----
+## Switch modes
 
-## Switch Modes
+Switch to agent mode:
 
-### Switch to Agent Mode
 ```bash
-curl -X POST "http://203.0.113.1:10086/api/v1/agent/2/switch-mode?mode=agent"
+curl -X POST 'http://<panel-host>:10086/api/v1/agent/2/switch-mode?mode=agent'
 ```
 
-### Fallback to SSH Mode (instant)
+Fall back to SSH (instant, no remote action required):
+
 ```bash
-curl -X POST "http://203.0.113.1:10086/api/v1/agent/2/switch-mode?mode=ssh"
+curl -X POST 'http://<panel-host>:10086/api/v1/agent/2/switch-mode?mode=ssh'
 ```
 
----
-
-## Verify Agent on Child Server
+## Verify the agent on the remote node
 
 ```bash
 ssh root@203.0.113.10
-
-# Check service
-systemctl status spongebot-agent
-
-# Check logs
-journalctl -u spongebot-agent -f
-
-# Test agent health
+systemctl status vpnmanager-agent
+journalctl -u vpnmanager-agent -f
 curl http://localhost:8001/health
 ```
 
----
+> Existing installs migrated from the legacy `spongebot` build will have the
+> service named `spongebot-agent`. Both names are recognised by the master.
 
-## Uninstall Agent
+## Uninstall
 
 ```bash
-curl -X POST http://203.0.113.1:10086/api/v1/agent/2/uninstall
+curl -X POST http://<panel-host>:10086/api/v1/agent/2/uninstall
 ```
 
----
+The master switches the server back to SSH mode, stops the agent service on
+the remote host, and removes the unit file and `agent.py`.
 
-## Performance
+## Rough numbers
 
-| Operation | SSH Mode | Agent Mode |
-|-----------|----------|------------|
-| Create client | 2-3s | 0.3s ⚡ |
-| Enable/Disable | 2-3s | 0.3s ⚡ |
-| Get stats | 2-3s | 0.3s ⚡ |
+| Operation | SSH mode | Agent mode |
+|---|---|---|
+| Create client | 2–3s | 0.3s |
+| Enable / disable | 2–3s | 0.3s |
+| Get stats | 2–3s | 0.3s |
 
-**Agent = 10x faster!**
-
----
+The gap closes for batched calls (an SSH session can be reused) but the
+single-call latency is what users actually notice in the admin UI.
 
 ## Troubleshooting
 
-### Agent not responding
+If the agent stops responding, switch the server back to SSH mode — that's
+non-destructive and takes effect immediately. Then SSH in and inspect the
+service:
 
 ```bash
-# Switch to SSH mode (instant fallback)
-curl -X POST "http://203.0.113.1:10086/api/v1/agent/2/switch-mode?mode=ssh"
+ssh root@203.0.113.10 'systemctl status vpnmanager-agent'
+ssh root@203.0.113.10 'journalctl -u vpnmanager-agent -n 100'
+ssh root@203.0.113.10 'systemctl restart vpnmanager-agent'
 ```
 
-### Restart agent on child server
+The agent stores no state of its own — clients, peers, and stats live on the
+master. Restarting the agent or reinstalling it from scratch is safe.
 
-```bash
-ssh root@203.0.113.10 "systemctl restart spongebot-agent"
-```
-
-### Check agent logs
-
-```bash
-ssh root@203.0.113.10 "journalctl -u spongebot-agent -n 50"
-```
-
----
-
-## Architecture
+## Architecture overview
 
 ```
-Master (203.0.113.1)
-  ├─ SSH Bootstrap (one-time install)
-  └─ HTTP API calls (ongoing)
-          ↓
-Child (203.0.113.10)
-  └─ Agent (FastAPI)
-      ├─ Listens on :8001
-      └─ Executes wg/tc commands locally
+master (203.0.113.1)
+  ├─ SSH bootstrap (one-time install)
+  └─ HTTP API (ongoing)
+       ↓
+remote (203.0.113.10)
+  └─ agent (FastAPI on :8001)
+       └─ runs wg / tc / ip locally
 ```
 
-**Key Points:**
-- ✅ Existing SSH code preserved
-- ✅ Agent mode is optional (fallback to SSH anytime)
-- ✅ No changes to ClientManager, TrafficManager
-- ✅ 10x performance improvement
-- ✅ Instant rollback if issues
-
-See [AGENT_ARCHITECTURE.md](AGENT_ARCHITECTURE.md) for full details.
+For the longer write-up — endpoints, auth, install internals, fallback rules —
+see [AGENT_ARCHITECTURE.md](AGENT_ARCHITECTURE.md).
