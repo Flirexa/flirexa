@@ -150,9 +150,12 @@ class PluginLoader:
                 continue
 
             # Stage 2: license entitlement
+            # The special feature flag "community" is always granted — it lets
+            # community-authored plugins load on every install (FREE included)
+            # without each tier needing to spell it out.
             if license_manager is not None:
                 feature = manifest["requires_license_feature"]
-                if not license_manager.has_feature(feature):
+                if feature != "community" and not license_manager.has_feature(feature):
                     record.skipped = True
                     record.skip_reason = f"license missing feature {feature!r}"
                     logger.debug("Plugin %s skipped: %s", plugin_path.name, record.skip_reason)

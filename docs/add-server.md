@@ -1,4 +1,6 @@
-# Adding Servers
+# Adding servers
+
+> **Paid feature** — adding more than one server requires the **multi-server** plugin (Business tier and up). FREE installs are limited to the single local server set up by `install.sh`. See [free-vs-paid.md](free-vs-paid.md).
 
 Flirexa can manage WireGuard on multiple servers. The local server is registered automatically during installation. Additional remote servers are added through the admin panel.
 

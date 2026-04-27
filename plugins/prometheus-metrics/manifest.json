@@ -1,0 +1,10 @@
+{
+  "name": "prometheus-metrics",
+  "version": "1.0.0",
+  "display_name": "Prometheus Metrics Exporter",
+  "description": "Exposes Flirexa runtime metrics (clients, servers, traffic, payments) at /metrics in Prometheus exposition format. Drop into your existing Prometheus / Grafana stack.",
+  "requires_license_feature": "community",
+  "min_tier": "community",
+  "author": "flirexa",
+  "homepage": "https://github.com/Flirexa/flirexa/tree/main/plugins/prometheus-metrics"
+}
