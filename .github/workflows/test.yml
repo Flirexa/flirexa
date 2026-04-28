@@ -11,6 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system deps
+        # WireGuard userspace tools are needed by parts of the test suite
+        # (key derivation, peer config). Public CI doesn't run a kernel
+        # WireGuard interface, just the `wg` binary for crypto.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends wireguard-tools
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -28,14 +36,15 @@ jobs:
         env:
           DATABASE_URL: "sqlite:///:memory:"
         run: |
-          # tests/test_payment_flow.py and one bootstrap network test depend on
-          # real CryptoPay / NOWPayments credentials and a live network reach.
-          # They run as a separate (allowed-to-fail) job in CI; the main suite
-          # excludes them so a green check means "code is good", not "there's a
-          # CryptoPay token in the test runner".
+          # The public mirror ships gates for paid features; the actual
+          # implementations live in the closed-source flirexa-pro package.
+          # Tests that depend on those implementations (agent installer,
+          # multi-server bootstrap, payment-provider plugins, real
+          # CryptoPay/NOWPayments calls) cannot pass here — they're run
+          # against flirexa-pro in a separate private CI.
           pytest tests/ \
-            --deselect tests/test_bootstrap.py::TestInstallAgentFlow::test_no_internet_returns_clear_error \
             --ignore tests/test_payment_flow.py \
+            --ignore tests/test_bootstrap.py \
             --tb=line -q
 
   secrets-scan:
