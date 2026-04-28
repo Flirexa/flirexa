@@ -667,6 +667,11 @@ fi
 
 if [[ "$APPLY_MODE" == "release-layout" ]]; then
     ln -sfn "$TARGET_RELEASE_DIR" "$CURRENT_LINK"
+    # Keep $INSTALL_DIR/VERSION in sync with the runtime so external scripts
+    # / monitoring that read the install-root file see the truth.
+    if [[ -n "$TARGET_VERSION" ]]; then
+        printf '%s\n' "$TARGET_VERSION" > "$INSTALL_DIR/VERSION"
+    fi
     write_marker "phase_symlink_switched" "release:$TARGET_RELEASE_DIR"
 else
     write_marker "phase_symlink_switched" "compat-inplace"

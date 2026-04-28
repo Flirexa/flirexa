@@ -38,6 +38,7 @@ _backup_task: Optional[asyncio.Task] = None
 _license_validator_task: Optional[asyncio.Task] = None
 _heartbeat_task: Optional[asyncio.Task] = None
 _start_time: Optional[float] = None
+_license_bypass_last_warn: float = 0.0
 
 MONITOR_INTERVAL = int(os.getenv("MONITOR_INTERVAL", "60"))
 
@@ -350,8 +351,27 @@ def create_app(
         if any(normalized_path.startswith(p) for p in allowed_prefixes) or normalized_path == "/" or not is_api_path:
             return await call_next(request)
 
-        # Skip license checks when explicitly disabled (tests / dev without a key)
+        # Skip license checks when explicitly disabled (tests / dev without a key).
+        # This is a sharp tool — log loudly so a leaked .env or typo can't make
+        # the bypass invisible. EVENT:LICENSE_BYPASS is rate-limited to one log
+        # line per 5 minutes per process to avoid log spam under load.
         if os.getenv("LICENSE_CHECK_ENABLED", "true").lower() == "false":
+            global _license_bypass_last_warn
+            try:
+                _now = time.time()
+                if _now - _license_bypass_last_warn > 300:
+                    logger.warning(
+                        "EVENT:LICENSE_BYPASS LICENSE_CHECK_ENABLED=false — "
+                        "license enforcement disabled for this process. "
+                        "If this is production, fix the env file IMMEDIATELY."
+                    )
+                    _license_bypass_last_warn = _now
+            except NameError:
+                logger.warning(
+                    "EVENT:LICENSE_BYPASS LICENSE_CHECK_ENABLED=false — "
+                    "license enforcement disabled for this process."
+                )
+                _license_bypass_last_warn = time.time()
             return await call_next(request)
 
         try:
@@ -413,7 +433,10 @@ def create_app(
             # gating (where some routes are FREE and others paid in the same
             # router) lives on the routes themselves via require_license_feature.
             feature_routes = {
-                "/api/v1/traffic-rules": "traffic_rules",
+                # Router prefix MUST match exactly what's registered in
+                # app.include_router(...). A mismatch silently turns this
+                # into a no-op on FREE installs.
+                "/api/v1/traffic": "traffic_rules",
                 "/api/v1/payments": "payments",
                 "/api/v1/promo-codes": "promo_codes",
             }
