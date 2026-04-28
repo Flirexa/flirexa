@@ -237,15 +237,53 @@ Place the file at `plugins/discord-alerts/frontend/DiscordAlertsSettings.vue`. T
 
 ## Distributing your plugin
 
-For community plugins:
+The admin panel has a **Plugins → Install by URL** form. Operators paste the
+URL of a `.tar.gz` plus the SHA-256 of that file and the system downloads,
+verifies, and installs it. The flow you build for has to match what the
+panel expects.
 
-1. Push to a public repo on GitHub (or wherever).
-2. Open a PR adding a single line to `docs/plugins-marketplace.md` (coming soon) — name, repo URL, one-line description.
-3. Operators install with `cd /opt/vpnmanager/current && git clone https://github.com/you/your-plugin plugins/your-plugin && systemctl restart vpnmanager-api`.
+### Packaging
 
-A more polished distribution mechanism (one-line install command from the panel) is on the roadmap.
+Tarball must contain exactly one top-level directory whose name matches
+your `manifest.json` `name`. So for `discord-alerts`:
 
-For commercial plugins (you want to charge for them): contact `support@flirexa.biz`. We're open to a marketplace cut for third-party paid plugins; the infrastructure for it is part of the 2026 Q3 roadmap item "Plugin marketplace."
+```bash
+cd plugins/                            # parent of your plugin dir
+tar czf discord-alerts-v1.0.0.tar.gz discord-alerts/
+sha256sum discord-alerts-v1.0.0.tar.gz # → 9f8a1b2c…  publish this number
+```
+
+The tarball must NOT contain absolute paths or `..`. Tarballs over 25 MB
+are rejected.
+
+### Publishing
+
+1. Cut a release on GitHub (or any public storage). Upload the `.tar.gz`.
+2. Publish the SHA-256 either in the release description or in a
+   `discord-alerts-v1.0.0.tar.gz.sha256` file alongside.
+3. Tell people the download URL.
+
+### Installation (operator-side)
+
+In the admin panel: **Plugins → Install by URL → paste URL & SHA-256 →
+Download & install → restart the API** (`systemctl restart
+vpnmanager-api`).
+
+The plugin sits under `plugins/<name>/` afterwards. It can be uninstalled
+the same way (one click in the panel; deletes the directory and removes
+the entry from the user-installed index).
+
+### Discoverability
+
+There's no central registry yet. Authors publish on GitHub with the
+`flirexa-plugin` topic so they're searchable. A curated catalog on
+`flirexa.biz/plugins` is on the roadmap.
+
+### Commercial plugins
+
+Want to charge for your plugin? Email `support@flirexa.biz`. We're open
+to a marketplace cut for third-party paid plugins — the infrastructure
+is part of the 2026 Q3 plugin-marketplace roadmap item.
 
 ---
 
@@ -270,9 +308,12 @@ For commercial plugins (you want to charge for them): contact `support@flirexa.b
 
 Tracked in [ROADMAP.md](../ROADMAP.md):
 
-- **2026 Q3:** signed plugin distribution from the licence server (paid plugins as `.tar.gz` packages)
-- **2026 Q3:** plugin marketplace with curated community plugins
-- **2026 Q3:** one-line install from the admin panel
-- **2026 Q4:** frontend chunk lazy-loading polished
+- **Done in 1.4.61** — install / uninstall plugins by URL from the admin
+  panel, with SHA-256 integrity check.
+- **2026 Q3:** signed plugin distribution from the licence server (paid
+  plugins as `.tar.gz` packages with author signatures).
+- **2026 Q3:** curated plugin catalog at `flirexa.biz/plugins` —
+  author submission form + manual review + listing.
+- **2026 Q4:** frontend chunk lazy-loading polished.
 
 If you want to pre-empt the marketplace and build something now, go for it — the plugin API is stable and the manifest format won't change.
