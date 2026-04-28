@@ -150,9 +150,10 @@ class PluginLoader:
                 continue
 
             # Stage 2: license entitlement
-            # The special feature flag "community" is always granted — it lets
-            # community-authored plugins load on every install (FREE included)
-            # without each tier needing to spell it out.
+            # The reserved feature name "community" is always granted — it's
+            # the way plugin authors declare "no licence required, runs on
+            # every install including FREE." Anything else must come from
+            # the licence manager.
             if license_manager is not None:
                 feature = manifest["requires_license_feature"]
                 if feature != "community" and not license_manager.has_feature(feature):

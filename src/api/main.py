@@ -174,30 +174,10 @@ async def lifespan(app: FastAPI):
     except Exception as _pe:
         logger.debug(f"Plugin loader: {_pe}")
 
-    # Generic plugin loader — discovers premium feature plugins under plugins/
-    # and mounts those whose license entitlement is satisfied. Skipped plugins
-    # leave no traces (no routes mounted, no imports executed beyond manifest).
-    try:
-        from ..modules.plugin_loader import PluginLoader
-        from ..modules.license.manager import get_license_manager
-        from pathlib import Path as _P
-        _plugins_root = _P(__file__).resolve().parents[2] / "plugins"
-        _loader = PluginLoader(_plugins_root)
-        _records = _loader.discover_and_load(
-            license_manager=get_license_manager(),
-            fastapi_app=app,
-        )
-        _loaded_count = sum(1 for r in _records if r.loaded)
-        _skipped_count = sum(1 for r in _records if r.skipped)
-        if _loaded_count or _skipped_count:
-            logger.info(
-                "Plugin loader: %d loaded, %d skipped (license)",
-                _loaded_count, _skipped_count,
-            )
-        # Stash the loader on app state so routes can introspect what's loaded
-        app.state.plugin_loader = _loader
-    except Exception as _ple:
-        logger.warning("Generic plugin loader failed: %s", _ple)
+    # NOTE: generic plugin loader runs in create_app() before the SPA catch-all
+    # is registered, not here. If we mounted plugin routers during lifespan,
+    # the catch-all GET /{full_path:path} would already be ahead of them in
+    # app.routes and would 404 every plugin URL.
 
     # Prime psutil CPU counter (first call always returns 0.0)
     psutil.cpu_percent()
@@ -700,6 +680,35 @@ def create_app(
         prefix="/api/v1/internal",
         tags=["Internal"]
     )
+
+    # Generic plugin loader — runs at create_app() time (not lifespan!) so plugin
+    # routers are inserted into app.routes BEFORE the SPA catch-all below. If we
+    # ran this in lifespan, the catch-all would already be ahead of plugin
+    # routes and would 404 every plugin URL.
+    try:
+        from ..modules.plugin_loader import PluginLoader
+        from ..modules.license.manager import get_license_manager
+        from pathlib import Path as _P
+        _plugins_root = _P(__file__).resolve().parents[2] / "plugins"
+        _loader = PluginLoader(_plugins_root)
+        _records = _loader.discover_and_load(
+            license_manager=get_license_manager(),
+            fastapi_app=app,
+        )
+        _loaded_count = sum(1 for r in _records if r.loaded)
+        _skipped_count = sum(1 for r in _records if r.skipped)
+        if _loaded_count or _skipped_count:
+            logger.info(
+                "Plugin loader: {} loaded, {} skipped (license)",
+                _loaded_count, _skipped_count,
+            )
+        app.state.plugin_loader = _loader
+    except Exception as _ple:
+        import traceback
+        logger.warning(
+            "Generic plugin loader failed: {}\n{}",
+            _ple, traceback.format_exc(),
+        )
 
     # Serve uploaded branding assets (logos, favicons)
     uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "static")
