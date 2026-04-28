@@ -17,7 +17,7 @@ config = context.config
 # Set DB URL from environment (same source as connection.py)
 database_url = os.getenv(
     "DATABASE_URL",
-    "postgresql://spongebot:spongebot@localhost:5432/spongebot_db"
+    "postgresql://flirexa:flirexa@localhost:5432/flirexa_db"
 )
 config.set_main_option("sqlalchemy.url", database_url)
 

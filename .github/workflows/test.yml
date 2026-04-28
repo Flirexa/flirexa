@@ -20,12 +20,9 @@ jobs:
       - name: Install runtime + test deps
         run: |
           python -m pip install --upgrade pip
-          # Pull only what tests actually need; avoid the heavier optional
-          # extras to keep the CI loop fast.
-          pip install \
-            fastapi httpx loguru sqlalchemy alembic psycopg2-binary \
-            pytest pytest-asyncio pyyaml \
-            pyjwt 'cryptography>=42' bcrypt
+          pip install -r requirements.txt
+          # Extras only the tests need on top of runtime:
+          pip install pytest pytest-asyncio pyjwt bcrypt aiocryptopay
 
       - name: Run pytest
         env:
@@ -63,4 +60,7 @@ jobs:
           detect-secrets scan \
             --exclude-files '\.lock$|package-lock\.json|node_modules|\.git/' \
             --exclude-files 'tests/.*test_.*\.py' \
-            --base-path .
+            --exclude-files 'src/web/static/dist/.*' \
+            > /tmp/scan-results.json
+          # detect-secrets exits 0 even when it finds something — surface results.
+          python -c "import json,sys; d=json.load(open('/tmp/scan-results.json')); r=d.get('results',{}); n=sum(len(v) for v in r.values()); print(f'flagged: {n} potential secret(s) across {len(r)} file(s)'); sys.exit(1 if n else 0)"

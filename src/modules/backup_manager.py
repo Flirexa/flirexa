@@ -1,5 +1,5 @@
 """
-VPN Management Studio Backup Manager
+Flirexa Backup Manager
 Full backup, restore, and disaster recovery functionality.
 
 Backup format v2: vpnmanager-backup-YYYYMMDD-HHMMSS.tar.gz
@@ -452,7 +452,7 @@ class BackupManager:
             # 5. version.txt
             ver_path = os.path.join(inner, "system", "version.txt")
             with open(ver_path, "w") as f:
-                f.write(f"VPN Management Studio v{CURRENT_VERSION}\n")
+                f.write(f"Flirexa v{CURRENT_VERSION}\n")
                 f.write(f"Backup created: {metadata['timestamp']}\n")
                 f.write(f"Hostname: {metadata['hostname']}\n")
             metadata["checksums"]["system/version.txt"] = _sha256(ver_path)
@@ -554,7 +554,7 @@ class BackupManager:
 
             ver_path = os.path.join(inner, "system", "version.txt")
             with open(ver_path, "w") as f:
-                f.write(f"VPN Management Studio v{CURRENT_VERSION}\n")
+                f.write(f"Flirexa v{CURRENT_VERSION}\n")
                 f.write(f"Backup created: {metadata['timestamp']}\n")
                 f.write(f"Hostname: {metadata['hostname']}\n")
                 f.write("Backup type: db-only\n")
