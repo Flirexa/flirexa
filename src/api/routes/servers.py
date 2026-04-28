@@ -339,12 +339,13 @@ async def create_server(
         raise HTTPException(status_code=503, detail="License verification unavailable")
 
     # License enforcement: per-protocol feature gating.
-    # FREE tier supports WireGuard + AmneziaWG; Hysteria2/TUIC require the
-    # `proxy_protocols` feature (Starter+). Trial keeps WireGuard-only.
+    # FREE tier supports WireGuard + AmneziaWG (per docs/free-vs-paid.md).
+    # Hysteria2/TUIC require the `proxy_protocols` feature (Starter+).
+    # Trial — handled separately below as a hard wireguard-only restriction.
     if server_data.server_type != "wireguard":
         try:
             _proto_feature_map = {
-                "amneziawg":  "amneziawg",
+                # AmneziaWG is FREE; no feature flag required.
                 "hysteria2":  "proxy_protocols",
                 "tuic":       "proxy_protocols",
             }
