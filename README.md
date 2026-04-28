@@ -42,7 +42,7 @@ No telemetry. No phone-home. No license check on FREE. No kill switch.
 | **Languages** | English, Русский, Deutsch, Français, Español |
 | **Updates** | Auto-pull from GitHub Releases, no phone-home |
 | **Backup** | Manual export/restore with full data |
-| **Payment plugins** | Plugin loader is open. NOWPayments ships in the core; Stripe / Mollie / Razorpay / Payme / PayPal are paid plugins (Business+) and live in the closed-source `flirexa-pro` package. |
+| **Payment plugins** | Plugin loader is open. NOWPayments ships in the core; Stripe / Mollie / Razorpay / Klarna / PayPal are paid plugins (Business+) and live in the closed-source `flirexa-pro` package. |
 
 If you can run a VPS, you can run a VPN service.
 

@@ -30,7 +30,7 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 | **Telegram admin bot** | full functionality |
 | **Telegram client bot** | not available (Business+ feature) |
 | **Crypto payments** | NOWPayments built-in (BTC, ETH, USDT, XMR, +50 more) |
-| **Other payment providers** | not in FREE — Stripe / Mollie / Razorpay / Payme / PayPal ship as paid plugins (Business tier or higher) |
+| **Other payment providers** | not in FREE — Stripe / Mollie / Razorpay / Klarna / PayPal ship as paid plugins (Business tier or higher) |
 | **Languages** | EN, RU, DE, FR, ES |
 | **Manual backup / restore** | yes |
 | **Scheduled backups** | not available (Business+ feature) |
@@ -71,7 +71,7 @@ The headline-feature tier. This is what serious commercial operators actually pa
 **Adds:**
 
 - **Multi-server orchestration** — manage up to 10 servers from one panel. Push clients to specific servers, balance load, see per-server traffic. Remote VPN nodes run a tiny `vpnmanager-agent` HTTP service.
-- **Full client Telegram bot** — end users can register, browse plans, pay in crypto, download configs, all via Telegram. Most operators in Russia / Iran / Turkey markets prefer this over the web portal.
+- **Full client Telegram bot** — end users can register, browse plans, pay in crypto, download configs, all via Telegram. Many operators in censorship-heavy and crypto-native markets prefer this over the web portal.
 - **Traffic rules** — per-client and global throttling, automatic enforcement when a quota threshold is hit
 - **White-label (basic)** — replace the Flirexa logo, change brand colors, remove the "Powered by Flirexa" footer attribution
 - **Scheduled backups** — daily automatic backups; mount remote storage (S3, FTP, NFS, SMB); retain N revisions

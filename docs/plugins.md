@@ -42,7 +42,7 @@ Example: a community plugin that POSTs every new client signup to a Discord webh
 
 ### 2. Drop-in payment providers (`plugins/payments/`)
 
-A separate, simpler plugin format dating back from before the generic loader existed. Each `.py` file in `plugins/payments/` defining a `PROVIDER_CLASS` is auto-registered as a payment provider. Six providers ship out of the box: NOWPayments (default), CryptoPay, Stripe, Mollie, Razorpay, Payme.
+A separate, simpler plugin format dating back from before the generic loader existed. Each `.py` file in `plugins/payments/` defining a `PROVIDER_CLASS` is auto-registered as a payment provider. The free tier ships with NOWPayments only; Stripe, Mollie, Razorpay, Klarna, and PayPal are paid plugins delivered via the licence server.
 
 To add a new payment provider, copy `plugins/payments/_template.py`, fill in the `create_invoice` / `check_payment` methods, configure credentials in `.env`, restart.
 
