@@ -22,7 +22,7 @@ import psutil
 
 from sqlalchemy.orm import Session
 from ..database.connection import init_db, close_db, SessionLocal, get_db
-from .routes import clients, servers, bots, payments, system, agent, client_portal, tariffs, traffic_rules, internal, admin_auth, portal_users, promo_codes, app_accounts, backup, corporate, health, updates
+from .routes import clients, servers, bots, payments, system, agent, client_portal, tariffs, traffic_rules, internal, admin_auth, portal_users, promo_codes, app_accounts, backup, corporate, health, updates, plugins_admin
 # Register corporate models so Base.metadata.create_all() includes their tables
 from ..modules.corporate import models as _corporate_models  # noqa: F401
 from .middleware.auth import get_current_admin
@@ -641,6 +641,13 @@ def create_app(
         prefix="/api/v1/updates",
         tags=["Updates"],
         dependencies=admin_auth_dep
+    )
+
+    # Plugin management — install/uninstall arbitrary user plugins from URL.
+    # Auth is enforced inside the route via Depends(get_current_admin).
+    app.include_router(
+        plugins_admin.router,
+        tags=["Plugins"],
     )
 
     app.include_router(
