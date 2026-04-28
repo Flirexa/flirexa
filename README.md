@@ -39,10 +39,10 @@ No telemetry. No phone-home. No license check on FREE. No kill switch.
 | **Client portal** | Separate FastAPI process on port 10090 — self-service signup, plans, config download |
 | **Telegram** | Admin bot for managing the service from your phone |
 | **Payments** | NOWPayments (BTC, ETH, USDT, XMR, +50 cryptocurrencies) out of the box |
-| **Languages** | English, Русский, Українська, Deutsch, Français, Español |
+| **Languages** | English, Русский, Deutsch, Français, Español |
 | **Updates** | Auto-pull from GitHub Releases, no phone-home |
 | **Backup** | Manual export/restore with full data |
-| **Plugins** | Drop-in payment providers (Stripe, Mollie, Razorpay, Payme, CryptoPay, NOWPayments) |
+| **Payment plugins** | Plugin loader is open. NOWPayments ships in the core; Stripe / Mollie / Razorpay / Payme / PayPal are paid plugins (Business+) and live in the closed-source `flirexa-pro` package. |
 
 If you can run a VPS, you can run a VPN service.
 

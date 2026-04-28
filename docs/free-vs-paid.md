@@ -30,8 +30,8 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 | **Telegram admin bot** | full functionality |
 | **Telegram client bot** | not available (Business+ feature) |
 | **Crypto payments** | NOWPayments built-in (BTC, ETH, USDT, XMR, +50 more) |
-| **Other payment providers** | drop-in payment plugins available, configured via `.env`: Stripe, Mollie, Razorpay, Payme, CryptoPay |
-| **Languages** | EN, RU, UK, DE, FR, ES |
+| **Other payment providers** | not in FREE — Stripe / Mollie / Razorpay / Payme / PayPal ship as paid plugins (Business tier or higher) |
+| **Languages** | EN, RU, DE, FR, ES |
 | **Manual backup / restore** | yes |
 | **Scheduled backups** | not available (Business+ feature) |
 | **Auto-updates** | yes, from GitHub Releases |
