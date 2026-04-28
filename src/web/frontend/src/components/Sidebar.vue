@@ -58,6 +58,7 @@ const sysItems = [
   { path: '/server-monitoring', mdi: 'monitor-dashboard',            key: 'serverMonitoring' },
   { path: '/backup',            mdi: 'cloud-upload-outline',         key: 'backup' },
   { path: '/updates',           mdi: 'update',                       key: 'updates' },
+  { path: '/plugins',           mdi: 'puzzle-outline',               key: 'plugins' },
   { path: '/logs',              mdi: 'text-box-outline',             key: 'logs' },
   { path: '/app-logs',          mdi: 'magnify',                      key: 'appLogs' },
   { path: '/settings',          mdi: 'cog-outline',                  key: 'settings' },

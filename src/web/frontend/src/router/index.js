@@ -92,6 +92,11 @@ const routes = [
     component: () => import('../views/Updates.vue'),
   },
   {
+    path: '/plugins',
+    name: 'Plugins',
+    component: () => import('../views/Plugins.vue'),
+  },
+  {
     path: '/promo-codes',
     name: 'PromoCodes',
     component: () => import('../views/PromoCodes.vue'),
