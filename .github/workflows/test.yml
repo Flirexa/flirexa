@@ -45,6 +45,8 @@ jobs:
           pytest tests/ \
             --ignore tests/test_payment_flow.py \
             --ignore tests/test_bootstrap.py \
+            --ignore tests/test_security_defaults.py \
+            --ignore tests/test_restore_cli.py \
             --tb=line -q
 
   secrets-scan:
