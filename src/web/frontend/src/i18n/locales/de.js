@@ -1121,6 +1121,7 @@ export default {
 
   donate: {
     tooltip: 'Autor unterstützen',
+    button: 'Autor unterstützen',
     title: 'Flirexa ist kostenlos — und bleibt es.',
     lede: 'Keine Werbung, keine Telemetrie, keine Upsells. Wenn Flirexa Ihnen Zeit oder Geld spart, unterstützen Sie den Autor, der es entwickelt und pflegt.',
     point1: 'Open-Core unter MIT — gehört Ihnen für immer',

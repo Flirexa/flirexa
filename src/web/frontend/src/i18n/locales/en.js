@@ -1250,6 +1250,7 @@ export default {
 
   donate: {
     tooltip: 'Support the author',
+    button: 'Support the author',
     title: 'Flirexa is free — and stays free.',
     lede: 'No ads, no telemetry, no upsells. If Flirexa saves you time or money, consider chipping in. Every donation goes to the author who builds and maintains it.',
     point1: 'Open core under MIT — yours forever',
