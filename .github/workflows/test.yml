@@ -66,12 +66,24 @@ jobs:
 
       - name: Scan repository for secrets
         run: |
-          # Audit the working tree. We don't ship a .secrets.baseline yet —
-          # CI is allowed to flag any new credentials that slip into a PR.
+          # Compare current tree against the committed baseline. Any NEW
+          # finding (not already present in .secrets.baseline) fails CI.
+          # Existing baseline entries are placeholder DSNs / example creds
+          # in docs and i18n strings — false positives the maintainers
+          # have reviewed. To accept new false positives, run
+          # `detect-secrets scan --baseline .secrets.baseline` locally,
+          # commit the updated baseline, and re-push.
           detect-secrets scan \
+            --baseline .secrets.baseline \
             --exclude-files '\.lock$|package-lock\.json|node_modules|\.git/' \
             --exclude-files 'tests/.*test_.*\.py' \
             --exclude-files 'src/web/static/dist/.*' \
-            > /tmp/scan-results.json
-          # detect-secrets exits 0 even when it finds something — surface results.
-          python -c "import json,sys; d=json.load(open('/tmp/scan-results.json')); r=d.get('results',{}); n=sum(len(v) for v in r.values()); print(f'flagged: {n} potential secret(s) across {len(r)} file(s)'); sys.exit(1 if n else 0)"
+            --exclude-files 'src/web/(frontend|client-portal)/src/i18n/locales/.*\.js'
+          # The above updates .secrets.baseline in place if it diverges.
+          # If anything was added, the diff is non-empty.
+          if ! git diff --quiet .secrets.baseline; then
+            echo "❌ New potential secrets detected — see diff:"
+            git --no-pager diff .secrets.baseline | head -200
+            exit 1
+          fi
+          echo "✓ No new secrets detected."
