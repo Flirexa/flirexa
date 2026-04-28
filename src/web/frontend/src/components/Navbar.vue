@@ -19,6 +19,12 @@
     </div>
 
     <div class="d-flex align-items-center gap-2">
+      <!-- Support the author — first in the right group, text + heart -->
+      <button class="topbar-donate-pill" @click="$emit('open-donate')" :title="$t('donate.tooltip')">
+        <i class="mdi mdi-heart"></i>
+        <span class="topbar-donate-pill-label">{{ $t('donate.button') }}</span>
+      </button>
+
       <!-- Language -->
       <div class="vxy-dropdown">
         <button class="topbar-icon-btn" @click="langOpen = !langOpen" title="Language">
@@ -46,11 +52,6 @@
       <!-- Refresh — hidden on very small screens to save space -->
       <button class="topbar-icon-btn d-none d-sm-flex" @click="refreshData" title="Refresh">
         <i class="mdi mdi-refresh"></i>
-      </button>
-
-      <!-- Support the author -->
-      <button class="topbar-icon-btn topbar-donate-btn" @click="$emit('open-donate')" :title="$t('donate.tooltip')">
-        <i class="mdi mdi-heart"></i>
       </button>
     </div>
   </div>
