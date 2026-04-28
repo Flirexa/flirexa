@@ -69,21 +69,36 @@ jobs:
           # Compare current tree against the committed baseline. Any NEW
           # finding (not already present in .secrets.baseline) fails CI.
           # Existing baseline entries are placeholder DSNs / example creds
-          # in docs and i18n strings — false positives the maintainers
-          # have reviewed. To accept new false positives, run
-          # `detect-secrets scan --baseline .secrets.baseline` locally,
-          # commit the updated baseline, and re-push.
+          # in docs — false positives reviewed by maintainers. To accept
+          # new false positives, run `detect-secrets scan --baseline
+          # .secrets.baseline` locally, commit the updated baseline, and
+          # re-push.
+          cp .secrets.baseline .secrets.baseline.before
           detect-secrets scan \
             --baseline .secrets.baseline \
             --exclude-files '\.lock$|package-lock\.json|node_modules|\.git/' \
             --exclude-files 'tests/.*test_.*\.py' \
             --exclude-files 'src/web/static/dist/.*' \
             --exclude-files 'src/web/(frontend|client-portal)/src/i18n/locales/.*\.js'
-          # The above updates .secrets.baseline in place if it diverges.
-          # If anything was added, the diff is non-empty.
-          if ! git diff --quiet .secrets.baseline; then
-            echo "❌ New potential secrets detected — see diff:"
-            git --no-pager diff .secrets.baseline | head -200
-            exit 1
-          fi
-          echo "✓ No new secrets detected."
+          # detect-secrets rewrites the file with bookkeeping (timestamps,
+          # filter ordering). What matters is whether `results` grew —
+          # i.e. a real new candidate showed up.
+          python3 - <<'PY'
+          import json, sys
+          before = json.load(open(".secrets.baseline.before")).get("results", {})
+          after  = json.load(open(".secrets.baseline")).get("results", {})
+          # Flatten to (file, hashed_secret) pairs so order doesn't matter.
+          def keys(blob):
+              s = set()
+              for f, items in blob.items():
+                  for it in items:
+                      s.add((f, it.get("hashed_secret")))
+              return s
+          new = keys(after) - keys(before)
+          if new:
+              print(f"❌ {len(new)} NEW candidate secret(s):")
+              for f, h in sorted(new):
+                  print(f"  {f}  hash={h}")
+              sys.exit(1)
+          print("✓ No new secrets detected.")
+          PY
