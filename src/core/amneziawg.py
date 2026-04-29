@@ -34,7 +34,7 @@ class AmneziaWGManager(WireGuardManager):
     def __init__(
         self,
         interface: str = "awg0",
-        config_path: str = "/etc/amneziawg/awg0.conf",
+        config_path: str = "/etc/amnezia/amneziawg/awg0.conf",
         ssh_host: Optional[str] = None,
         ssh_port: int = 22,
         ssh_user: str = "root",

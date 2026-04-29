@@ -435,7 +435,7 @@ async def create_server(
             from ...core.amneziawg import AmneziaWGManager
             wg = AmneziaWGManager(
                 interface=server_data.interface,
-                config_path=f"/etc/amneziawg/{server_data.interface}.conf",
+                config_path=f"/etc/amnezia/amneziawg/{server_data.interface}.conf",
                 ssh_host=server_data.ssh_host,
                 ssh_port=server_data.ssh_port,
                 ssh_user=server_data.ssh_user,
@@ -1469,7 +1469,7 @@ async def discover_server(
     core = ManagementCore(db)
 
     is_awg = data.interface.startswith("awg")
-    config_dir = "/etc/amneziawg" if is_awg else "/etc/wireguard"
+    config_dir = "/etc/amnezia/amneziawg" if is_awg else "/etc/wireguard"
 
     # Create appropriate manager for WG or AWG
     wg_kwargs = dict(

@@ -199,7 +199,7 @@ class ServerManager:
 
         if config_path is None:
             if server_type == "amneziawg":
-                config_path = f"/etc/amneziawg/{interface}.conf"
+                config_path = f"/etc/amnezia/amneziawg/{interface}.conf"
             elif is_proxy:
                 config_path = proxy_config_path or f"/etc/{server_type}/config.{'yaml' if server_type == 'hysteria2' else 'json'}"
             else:
@@ -533,6 +533,15 @@ class ServerManager:
                 return ok
             finally:
                 mgr.close()
+
+        # WG / AmneziaWG: make sure the on-disk config exists before
+        # `wg-quick up` / `awg-quick up` runs, otherwise the start fails
+        # with "config does not exist". Writing it every start is cheap
+        # and idempotent, and it picks up new peers added since last start.
+        try:
+            self.save_server_config(server_id)
+        except Exception as e:
+            logger.warning(f"save_server_config before start failed: {e}")
 
         wg = self._get_wg(server)
         try:

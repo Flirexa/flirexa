@@ -377,7 +377,7 @@ class BackupManager:
                 metadata["checksums"]["env.env"] = _sha256(env_dst)
 
             # 3. Local WireGuard + AmneziaWG configs
-            for wg_src_dir in ("/etc/wireguard", "/etc/amneziawg"):
+            for wg_src_dir in ("/etc/wireguard", "/etc/amnezia/amneziawg"):
                 if os.path.isdir(wg_src_dir):
                     for conf in Path(wg_src_dir).glob("*.conf"):
                         dst = os.path.join(inner, "wireguard", conf.name)
@@ -788,9 +788,9 @@ class BackupManager:
             wg_src_dir = os.path.join(inner, "wireguard")
             if os.path.isdir(wg_src_dir):
                 for conf in Path(wg_src_dir).glob("*.conf"):
-                    # Restore AWG configs to /etc/amneziawg/, WG configs to /etc/wireguard/
+                    # Restore AWG configs to /etc/amnezia/amneziawg/, WG configs to /etc/wireguard/
                     if conf.name.startswith("awg"):
-                        target_dir = "/etc/amneziawg"
+                        target_dir = "/etc/amnezia/amneziawg"
                     else:
                         target_dir = "/etc/wireguard"
                     dst = f"{target_dir}/{conf.name}"
@@ -1693,7 +1693,7 @@ class BackupManager:
                 # non-standard location (e.g. /opt/amneziawg/config/).
                 cfg_path = server.config_path or ""
                 if not cfg_path or cfg_path.startswith("/etc/wireguard/"):
-                    cfg_path = f"/etc/amneziawg/{server.interface}.conf"
+                    cfg_path = f"/etc/amnezia/amneziawg/{server.interface}.conf"
                 wg = AmneziaWGManager(
                     ssh_host=server.ssh_host, ssh_port=server.ssh_port,
                     ssh_user=server.ssh_user, ssh_password=server.ssh_password,
@@ -1720,11 +1720,11 @@ class BackupManager:
 
             # If primary path returned nothing, try well-known fallback locations.
             # This handles manually-installed servers where the conf is not in the
-            # standard /etc/wireguard/ or /etc/amneziawg/ directory.
+            # standard /etc/wireguard/ or /etc/amnezia/amneziawg/ directory.
             if not config_content and is_awg:
                 iface = server.interface or "awg0"
                 fallback_paths = [
-                    f"/etc/amneziawg/{iface}.conf",
+                    f"/etc/amnezia/amneziawg/{iface}.conf",
                     f"/opt/amneziawg/config/{iface}.conf",
                     f"/opt/amneziawg/{iface}.conf",
                 ]
