@@ -477,7 +477,14 @@ async def create_server(
         else:
             from ...core.wireguard import WireGuardManager
             wg = WireGuardManager(interface=server_data.interface)
-        private_key, public_key = wg.generate_keypair()
+        try:
+            private_key, public_key = wg.generate_keypair()
+        except RuntimeError as e:
+            # AmneziaWGManager raises RuntimeError when amneziawg-tools is
+            # missing on the host. Surface that as a 400 with the install
+            # hint instead of a 500.
+            wg.close()
+            raise HTTPException(status_code=400, detail=str(e))
         wg.close()
 
     # split_tunnel_support is not applicable to AWG: AmneziaVPN handles it client-side

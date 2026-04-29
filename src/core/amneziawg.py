@@ -72,19 +72,32 @@ class AmneziaWGManager(WireGuardManager):
 
     # ── Key generation ────────────────────────────────────────────────────────
 
+    _AWG_MISSING_HINT = (
+        "amneziawg-tools is not installed on this server. AmneziaWG is a "
+        "FREE-tier protocol but requires the userspace tools. Install with: "
+        "sudo add-apt-repository ppa:amnezia/ppa && "
+        "sudo apt install amneziawg amneziawg-tools amneziawg-dkms"
+    )
+
     @staticmethod
     def generate_private_key() -> str:
-        result = subprocess.run(
-            ["awg", "genkey"], capture_output=True, text=True, check=True
-        )
+        try:
+            result = subprocess.run(
+                ["awg", "genkey"], capture_output=True, text=True, check=True
+            )
+        except FileNotFoundError:
+            raise RuntimeError(AmneziaWGManager._AWG_MISSING_HINT) from None
         return result.stdout.strip()
 
     @staticmethod
     def generate_public_key(private_key: str) -> str:
-        result = subprocess.run(
-            ["awg", "pubkey"], input=private_key,
-            capture_output=True, text=True, check=True
-        )
+        try:
+            result = subprocess.run(
+                ["awg", "pubkey"], input=private_key,
+                capture_output=True, text=True, check=True
+            )
+        except FileNotFoundError:
+            raise RuntimeError(AmneziaWGManager._AWG_MISSING_HINT) from None
         return result.stdout.strip()
 
     @staticmethod
@@ -95,9 +108,12 @@ class AmneziaWGManager(WireGuardManager):
 
     @staticmethod
     def generate_preshared_key() -> str:
-        result = subprocess.run(
-            ["awg", "genpsk"], capture_output=True, text=True, check=True
-        )
+        try:
+            result = subprocess.run(
+                ["awg", "genpsk"], capture_output=True, text=True, check=True
+            )
+        except FileNotFoundError:
+            raise RuntimeError(AmneziaWGManager._AWG_MISSING_HINT) from None
         return result.stdout.strip()
 
     @staticmethod
