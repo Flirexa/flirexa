@@ -442,6 +442,16 @@ async def activate_license(data: LicenseActivateRequest):
     # Reset global manager to pick up new key
     reset_license_manager()
 
+    # Reconcile fleet to the new tier — un-suspends servers that were parked
+    # because of a previous downgrade, or suspends excess if the new key is
+    # somehow narrower than the old one (e.g. switched from Business to FREE).
+    try:
+        from ...modules.license.enforcement import reconcile as _lic_reconcile
+        _lic_reconcile()
+    except Exception as exc:
+        from loguru import logger
+        logger.warning("License enforcement reconcile after activation failed: %s", exc)
+
     return {
         "status": "activated",
         "license": mgr.get_status(),

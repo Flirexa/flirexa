@@ -85,6 +85,10 @@ class ServerLifecycleStatus(str, PyEnum):
     FAILED = "failed"
     DELETING = "deleting"
     DELETED = "deleted"
+    # When a paid subscription lapses, servers beyond the FREE per-protocol
+    # quota are stopped and parked here. They can't be started until the
+    # operator re-activates a paid license. Removed manually via DELETE.
+    SUSPENDED_NO_LICENSE = "suspended_no_license"
 
 
 class SubscriptionStatus(str, PyEnum):

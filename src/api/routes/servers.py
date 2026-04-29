@@ -336,17 +336,27 @@ async def create_server(
             if same_type_count >= 1:
                 raise HTTPException(
                     status_code=403,
-                    detail=(
-                        f"You already have a {server_data.server_type} server. "
-                        f"FREE tier allows one server per protocol type "
-                        f"(WireGuard + AmneziaWG). Adding more requires the "
-                        f"multi-server feature (Business or Enterprise tier)."
-                    ),
+                    detail={
+                        "message": (
+                            f"You already have a {server_data.server_type} server. "
+                            f"FREE tier allows one server per protocol type "
+                            f"(WireGuard + AmneziaWG). Adding more requires the "
+                            f"multi-server feature (Business or Enterprise tier)."
+                        ),
+                        "license_feature_required": "multi_server",
+                        "upgrade_url": "https://flirexa.biz/#pricing",
+                        "upgrade_tier": "business",
+                    },
                 )
         elif not info.can_add_server(current_count):
             raise HTTPException(
                 status_code=403,
-                detail=f"License limit reached: {current_count}/{info.max_servers} servers. Upgrade your license."
+                detail={
+                    "message": f"License limit reached: {current_count}/{info.max_servers} servers. Upgrade your license.",
+                    "license_feature_required": "multi_server",
+                    "upgrade_url": "https://flirexa.biz/#pricing",
+                    "upgrade_tier": "enterprise",
+                },
             )
     except HTTPException:
         raise
@@ -370,10 +380,15 @@ async def create_server(
             if _required and not info.has_feature(_required):
                 raise HTTPException(
                     status_code=403,
-                    detail=(
-                        f"{server_data.server_type.upper()} protocol requires the "
-                        f"'{_required}' feature. Upgrade your plan to enable it."
-                    ),
+                    detail={
+                        "message": (
+                            f"{server_data.server_type.upper()} protocol requires the "
+                            f"'{_required}' feature. Upgrade your plan to enable it."
+                        ),
+                        "license_feature_required": _required,
+                        "upgrade_url": "https://flirexa.biz/#pricing",
+                        "upgrade_tier": "starter",
+                    },
                 )
         except HTTPException:
             raise
@@ -1204,6 +1219,24 @@ async def start_server(
 
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
+
+    # Suspended servers (license enforcement parked them after a paid
+    # subscription lapsed) need a paid license before they can be started.
+    from ...database.models import ServerLifecycleStatus
+    if server.lifecycle_status == ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": (
+                    f"Server '{server.name}' is suspended because the paid "
+                    "subscription that authorized it has lapsed. Re-activate "
+                    "a Business or Enterprise subscription to start it again."
+                ),
+                "license_feature_required": "multi_server",
+                "upgrade_url": "https://flirexa.biz/#pricing",
+                "upgrade_tier": "business",
+            },
+        )
 
     if not core.start_server(server_id):
         raise HTTPException(status_code=500, detail="Failed to start server")

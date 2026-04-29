@@ -523,6 +523,18 @@ class ServerManager:
         if not server:
             return False
 
+        # Servers parked by license enforcement can't be brought back up
+        # without a paid license. The route layer surfaces this as a
+        # 403 with an Upgrade hint; in core we just refuse silently.
+        from ..database.models import ServerLifecycleStatus
+        if server.lifecycle_status == ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value:
+            from loguru import logger
+            logger.info(
+                "start_server refused: server id={} is suspended (no license)",
+                server_id,
+            )
+            return False
+
         if self._is_proxy(server):
             mgr = self._get_proxy_manager(server)
             try:

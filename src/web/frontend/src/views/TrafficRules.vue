@@ -1,4 +1,10 @@
 <template>
+  <FeatureGuard
+    feature="traffic_rules"
+    tier="business"
+    title="Traffic Rules"
+    description="Per-client and global throttling, with automatic enforcement when a quota threshold is hit. Available on Business and above."
+  >
   <div class="traffic-rules-page">
     <!-- Inline feedback -->
     <div v-if="successMsg" class="alert alert-success alert-dismissible fade show">
@@ -184,9 +190,11 @@
     </div>
     <div class="modal-backdrop fade show" v-if="showRuleModal"></div>
   </div>
+  </FeatureGuard>
 </template>
 
 <script setup>
+import FeatureGuard from '../components/FeatureGuard.vue'
 import { ref, computed, watch, onMounted } from 'vue'
 import { trafficApi } from '../api'
 import { formatBytes } from '../utils'

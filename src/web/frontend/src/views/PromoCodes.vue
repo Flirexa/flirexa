@@ -1,4 +1,10 @@
 <template>
+  <FeatureGuard
+    feature="promo_codes"
+    tier="starter"
+    title="Promo Codes"
+    description="Create discount codes (percent off, free-day extensions, tier-restricted, expiring) for your client portal. Available on Starter and above."
+  >
   <div>
     <!-- Stats -->
     <div class="row g-4 mb-4">
@@ -168,9 +174,11 @@
     </div>
     <div v-if="showModal" class="modal-backdrop fade show"></div>
   </div>
+  </FeatureGuard>
 </template>
 
 <script setup>
+import FeatureGuard from '../components/FeatureGuard.vue'
 import { ref, onMounted } from 'vue'
 import { promoCodesApi } from '../api'
 

@@ -12,6 +12,8 @@
       </div>
     </div>
     <DonateModal v-model="donateOpen" @dismissed="onDonateDismissed" />
+    <UpgradeBanner />
+    <UpgradeModal />
   </div>
 </template>
 
@@ -21,6 +23,8 @@ import { useRoute } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
 import Navbar from './components/Navbar.vue'
 import DonateModal from './components/DonateModal.vue'
+import UpgradeBanner from './components/UpgradeBanner.vue'
+import UpgradeModal from './components/UpgradeModal.vue'
 import { useSystemStore } from './stores/system'
 import { useBrandingStore } from './stores/branding'
 
