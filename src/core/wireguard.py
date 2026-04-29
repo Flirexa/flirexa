@@ -448,6 +448,12 @@ class WireGuardManager:
             if self.is_remote:
                 self._write_remote_file(self.config_path, content)
                 return True
+            # AmneziaWG ships its configs in /etc/amnezia/amneziawg/ which the
+            # apt package does not pre-create on every distro. Make the parent
+            # directory idempotently so first-run writes don't fail.
+            parent = os.path.dirname(self.config_path)
+            if parent and not os.path.isdir(parent):
+                os.makedirs(parent, mode=0o700, exist_ok=True)
             with open(self.config_path, "w") as f:
                 f.write(content)
             os.chmod(self.config_path, 0o600)
