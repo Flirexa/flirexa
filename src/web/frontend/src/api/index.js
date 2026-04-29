@@ -61,6 +61,24 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
 
+    // 403 with upgrade_url → broadcast a global event so views can render
+    // a "Buy {tier}" toast / modal. Detail can be either a string (legacy)
+    // or an object with {message, upgrade_url, upgrade_tier,
+    // license_feature_required}; normalize both shapes.
+    if (error.response?.status === 403 && error.response?.data?.upgrade_url) {
+      const data = error.response.data
+      const detail = data.detail
+      const message = (typeof detail === 'object' && detail?.message)
+        ? detail.message
+        : (typeof detail === 'string' ? detail : data.message || '')
+      const upgradeTier = data.upgrade_tier || (typeof detail === 'object' ? detail.upgrade_tier : null)
+      const upgradeUrl  = data.upgrade_url  || (typeof detail === 'object' ? detail.upgrade_url  : null)
+      const feature     = data.license_feature_required || (typeof detail === 'object' ? detail.license_feature_required : null)
+      window.dispatchEvent(new CustomEvent('flirexa:upgrade-required', {
+        detail: { message, tier: upgradeTier, url: upgradeUrl, feature },
+      }))
+    }
+
     if (error.response?.status === 401 && !originalRequest._retry) {
       const url = originalRequest?.url || ''
       if (url.startsWith('/auth/') || url.startsWith('auth/')) {

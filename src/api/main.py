@@ -227,6 +227,15 @@ async def lifespan(app: FastAPI):
         _license_validator_task = asyncio.create_task(run_validator_loop())
         logger.info("Online license validator started")
 
+    # Sync server fleet to current license tier on every startup. Catches the
+    # case where a paid subscription expired while the box was off — without
+    # this the excess servers would silently come back online next reboot.
+    try:
+        from ..modules.license.enforcement import reconcile as _lic_reconcile
+        _lic_reconcile()
+    except Exception as e:
+        logger.warning("License enforcement reconcile failed at startup: %s", e)
+
     # Start instance heartbeat (always — sends status even without a license)
     try:
         from ..modules.license.instance_manager import start_heartbeat_task
@@ -440,17 +449,20 @@ def create_app(
                 # Router prefix MUST match exactly what's registered in
                 # app.include_router(...). A mismatch silently turns this
                 # into a no-op on FREE installs.
-                "/api/v1/traffic": "traffic_rules",
-                "/api/v1/payments": "payments",
-                "/api/v1/promo-codes": "promo_codes",
+                # Each entry maps prefix → (feature_flag, tier_for_upgrade_cta).
+                "/api/v1/traffic": ("traffic_rules", "business"),
+                "/api/v1/payments": ("payments", "starter"),
+                "/api/v1/promo-codes": ("promo_codes", "starter"),
             }
-            for route_prefix, feature_name in feature_routes.items():
+            for route_prefix, (feature_name, upgrade_tier) in feature_routes.items():
                 if normalized_path.startswith(route_prefix) and not info.has_feature(feature_name):
                     return JSONResponse(
                         status_code=403,
                         content={
                             "detail": f"Feature '{feature_name}' requires a higher license tier.",
                             "license_feature_required": feature_name,
+                            "upgrade_tier": upgrade_tier,
+                            "upgrade_url": "https://flirexa.biz/#pricing",
                         }
                     )
 
