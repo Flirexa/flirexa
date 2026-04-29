@@ -267,6 +267,17 @@ sync_release_tree() {
         --exclude='*.pyc' \
         --exclude='__pycache__/' \
         "$src/" "$dst/"
+    # data/ is excluded above to preserve runtime files (first_startup_at.txt,
+    # license_servers.signed, generated machine-id stuff). But the update
+    # public key SHIPS with each release — copy it explicitly so the
+    # checker.py path resolution (parent.parent.parent.parent/data/) finds
+    # the file in the new release dir, otherwise sig verification fails with
+    # "Update public key not found" and the next update is impossible.
+    if [[ -f "$src/data/update_public.pem" ]]; then
+        mkdir -p "$dst/data"
+        cp "$src/data/update_public.pem" "$dst/data/update_public.pem"
+        chmod 644 "$dst/data/update_public.pem"
+    fi
 }
 prepare_previous_release_path() {
     local runtime_root current_version snapshot_dir
