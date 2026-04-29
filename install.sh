@@ -42,9 +42,10 @@ echo "✅ Python $PYTHON_VERSION detected"
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-APP_NAME="VPN Management Studio"
+APP_NAME="Flirexa"
 INSTALL_DIR="/opt/vpnmanager"
-LICENSE_SERVER_URL="${SB_LICENSE_SERVER_URL:-https://example.com}"
+LICENSE_SERVER_URL="${SB_LICENSE_SERVER_URL:-https://flirexa.biz}"
+UPDATE_SERVER_URL="${SB_UPDATE_SERVER_URL:-https://flirexa.biz}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo 1.3.0)"
 INSTALLER_VERSION="$APP_VERSION"
@@ -763,6 +764,19 @@ configure_env() {
             log_info "  Generated new JWT_SECRET"
         fi
 
+        # Pin LICENSE_SERVER_URL and UPDATE_SERVER_URL in .env so the runtime
+        # never falls through to the placeholder default. Both default to
+        # https://flirexa.biz; self-hosters set SB_LICENSE_SERVER_URL /
+        # SB_UPDATE_SERVER_URL before running install.sh to override.
+        for _kv in "LICENSE_SERVER_URL=$LICENSE_SERVER_URL" "UPDATE_SERVER_URL=$UPDATE_SERVER_URL"; do
+            local _k="${_kv%%=*}"
+            if grep -q "^${_k}=" "$INSTALL_DIR/.env" 2>/dev/null; then
+                sed -i "s|^${_k}=.*|${_kv}|" "$INSTALL_DIR/.env"
+            else
+                echo "$_kv" >> "$INSTALL_DIR/.env"
+            fi
+        done
+
         # Ensure VMS_ENCRYPTION_KEY is set (critical for backup/restore — must not change between servers)
         local _cur_enc_key
         _cur_enc_key=$(grep "^VMS_ENCRYPTION_KEY=" "$INSTALL_DIR/.env" | cut -d= -f2- | tr -d '[:space:]') || _cur_enc_key=""
@@ -832,6 +846,18 @@ PYEOF
     local db_url
     db_url="postgresql://$DB_USER:$DB_PASS@localhost:5432/$DB_NAME"
     sed -i "s|^DATABASE_URL=.*|DATABASE_URL=$(sed_escape_replacement "$db_url")|" "$INSTALL_DIR/.env"
+
+    # Pin LICENSE_SERVER_URL + UPDATE_SERVER_URL (default flirexa.biz; override
+    # via SB_LICENSE_SERVER_URL / SB_UPDATE_SERVER_URL env on the install
+    # invocation if running a private license server).
+    for _kv in "LICENSE_SERVER_URL=$LICENSE_SERVER_URL" "UPDATE_SERVER_URL=$UPDATE_SERVER_URL"; do
+        local _k="${_kv%%=*}"
+        if grep -q "^${_k}=" "$INSTALL_DIR/.env" 2>/dev/null; then
+            sed -i "s|^${_k}=.*|${_kv}|" "$INSTALL_DIR/.env"
+        else
+            echo "$_kv" >> "$INSTALL_DIR/.env"
+        fi
+    done
 
     # Detect server IP for endpoint
     local server_ip="" _raw
