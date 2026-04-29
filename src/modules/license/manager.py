@@ -603,7 +603,7 @@ class LicenseManager:
         trial_start = None
         try:
             import httpx
-            ls_url = os.getenv("LICENSE_SERVER_URL", "https://example.com").rstrip("/")
+            ls_url = os.getenv("LICENSE_SERVER_URL", "https://flirexa.biz").rstrip("/")
             resp = httpx.post(
                 f"{ls_url}/api/trial/register",
                 json={"hardware_id": server_hw},

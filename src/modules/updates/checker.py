@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 _UPDATE_SERVER_URL = os.getenv(
     "UPDATE_SERVER_URL",
-    "https://example.com"
+    # Public Flirexa update server. Operators running their own license
+    # server set UPDATE_SERVER_URL in .env to override this default.
+    "https://flirexa.biz",
 )
 
 # Separate connect and read timeouts for better diagnostics
