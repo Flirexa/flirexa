@@ -154,8 +154,29 @@ ALL_SVCS=("$API_SVC" "$WORKER_SVC" "$ADMIN_BOT_SVC" "$CLIENT_BOT_SVC" "$PORTAL_S
 STARTUP_LOG_SINCE=""
 LEGACY_PRODUCT_LABEL="$(printf 'Sponge%s' 'Bot')"
 
+MAINTENANCE_FLAG="${INSTALL_DIR}/data/maintenance.flag"
+
+set_maintenance_flag() {
+    # nginx, when configured to look for this file, will short-circuit to the
+    # static maintenance.html instead of trying to proxy to a downed API and
+    # returning 502. Idempotent: just touches a file.
+    mkdir -p "$(dirname "$MAINTENANCE_FLAG")"
+    : > "$MAINTENANCE_FLAG"
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        systemctl reload nginx 2>/dev/null || true
+    fi
+}
+
+clear_maintenance_flag() {
+    rm -f "$MAINTENANCE_FLAG" 2>/dev/null || true
+    if systemctl is-active --quiet nginx 2>/dev/null; then
+        systemctl reload nginx 2>/dev/null || true
+    fi
+}
+
 stop_services() {
     log "Stopping services …"
+    set_maintenance_flag
     for svc in "${ALL_SVCS[@]}"; do
         systemctl stop "$svc" 2>/dev/null && log "  stopped $svc" || true
     done
@@ -524,6 +545,7 @@ rollback_from_backup() {
     smoke_check "$rollback_target" || return 1
 
     write_marker "phase_rollback_complete" "$(date --iso-8601=seconds)"
+    clear_maintenance_flag
     log "Rollback complete"
     return 0
 }
@@ -699,11 +721,13 @@ log "[S5] Post-update health checks …"
 if ! smoke_check "$TARGET_VERSION"; then
     log_err "Health checks failed — starting auto rollback"
     if rollback_from_backup; then
+        clear_maintenance_flag
         exit 2
     fi
     exit 1
 fi
 write_marker "phase_health_ok" "$(date --iso-8601=seconds)"
 rm -f "$INSTALL_DIR/data/restart_pending" 2>/dev/null || true
+clear_maintenance_flag
 log "=== UPDATE COMPLETE ==="
 exit 0
