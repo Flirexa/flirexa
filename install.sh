@@ -990,32 +990,26 @@ PYEOF
         fi
     fi
 
-    # ── License Activation ────────────────────────────────────────────────────
-    # SB_ACTIVATION_CODE — one-time purchase voucher (new flow)
-    # SB_LICENSE_KEY     — raw license key (legacy / manual fallback)
+    # ── License Activation (paid tiers only — FREE just works) ────────────────
+    # FREE tier needs no key; the license middleware silently treats a missing
+    # LICENSE_KEY as FREE. Activation prompts only run if the operator has an
+    # SB_ACTIVATION_CODE (paid voucher) or SB_LICENSE_KEY env, OR explicitly
+    # passes one interactively when prompted on a TTY.
     local activation_code="${SB_ACTIVATION_CODE:-}"
     local license_key="${SB_LICENSE_KEY:-}"
 
-    if [[ "$NON_INTERACTIVE" != "true" ]]; then
+    if [[ "$NON_INTERACTIVE" != "true" && -z "$activation_code" && -z "$license_key" ]]; then
         echo ""
-        echo -e "${BOLD}License Activation${NC}"
+        echo -e "${BOLD}License Activation (optional)${NC}"
         echo ""
-        echo "  Enter the Activation Code from your purchase confirmation email."
-        echo "  Format: XXXX-XXXX-XXXX-XXXX"
-        echo "  You can also skip and activate later via the admin panel."
+        echo "  FREE tier works without any code — just press Enter to skip."
+        echo "  Have a paid Activation Code (XXXX-XXXX-XXXX-XXXX)? Paste below:"
         echo ""
-        read -r -p "  Activation Code (Enter to skip): " activation_code || activation_code=""
+        read -r -p "  Activation Code (Enter for FREE): " activation_code || activation_code=""
     fi
 
     if [[ -n "$activation_code" ]]; then
         license_key=$(configure_license_activation "$activation_code") || license_key=""
-    fi
-
-    # Fallback: accept a manually-pasted license key (legacy / support flow)
-    if [[ -z "$license_key" && "$NON_INTERACTIVE" != "true" && -z "$activation_code" ]]; then
-        echo ""
-        echo "  Or paste a License Key directly if you have one:"
-        read -r -p "  License Key (Enter to skip): " license_key || license_key=""
     fi
 
     if [[ -n "$license_key" ]]; then
@@ -1047,7 +1041,7 @@ PYEOF
         log_info "  License key saved"
     else
         sed -i "s|^LICENSE_CHECK_ENABLED=.*|LICENSE_CHECK_ENABLED=true|" "$INSTALL_DIR/.env"
-        log_info "  No license key — activate later via the admin panel"
+        log_info "  Running on FREE tier (no activation needed)"
     fi
 
     update_env_value() {
@@ -1772,12 +1766,12 @@ print_summary() {
     local license_key
     license_key=$(grep "^LICENSE_KEY=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2-)
     if [[ -z "$license_key" ]]; then
-        echo -e "  ${YELLOW}${BOLD}License not activated.${NC}"
-        echo "    To activate:"
-        echo "    Option A (recommended): Re-run the installer and enter your Activation Code:"
-        echo "      bash install.sh   # enter XXXX-XXXX-XXXX-XXXX when prompted"
-        echo "    Option B: Open the admin panel and enter your Activation Code on screen."
-        echo "    No code yet? Contact support to receive one after purchase."
+        echo -e "  ${BOLD}Tier:${NC} FREE (WireGuard + AmneziaWG, up to 80 clients,"
+        echo "         1 server per protocol)."
+        echo "    Want paid features (multi-server, Hysteria2/TUIC,"
+        echo "    auto-backup, white-label)? Get an Activation Code at"
+        echo "    https://flirexa.biz and paste it in the admin panel"
+        echo "    under Settings → License."
         echo ""
     fi
 
