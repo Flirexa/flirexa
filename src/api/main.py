@@ -387,14 +387,18 @@ def create_app(
             info = mgr.get_license_info()
 
             # ── Activation check ─────────────────────────────────────────────
-            # No key or invalid/wrong-machine key → activation required
-            # Trial with is_valid=True is allowed through (demo mode)
-            if not mgr.is_properly_activated() and not (info.is_valid and info.type == LicenseType.TRIAL):
+            # Valid FREE / TRIAL / paid → pass through. The only thing we
+            # block here is an *invalid* license (wrong machine, tampered
+            # key) — a missing key is fine and silently becomes FREE.
+            # Paid features are gated separately by the feature_routes
+            # block below; users hitting them on FREE see "Upgrade your
+            # plan" 403, not "activation required".
+            if not info.is_valid:
                 hw_id = mgr.get_server_id()
                 return JSONResponse(
                     status_code=403,
                     content={
-                        "detail": info.validation_message or "Product not activated.",
+                        "detail": info.validation_message or "License invalid.",
                         "activation_required": True,
                         "activation_code": hw_id,
                     }
