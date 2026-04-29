@@ -312,8 +312,15 @@ async def create_server(
     from loguru import logger
     import os
 
-    # License enforcement: check server limit and multi_server feature.
-    # Advisory lock (key 1000002) prevents concurrent requests from both passing the check.
+    # License enforcement: check server limits and multi_server feature.
+    # Advisory lock (key 1000002) prevents concurrent requests from both
+    # passing the check.
+    #
+    # FREE / Starter tier policy: exactly one server per protocol type. So a
+    # FREE user gets the auto-provisioned WireGuard out of the box AND can
+    # add one AmneziaWG alongside it (DPI-resistance is core FREE value).
+    # They cannot add a second server of the *same* type without the
+    # `multi_server` feature flag (Business+).
     try:
         from sqlalchemy import text as _sql_text
         from ...modules.license.manager import get_license_manager
@@ -321,15 +328,25 @@ async def create_server(
         mgr = get_license_manager()
         info = mgr.get_license_info()
         current_count = db.query(Server).count()
-        if not info.can_add_server(current_count):
+        same_type_count = db.query(Server).filter(
+            Server.server_type == server_data.server_type
+        ).count()
+
+        if not info.has_feature("multi_server"):
+            if same_type_count >= 1:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        f"You already have a {server_data.server_type} server. "
+                        f"FREE tier allows one server per protocol type "
+                        f"(WireGuard + AmneziaWG). Adding more requires the "
+                        f"multi-server feature (Business or Enterprise tier)."
+                    ),
+                )
+        elif not info.can_add_server(current_count):
             raise HTTPException(
                 status_code=403,
                 detail=f"License limit reached: {current_count}/{info.max_servers} servers. Upgrade your license."
-            )
-        if current_count >= 1 and not info.has_feature("multi_server"):
-            raise HTTPException(
-                status_code=403,
-                detail="Multi-server feature requires Business or Enterprise license."
             )
     except HTTPException:
         raise
