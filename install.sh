@@ -361,6 +361,27 @@ install_system_deps() {
         done
     }
 
+    # AmneziaWG (DPI-resistant) — FREE-tier feature, install best-effort.
+    # The DKMS build needs kernel headers, which may be missing on stripped
+    # VPS images; if any of these fail the panel still works, just without
+    # the AmneziaWG protocol. The user can add the PPA + install manually
+    # later if needed.
+    log_info "Installing AmneziaWG (FREE-tier DPI-resistant protocol)..."
+    apt_install_retry 3 software-properties-common >/dev/null 2>&1 || true
+    if add-apt-repository -y ppa:amnezia/ppa >/dev/null 2>&1 && apt_update_retry >/dev/null 2>&1; then
+        apt_install_retry 3 "linux-headers-$(uname -r)" >/dev/null 2>&1 || \
+            apt_install_retry 3 linux-headers-generic >/dev/null 2>&1 || \
+            log_warn "  Linux headers not available — DKMS compile will likely fail"
+        if apt_install_retry 3 amneziawg amneziawg-tools amneziawg-dkms >/dev/null 2>&1; then
+            log_success "  AmneziaWG installed"
+        else
+            log_warn "  AmneziaWG install failed — WireGuard-only on this host"
+            log_warn "  To enable later: apt install amneziawg amneziawg-tools amneziawg-dkms"
+        fi
+    else
+        log_warn "  Could not add amnezia PPA — WireGuard-only on this host"
+    fi
+
     # Ensure we can actually create a virtual environment. Some bare Ubuntu
     # images temporarily expose mismatched python3/python3-venv meta-packages,
     # so capability matters more than the exact package name being installed.
