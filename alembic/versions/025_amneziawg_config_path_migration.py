@@ -9,7 +9,7 @@ Only touches rows under the legacy directory; rows pointing at custom paths
 (e.g. Docker-mounted volumes like /opt/amneziawg/config/awg0.conf) are left
 untouched.
 
-Revision ID: 025_amneziawg_config_path_migration
+Revision ID: 025_awg_config_path
 Revises: 024_add_server_display_name
 Create Date: 2026-04-29
 """
@@ -17,7 +17,7 @@ Create Date: 2026-04-29
 from alembic import op
 
 
-revision = "025_amneziawg_config_path_migration"
+revision = "025_awg_config_path"
 down_revision = "024_add_server_display_name"
 branch_labels = None
 depends_on = None
