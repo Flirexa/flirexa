@@ -1342,6 +1342,12 @@ setup_wireguard() {
     mkdir -p /etc/wireguard
     chmod 700 /etc/wireguard
 
+    # Pre-create the AmneziaWG config dir too so the panel can drop awg0.conf
+    # there on first server-create without hitting "no such directory". The
+    # apt package from ppa:amnezia/ppa expects /etc/amnezia/amneziawg/.
+    mkdir -p /etc/amnezia/amneziawg
+    chmod 700 /etc/amnezia/amneziawg
+
     cat > "$wg_conf" << WGEOF
 [Interface]
 Address = ${addr_v4}
