@@ -97,6 +97,33 @@ install_packages() {
     systemctl enable nginx >/dev/null 2>&1 || true
 }
 
+# Inserted inside each `location /` proxy block — short-circuits to the static
+# maintenance page when update_apply.sh has touched the flag, so users see a
+# friendly "Updating, back in a moment" page instead of nginx 502.
+maintenance_check_block() {
+    cat <<EOF
+        if (-f ${APP_DIR}/data/maintenance.flag) {
+            return 503;
+        }
+EOF
+}
+
+# Server-block fallback: any 502/503/504 from the upstream API hands off to
+# the static page at $APP_DIR/deploy/nginx/maintenance.html. The flag check
+# above triggers this same handler explicitly during updates; the error_page
+# also catches unplanned upstream failures (API crashed, port not listening).
+maintenance_error_pages() {
+    cat <<EOF
+    error_page 502 503 504 = @maintenance;
+    location @maintenance {
+        root ${APP_DIR}/deploy/nginx;
+        try_files /maintenance.html =503;
+        internal;
+        add_header Retry-After 30 always;
+    }
+EOF
+}
+
 configure_firewall() {
     if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
         ufw allow 80/tcp comment "VPN Manager HTTP" >/dev/null 2>&1 || true
@@ -111,11 +138,14 @@ server {
     listen 80;
     server_name ${PORTAL_DOMAIN};
 
+$(maintenance_error_pages)
+
     location /.well-known/acme-challenge/ {
         root ${ACME_ROOT};
     }
 
     location / {
+$(maintenance_check_block)
         proxy_pass http://127.0.0.1:${CLIENT_PORTAL_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -132,11 +162,14 @@ server {
     listen 80;
     server_name ${ADMIN_DOMAIN};
 
+$(maintenance_error_pages)
+
     location /.well-known/acme-challenge/ {
         root ${ACME_ROOT};
     }
 
     location / {
+$(maintenance_check_block)
         proxy_pass http://127.0.0.1:${API_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -198,7 +231,10 @@ server {
 
     client_max_body_size 20m;
 
+$(maintenance_error_pages)
+
     location / {
+$(maintenance_check_block)
         proxy_pass http://127.0.0.1:${CLIENT_PORTAL_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -233,7 +269,10 @@ server {
 
     client_max_body_size 20m;
 
+$(maintenance_error_pages)
+
     location / {
+$(maintenance_check_block)
         proxy_pass http://127.0.0.1:${API_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
@@ -254,7 +293,10 @@ server {
 
     client_max_body_size 20m;
 
+$(maintenance_error_pages)
+
     location / {
+$(maintenance_check_block)
         proxy_pass http://127.0.0.1:${API_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;

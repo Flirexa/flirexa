@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="6">
+  <title>Updating — Flirexa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --card: #14171c;
+      --line: #232830;
+      --accent: #5865f2;
+      --text: #e6e8ec;
+      --muted: #8a93a3;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      max-width: 460px;
+      width: 100%;
+      padding: 32px 28px 28px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: rgba(88, 101, 242, .12);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+    .pulse {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent);
+      animation: p 1.4s ease-in-out infinite;
+    }
+    @keyframes p {
+      0%, 100% { opacity: .35; transform: scale(.85); }
+      50%      { opacity: 1;   transform: scale(1);   }
+    }
+    h1 { font-size: 22px; font-weight: 600; margin: 16px 0 6px; }
+    p  { color: var(--muted); margin: 6px 0; }
+    .hint {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--bg);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="card" role="status" aria-live="polite">
+    <span class="badge"><span class="pulse"></span> Updating</span>
+    <h1>One moment, please.</h1>
+    <p>Flirexa is applying an update. Services should be back in 10–30 seconds.</p>
+    <p>This page reloads automatically.</p>
+    <div class="hint">
+      If this stays past a minute, check
+      <code>journalctl -u vpnmanager-api -f</code>
+      on the server.
+    </div>
+  </div>
+</body>
+</html>
