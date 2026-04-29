@@ -419,9 +419,14 @@ class AmneziaWGManager(WireGuardManager):
         _h3   = h3   if h3   is not None else self.h3
         _h4   = h4   if h4   is not None else self.h4
 
-        # Derive subnet from address (e.g. "10.8.0.1/24" → "10.8.0.0/24")
-        base_ip = address.split("/")[0]
-        prefix = address.split("/")[1] if "/" in address else "24"
+        # Derive IPv4 subnet from address. address may be a single CIDR
+        # ("10.8.0.1/24") or a comma-joined dual-stack value
+        # ("10.8.0.1/24,fd42:42:42::1/64") — pick the IPv4 half. NAT/route
+        # rules are IPv4-only here; IPv6 forwarding sits on the kernel
+        # default and doesn't need its own MASQUERADE.
+        ipv4_part = address.split(",")[0].strip()
+        base_ip = ipv4_part.split("/")[0]
+        prefix = ipv4_part.split("/")[1] if "/" in ipv4_part else "24"
         octets = base_ip.rsplit(".", 1)
         subnet = f"{octets[0]}.0/{prefix}"
 
