@@ -114,6 +114,9 @@ def get_explicit_maintenance_state(db: Session) -> ExplicitMaintenanceState:
     )
 
 
+_LAST_RECONCILE_AT: float = 0.0
+
+
 def get_active_update_state(db: Session) -> tuple[bool, str | None, int | None]:
     stmt = text(
         """
@@ -129,6 +132,28 @@ def get_active_update_state(db: Session) -> tuple[bool, str | None, int | None]:
     row = db.execute(stmt, {"states": list(_ACTIVE_UPDATE_STATES)}).mappings().first()
     if not row:
         return False, None, None
+
+    # Lazy self-heal: when a row looks "active" but the apply.sh process has
+    # already exited (and wrote apply.exitcode), startup-time reconcile will
+    # eventually fix it — but until then the operational_mode middleware
+    # would 423-block every business mutation. Try to resolve it inline,
+    # rate-limited to once every 15 seconds so the middleware doesn't hammer
+    # the disk on busy boxes.
+    global _LAST_RECONCILE_AT
+    import time as _time
+    now_ts = _time.monotonic()
+    if now_ts - _LAST_RECONCILE_AT > 15.0:
+        _LAST_RECONCILE_AT = now_ts
+        try:
+            from src.modules.updates.manager import reconcile_inflight_updates
+            reconcile_inflight_updates()
+        except Exception:
+            pass  # never let this crash the middleware
+        # Re-query after reconcile — the row may now be in a terminal state.
+        row = db.execute(stmt, {"states": list(_ACTIVE_UPDATE_STATES)}).mappings().first()
+        if not row:
+            return False, None, None
+
     status = row.get("status")
     kind = "rollback" if row.get("is_rollback") or status == UpdateStatus.ROLLING_BACK.name else "update"
     return True, kind, row.get("id")
