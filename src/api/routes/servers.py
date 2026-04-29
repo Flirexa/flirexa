@@ -408,6 +408,31 @@ async def create_server(
 
     is_awg = server_data.server_type == "amneziawg"
 
+    # Auto-pick a free listen_port if the requested one is already taken by
+    # another local server. Prevents the classic "RTNETLINK answers: Address
+    # already in use" failure when a FREE user adds AmneziaWG alongside the
+    # auto-provisioned WireGuard (both default to 51820). We bump regardless
+    # of whether the port was explicitly set; the request can't succeed
+    # otherwise, better to drift the port than to 500.
+    if not server_data.ssh_host:
+        existing_ports = {
+            row[0]
+            for row in db.query(Server.listen_port)
+            .filter(Server.listen_port.isnot(None))
+            .all()
+        }
+        if listen_port in existing_ports:
+            candidate = listen_port + 1
+            while candidate in existing_ports and candidate < 65535:
+                candidate += 1
+            from loguru import logger as _portlog
+            _portlog.info(
+                "Port {} already used by another server; "
+                "auto-picked {} for new {}",
+                listen_port, candidate, server_data.server_type,
+            )
+            listen_port = candidate
+
     # For AmneziaWG: auto-generate obfuscation params if not provided
     awg_params = {}
     _awg_auto = {}
