@@ -105,7 +105,9 @@ class LicenseInfo:
 LICENSE_TIERS = {
     LicenseType.FREE: {
         "max_clients": 80,
-        "max_servers": 1,
+        # FREE: one server per protocol (WireGuard + AmneziaWG = up to 2).
+        # Per-protocol enforcement happens in the server-create endpoint.
+        "max_servers": 2,
         # FREE tier never expires — no duration_days
         "features": [
             "basic_management",
@@ -128,7 +130,8 @@ LICENSE_TIERS = {
     },
     LicenseType.STANDARD: {
         "max_clients": 300,
-        "max_servers": 1,
+        # Starter: one of each protocol (WireGuard + AmneziaWG + Hysteria2 + TUIC = 4).
+        "max_servers": 4,
         "features": [
             "wireguard",
             "amneziawg",
