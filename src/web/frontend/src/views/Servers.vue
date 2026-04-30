@@ -1098,6 +1098,21 @@ const installingAgent = ref({})
 
 const detectingPublicIp = ref(false)
 
+function autoDetectPublicIp() {
+  // Pulls the host's public IPv4 and pre-fills the endpoint field. Skipped
+  // when the user has explicitly typed something or when this is a remote
+  // (ssh-managed) install. Used both from selectCategory(...) and from the
+  // modal-opened watcher so the "Add" button is enabled out of the gate
+  // regardless of which category the user starts with.
+  if (newServer.value.ssh_host || newServer.value.endpoint) return
+  detectingPublicIp.value = true
+  systemApi.getPublicIp().then(res => {
+    if (res.data?.public_ip && !newServer.value.endpoint) {
+      newServer.value.endpoint = res.data.public_ip
+    }
+  }).catch(() => {}).finally(() => { detectingPublicIp.value = false })
+}
+
 function selectCategory(cat) {
   newServer.value.server_category = cat
   if (cat === 'vpn') {
@@ -1108,17 +1123,16 @@ function selectCategory(cat) {
     newServer.value.server_type = 'hysteria2'
     newServer.value.listen_port = 8443
     newServer.value.interface = 'proxy-hy20'
-    // Auto-detect public IP for local proxy server (no SSH host)
-    if (!newServer.value.ssh_host && !newServer.value.endpoint) {
-      detectingPublicIp.value = true
-      systemApi.getPublicIp().then(res => {
-        if (res.data?.public_ip && !newServer.value.endpoint) {
-          newServer.value.endpoint = res.data.public_ip
-        }
-      }).catch(() => {}).finally(() => { detectingPublicIp.value = false })
-    }
   }
+  autoDetectPublicIp()
 }
+
+// Fire IP detection as soon as the modal opens so the endpoint pre-fills
+// whether the user starts on VPN (default) or Proxy. Without this, the
+// "Add" button stayed disabled until the user toggled to Proxy and back.
+watch(() => showAddModal.value, (open) => {
+  if (open) autoDetectPublicIp()
+})
 
 function onProtocolChange() {
   const type = newServer.value.server_type
