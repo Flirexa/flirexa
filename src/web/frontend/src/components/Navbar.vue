@@ -49,6 +49,17 @@
         <i :class="system.theme === 'dark' ? 'mdi mdi-weather-sunny' : 'mdi mdi-weather-night'"></i>
       </button>
 
+      <!-- Update available — only when a newer version is on the channel -->
+      <router-link
+        v-if="updateBadge.available"
+        to="/updates"
+        class="topbar-icon-btn topbar-update-btn"
+        :title="updateBadge.title"
+      >
+        <i class="mdi mdi-package-up"></i>
+        <span class="topbar-update-dot"></span>
+      </router-link>
+
       <!-- Refresh — hidden on very small screens to save space -->
       <button class="topbar-icon-btn d-none d-sm-flex" @click="refreshData" title="Refresh">
         <i class="mdi mdi-refresh"></i>
@@ -58,18 +69,50 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSystemStore } from '../stores/system'
+import api from '../api'
 
 defineEmits(['open-donate'])
 
 const route = useRoute()
 const system = useSystemStore()
-const { locale } = useI18n()
+const { locale, t } = useI18n()
 
 const langOpen = ref(false)
+
+// ── Update-available badge ──────────────────────────────────────────────────
+// Polls /api/v1/updates/status every 30 minutes. The backend auto-check loop
+// refreshes the cache every 6h, so this is mostly a UI-side reconcile.
+const updateBadge = ref({ available: false, title: '' })
+let _updateBadgeTimer = null
+
+async function refreshUpdateBadge() {
+  try {
+    const r = await api.get('/updates/status', { timeout: 3000 })
+    const av = r.data?.available_update
+    if (av && av.version) {
+      updateBadge.value = {
+        available: true,
+        title: `${t('updates.newVersionAvailable') || 'New version available'}: ${av.version}`,
+      }
+    } else {
+      updateBadge.value = { available: false, title: '' }
+    }
+  } catch {
+    // Silent — never block the navbar render on update-check failures
+  }
+}
+
+onMounted(() => {
+  refreshUpdateBadge()
+  _updateBadgeTimer = setInterval(refreshUpdateBadge, 30 * 60 * 1000)
+})
+onBeforeUnmount(() => {
+  if (_updateBadgeTimer) clearInterval(_updateBadgeTimer)
+})
 
 const routeNameMap = {
   'Dashboard': 'dashboard', 'Clients': 'clients', 'Servers': 'servers',
@@ -102,3 +145,20 @@ function toggleTheme() {
 function setLang(code) { locale.value = code; localStorage.setItem('sb_lang', code); langOpen.value = false }
 function refreshData() { window.location.reload() }
 </script>
+
+<style scoped>
+.topbar-update-btn {
+  position: relative;
+  color: #f59e0b;
+}
+.topbar-update-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px var(--vxy-bg, #fff);
+}
+</style>
