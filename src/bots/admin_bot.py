@@ -1507,8 +1507,11 @@ def main():
     allowed_users_str = os.getenv("ADMIN_BOT_ALLOWED_USERS", "")
 
     if not token:
-        logger.error("ADMIN_BOT_TOKEN environment variable not set")
-        sys.exit(1)
+        logger.info(
+            "Admin bot disabled — ADMIN_BOT_TOKEN not set in .env, exiting cleanly. "
+            "Set ADMIN_BOT_TOKEN and `systemctl restart vpnmanager-admin-bot` to enable."
+        )
+        sys.exit(0)
 
     try:
         allowed_users = [int(x.strip()) for x in allowed_users_str.split(",") if x.strip()]
