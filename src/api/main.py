@@ -227,6 +227,15 @@ async def lifespan(app: FastAPI):
         _license_validator_task = asyncio.create_task(run_validator_loop())
         logger.info("Online license validator started")
 
+    # Periodic auto-check for new product versions (manifest poll, no apply).
+    # Populates check_for_update's cache so the panel's "available_update" badge
+    # stays fresh without operator clicks. Disabled via AUTO_UPDATE_CHECK_ENABLED=false.
+    try:
+        from ..modules.updates.auto_check import run_auto_update_check_loop
+        _update_autocheck_task = asyncio.create_task(run_auto_update_check_loop())
+    except Exception as e:
+        logger.warning("Could not start update auto-check loop: %s", e)
+
     # Sync server fleet to current license tier on every startup. Catches the
     # case where a paid subscription expired while the box was off — without
     # this the excess servers would silently come back online next reboot.
