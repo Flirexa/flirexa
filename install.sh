@@ -42,7 +42,7 @@ echo "✅ Python $PYTHON_VERSION detected"
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-APP_NAME="Flirexa"
+APP_NAME="VPN Management Studio"
 INSTALL_DIR="/opt/vpnmanager"
 LICENSE_SERVER_URL="${SB_LICENSE_SERVER_URL:-https://flirexa.biz}"
 UPDATE_SERVER_URL="${SB_UPDATE_SERVER_URL:-https://flirexa.biz}"
@@ -370,6 +370,9 @@ install_system_deps() {
     log_info "Installing AmneziaWG (FREE-tier DPI-resistant protocol)..."
     apt_install_retry 3 software-properties-common >/dev/null 2>&1 || true
     if add-apt-repository -y ppa:amnezia/ppa >/dev/null 2>&1 && apt_update_retry >/dev/null 2>&1; then
+        # Linux headers are needed by the DKMS module; without them awg-tools
+        # still installs but the kernel module won't compile, and `awg` calls
+        # at runtime will fail. Try to grab the running-kernel headers first.
         apt_install_retry 3 "linux-headers-$(uname -r)" >/dev/null 2>&1 || \
             apt_install_retry 3 linux-headers-generic >/dev/null 2>&1 || \
             log_warn "  Linux headers not available — DKMS compile will likely fail"
@@ -990,22 +993,33 @@ PYEOF
         fi
     fi
 
-    # ── License Activation (paid tiers only — FREE just works) ────────────────
-    # FREE tier needs no key; the license middleware silently treats a missing
-    # LICENSE_KEY as FREE. Activation prompts only run if the operator has an
-    # SB_ACTIVATION_CODE (paid voucher) or SB_LICENSE_KEY env, OR explicitly
-    # passes one interactively when prompted on a TTY.
+    # ── License Activation ────────────────────────────────────────────────────
+    # Always prompt for an activation code when interactive (incl. via curl|bash,
+    # by reading from /dev/tty). Empty / N / no / skip → FREE tier. Non-interactive
+    # mode stays unprompted; SB_ACTIVATION_CODE / SB_LICENSE_KEY env vars short-
+    # circuit the prompt so CI/automation can pass a paid code without a TTY.
     local activation_code="${SB_ACTIVATION_CODE:-}"
     local license_key="${SB_LICENSE_KEY:-}"
 
     if [[ "$NON_INTERACTIVE" != "true" && -z "$activation_code" && -z "$license_key" ]]; then
         echo ""
-        echo -e "${BOLD}License Activation (optional)${NC}"
+        echo -e "${BOLD}License Activation${NC}"
         echo ""
-        echo "  FREE tier works without any code — just press Enter to skip."
-        echo "  Have a paid Activation Code (XXXX-XXXX-XXXX-XXXX)? Paste below:"
+        echo "  Have a paid Activation Code (XXXX-XXXX-XXXX-XXXX)? Paste it below."
+        echo "  Press Enter (or type N) to install in FREE tier."
         echo ""
-        read -r -p "  Activation Code (Enter for FREE): " activation_code || activation_code=""
+        # Read from /dev/tty so the prompt works even under `curl … | bash`,
+        # where stdin is the script pipe and a plain `read` fails immediately.
+        if [[ -r /dev/tty ]]; then
+            read -r -p "  Activation Code (or N for FREE): " activation_code < /dev/tty || activation_code=""
+        else
+            log_info "  No TTY available — installing in FREE tier"
+            activation_code=""
+        fi
+        # Treat explicit "no" inputs as FREE.
+        case "${activation_code,,}" in
+            ""|"n"|"no"|"free"|"skip") activation_code="" ;;
+        esac
     fi
 
     if [[ -n "$activation_code" ]]; then
