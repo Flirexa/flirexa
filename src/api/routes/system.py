@@ -458,6 +458,109 @@ async def activate_license(data: LicenseActivateRequest):
     }
 
 
+class LicenseReplayRequest(BaseModel):
+    activation_code: str
+
+
+@router.post("/license/replay")
+async def replay_license(data: LicenseReplayRequest):
+    """
+    Re-fetch the license key for a previously activated code.
+
+    Use case: customer's original activation succeeded server-side but the
+    license_key didn't land in .env (network blip, lost stdout, crash). With
+    matching hardware_id the license-server returns the same payload with a
+    fresh signature. No code is consumed.
+
+    Server-side guards: HW-binding check, per-code 3/24h rate limit, License
+    must be active and not revoked. See /api/activate/replay on license-server.
+    """
+    import httpx
+    from ...modules.license.online_validator import get_hardware_id
+    from ...modules.license.server_config import get_server_urls
+    from ...modules.license.manager import LicenseManager, reset_license_manager
+
+    activation_code = (data.activation_code or "").strip()
+    if not activation_code:
+        raise HTTPException(status_code=422, detail="Activation code is required.")
+
+    primary, backup = get_server_urls()
+    if not primary and not backup:
+        raise HTTPException(status_code=503, detail="License server not configured.")
+
+    hw_id   = get_hardware_id()
+    payload = {"activation_code": activation_code, "hardware_id": hw_id}
+
+    # Try primary, then backup. Both must speak /api/activate/replay (deployed
+    # on flirexa.biz + global-connection.site as of license-server change on
+    # 2026-05-01).
+    last_error = None
+    for base_url in (primary, backup):
+        if not base_url:
+            continue
+        url = f"{base_url.rstrip('/')}/api/activate/replay"
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(url, json=payload)
+            if resp.status_code == 200:
+                resp_json = resp.json()
+                license_key = resp_json.get("license_key")
+                if not license_key:
+                    last_error = "License server returned no key"
+                    continue
+
+                # Validate signature locally before persisting
+                mgr  = LicenseManager(license_key)
+                info = mgr.validate_license()
+                if info.type.value == "trial" and "Invalid" in info.validation_message:
+                    raise HTTPException(status_code=400, detail=info.validation_message)
+
+                env_path = _find_env_file()
+                _update_env_file(env_path, {
+                    "LICENSE_KEY":           license_key,
+                    "LICENSE_CHECK_ENABLED": "true",
+                    "ACTIVATION_CODE":       activation_code,
+                })
+                os.environ["LICENSE_KEY"]           = license_key
+                os.environ["LICENSE_CHECK_ENABLED"] = "true"
+                os.environ["ACTIVATION_CODE"]      = activation_code
+
+                reset_license_manager()
+
+                try:
+                    from ...modules.license.enforcement import reconcile as _lic_reconcile
+                    _lic_reconcile()
+                except Exception as exc:
+                    from loguru import logger
+                    logger.warning("License enforcement reconcile after replay failed: %s", exc)
+
+                return {
+                    "status":  "replayed",
+                    "license": mgr.get_status(),
+                    "source":  base_url,
+                }
+
+            # Non-200 — surface the server's error for actionable UI message
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text or f"HTTP {resp.status_code}"
+            # 403/404/409/429 are user-actionable — bubble them up directly
+            if resp.status_code in (403, 404, 409, 422, 429):
+                raise HTTPException(status_code=resp.status_code, detail=detail)
+            last_error = f"{base_url}: HTTP {resp.status_code} — {detail}"
+        except HTTPException:
+            raise
+        except Exception as exc:
+            last_error = f"{base_url}: {exc}"
+            continue
+
+    raise HTTPException(
+        status_code=502,
+        detail=last_error or "Could not reach license server.",
+    )
+
+
 # ── License Server ────────────────────────────────────────────────────────────
 
 @router.get("/license-server")
