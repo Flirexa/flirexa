@@ -162,6 +162,8 @@ set_maintenance_flag() {
     # returning 502. Idempotent: just touches a file.
     mkdir -p "$(dirname "$MAINTENANCE_FLAG")"
     : > "$MAINTENANCE_FLAG"
+    # nginx caches `if (-f ...)` in worker memory; trigger a graceful reload
+    # so workers re-evaluate. Falls back to no-op if nginx isn't running.
     if systemctl is-active --quiet nginx 2>/dev/null; then
         systemctl reload nginx 2>/dev/null || true
     fi
@@ -174,9 +176,54 @@ clear_maintenance_flag() {
     fi
 }
 
+# Snapshot of live wg/awg interfaces taken before stop_services so we can
+# restore any that go down during the update. Customer-driven setups (eg.
+# manually-started awg-quick@awg1 that's not enabled) can otherwise survive
+# fine but disappear after our service restart cycle, leaving real users
+# disconnected.
+WG_IFACES_BEFORE=""
+AWG_IFACES_BEFORE=""
+
+snapshot_vpn_interfaces() {
+    if command -v wg >/dev/null 2>&1; then
+        WG_IFACES_BEFORE="$(wg show interfaces 2>/dev/null | tr '\n' ' ' || true)"
+    fi
+    if command -v awg >/dev/null 2>&1; then
+        AWG_IFACES_BEFORE="$(awg show interfaces 2>/dev/null | tr '\n' ' ' || true)"
+    fi
+    if [[ -n "$WG_IFACES_BEFORE$AWG_IFACES_BEFORE" ]]; then
+        log "VPN interface snapshot: wg=[${WG_IFACES_BEFORE% }] awg=[${AWG_IFACES_BEFORE% }]"
+    fi
+}
+
+restore_vpn_interfaces() {
+    local iface
+    for iface in $WG_IFACES_BEFORE; do
+        if ! wg show "$iface" >/dev/null 2>&1; then
+            log "  restoring WG interface: $iface"
+            if wg-quick up "$iface" >/dev/null 2>&1; then
+                log "    OK"
+            else
+                log "    WARNING: wg-quick up $iface failed"
+            fi
+        fi
+    done
+    for iface in $AWG_IFACES_BEFORE; do
+        if ! awg show "$iface" >/dev/null 2>&1; then
+            log "  restoring AmneziaWG interface: $iface"
+            if awg-quick up "$iface" >/dev/null 2>&1; then
+                log "    OK"
+            else
+                log "    WARNING: awg-quick up $iface failed"
+            fi
+        fi
+    done
+}
+
 stop_services() {
     log "Stopping services …"
     set_maintenance_flag
+    snapshot_vpn_interfaces
     for svc in "${ALL_SVCS[@]}"; do
         systemctl stop "$svc" 2>/dev/null && log "  stopped $svc" || true
     done
@@ -190,6 +237,7 @@ start_services() {
             systemctl start "$svc" 2>/dev/null && log "  started $svc" || log "  WARNING: could not start $svc"
         fi
     done
+    restore_vpn_interfaces
 }
 cli_entrypoint_source() {
     if [[ -L "$CURRENT_LINK" && -f "$CURRENT_LINK/vpnmanager" ]]; then
