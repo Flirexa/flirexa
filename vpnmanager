@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve the script through symlinks so SCRIPT_DIR points at the actual code
+# (release-layout: /opt/vpnmanager/releases/<ver>/; compat-inplace: /opt/spongebot/).
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  BASE_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  TARGET="$(readlink "$SOURCE")"
+  if [[ "$TARGET" != /* ]]; then
+    SOURCE="$BASE_DIR/$TARGET"
+  else
+    SOURCE="$TARGET"
+  fi
+done
+
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# Find venv: in release-layout it lives next to /current/ (one level up from
+# releases/<ver>/), in compat-inplace it sits beside the script. Walk up to find it.
+find_venv_python() {
+  local override="${VMS_CLI_PYTHON:-}"
+  if [[ -n "$override" && -x "$override" ]]; then
+    echo "$override"
+    return 0
+  fi
+  local dir="$SCRIPT_DIR"
+  for _ in 1 2 3; do
+    if [[ -x "$dir/venv/bin/python3" ]]; then
+      echo "$dir/venv/bin/python3"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  if [[ -x "/opt/vpnmanager/venv/bin/python3" ]]; then
+    echo "/opt/vpnmanager/venv/bin/python3"
+    return 0
+  fi
+  if [[ -x "/opt/spongebot/venv/bin/python3" ]]; then
+    echo "/opt/spongebot/venv/bin/python3"
+    return 0
+  fi
+  echo "python3"
+}
+
+PYTHON_BIN="$(find_venv_python)"
+export VMS_SUPPRESS_ENCRYPTION_WARNING=1
+export PYTHONPATH="$SCRIPT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+
+cd "$SCRIPT_DIR"
+exec "$PYTHON_BIN" -m src.cli.main "$@"
