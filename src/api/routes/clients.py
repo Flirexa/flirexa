@@ -744,12 +744,21 @@ async def download_client_config(
 @router.get("/{client_id}/qrcode")
 async def get_client_qrcode(
     client_id: int,
-    db: Session = Depends(get_db)
+    format: str = "conf",
+    db: Session = Depends(get_db),
 ):
     """
-    Get QR code image for client configuration.
-    - WireGuard / AmneziaWG → QR of .conf content
-    - Proxy → QR of the proxy URI (tuic:// or hy2://)
+    QR code image for a client configuration.
+
+    Formats:
+    - `format=conf` (default) — plain `[Interface]/[Peer]` text. Imports into
+      WireGuard, AmneziaWG (the lite app), and AmneziaVPN's "Import as
+      WireGuard config" flow.
+    - `format=amneziavpn` — `vpn://<qCompress(JSON)>` share URL accepted by
+      AmneziaVPN's "Scan QR" flow. Required for AmneziaWG servers when the
+      user is on the full AmneziaVPN app.
+    - Proxy servers (Hysteria2/TUIC) ignore this parameter and always return
+      their protocol URI.
     """
     core = ManagementCore(db)
     client = core.get_client(client_id)
@@ -766,6 +775,10 @@ async def get_client_qrcode(
         if not access or not access.get("uri"):
             raise HTTPException(status_code=500, detail="Failed to generate proxy URI")
         qr_data = access["uri"]
+    elif server_type == 'amneziawg' and format == 'amneziavpn':
+        qr_data = core.clients.get_amneziavpn_share_url(client_id)
+        if not qr_data:
+            raise HTTPException(status_code=500, detail="Failed to generate AmneziaVPN share URL")
     else:
         qr_data = core.get_client_config(client_id)
         if not qr_data:
@@ -773,9 +786,12 @@ async def get_client_qrcode(
 
     # Generate QR code
     qr = qrcode.QRCode(
-        version=1,
+        # version=None lets the library auto-pick a QR version big enough
+        # for the payload. version=1 fits ~25 chars at L correction —
+        # AmneziaVPN share URLs and even plain wg-quick configs are larger.
+        version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
+        box_size=8,
         border=4,
     )
     qr.add_data(qr_data)

@@ -268,8 +268,21 @@
             <!-- VPN client config (WireGuard / AmneziaWG) -->
             <template v-else>
               <pre class="code-block">{{ clientConfig }}</pre>
-              <div class="text-center mt-3" v-if="qrUrl">
-                <img :src="qrUrl" alt="QR Code" class="img-fluid" style="max-width: 250px" />
+              <div class="row text-center mt-3" v-if="qrUrl || qrAmneziaVpnUrl">
+                <div class="col" v-if="qrUrl">
+                  <img :src="qrUrl" alt="QR" class="img-fluid" style="max-width: 220px" />
+                  <div class="text-muted small mt-1">
+                    <strong>WireGuard / AmneziaWG</strong>
+                    <div style="font-size:0.78em">для приложений WireGuard или AmneziaWG (lite)</div>
+                  </div>
+                </div>
+                <div class="col" v-if="qrAmneziaVpnUrl">
+                  <img :src="qrAmneziaVpnUrl" alt="QR" class="img-fluid" style="max-width: 220px" />
+                  <div class="text-muted small mt-1">
+                    <strong>AmneziaVPN</strong>
+                    <div style="font-size:0.78em">для основного приложения AmneziaVPN (Scan QR)</div>
+                  </div>
+                </div>
               </div>
             </template>
 
@@ -513,6 +526,7 @@ const showConfigModal = ref(false)
 const configClient = ref(null)
 const clientConfig = ref('')
 const qrUrl = ref(null)
+const qrAmneziaVpnUrl = ref(null)
 // Proxy config state
 const proxyConfig = ref(null)   // full proxy API response {protocol, uri, config_text, ...}
 const isProxyConfig = ref(false)
@@ -756,6 +770,7 @@ async function showConfig(client) {
   proxyConfig.value = null
   isProxyConfig.value = false
   qrUrl.value = null
+  qrAmneziaVpnUrl.value = null
   try {
     const { data } = await clientsApi.getConfig(client.id)
 
@@ -767,12 +782,24 @@ async function showConfig(client) {
     }
     showConfigModal.value = true
 
-    // Try to get QR
+    // Plain wg-quick QR — works for WireGuard, AmneziaWG (lite app), and
+    // AmneziaVPN's "Import as WireGuard config" flow.
     try {
       const qrRes = await clientsApi.getQR(client.id)
       qrUrl.value = URL.createObjectURL(qrRes.data)
     } catch {
       qrUrl.value = null
+    }
+
+    // Second QR (vpn:// share URL) for AmneziaVPN's QR-scan flow — only
+    // makes sense for AmneziaWG servers.
+    if (data.protocol === 'amneziawg') {
+      try {
+        const r = await clientsApi.getQR(client.id, 'amneziavpn')
+        qrAmneziaVpnUrl.value = URL.createObjectURL(r.data)
+      } catch {
+        qrAmneziaVpnUrl.value = null
+      }
     }
   } catch (err) {
     showError('Error getting config: ' + (err.response?.data?.detail || err.message))
