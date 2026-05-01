@@ -9,7 +9,7 @@ User=root
 WorkingDirectory=/opt/vpnmanager/current
 EnvironmentFile=/opt/vpnmanager/.env
 ExecStart=/opt/vpnmanager/venv/bin/python /opt/vpnmanager/current/main.py client-bot
-Restart=always
+Restart=on-failure
 RestartSec=5
 
 [Install]

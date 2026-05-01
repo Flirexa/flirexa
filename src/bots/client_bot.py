@@ -2241,8 +2241,11 @@ def main():
     token = os.getenv("CLIENT_BOT_TOKEN")
 
     if not token:
-        logger.error("CLIENT_BOT_TOKEN environment variable not set")
-        sys.exit(1)
+        logger.info(
+            "Client bot disabled — CLIENT_BOT_TOKEN not set in .env, exiting cleanly. "
+            "Set CLIENT_BOT_TOKEN and `systemctl restart vpnmanager-client-bot` to enable."
+        )
+        sys.exit(0)
 
     bot = ClientBot(token=token)
     bot.run()
