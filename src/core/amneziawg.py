@@ -7,8 +7,12 @@ Obfuscation parameters (Jc, Jmin, Jmax, S1, S2, H1-H4) are stored on
 the Server model and embedded into both server and client configs.
 """
 
+import base64
+import json
 import os
+import struct
 import subprocess
+import zlib
 from typing import Optional, Tuple, Dict, List
 
 from loguru import logger
@@ -17,6 +21,23 @@ from .wireguard import WireGuardManager, PeerInfo
 
 
 AWG_DEFAULT_MTU = 1280  # Safe MTU for AmneziaWG (avoids fragmentation on most networks)
+
+
+def _amnezia_vpn_share_url(payload: dict) -> str:
+    """Encode a dict as a vpn://... URL the AmneziaVPN mobile app accepts.
+
+    The AmneziaVPN client speaks its own share format: minified JSON →
+    Qt's qCompress (zlib payload prepended with a 4-byte big-endian
+    "original length" header) → base64-url without padding → vpn:// prefix.
+    Plain wg-quick text is NOT accepted by the mobile app — it 'ErrorCode 900
+    Configuration does not contain any containers'. This function builds
+    the right wrapper.
+    """
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    compressed = zlib.compress(raw, level=8)
+    qcompress_blob = struct.pack(">I", len(raw)) + compressed
+    b64 = base64.urlsafe_b64encode(qcompress_blob).rstrip(b"=").decode("ascii")
+    return f"vpn://{b64}"
 
 
 class AmneziaWGManager(WireGuardManager):
@@ -389,6 +410,112 @@ class AmneziaWGManager(WireGuardManager):
             f"PersistentKeepalive = {persistent_keepalive}\n"
         )
         return config
+
+    def generate_amneziavpn_share_url(
+        self,
+        client_private_key: str,
+        client_public_key: str,
+        client_ipv4: str,
+        client_ipv6: Optional[str],
+        server_public_key: str,
+        server_endpoint: str,    # MUST include :port
+        preshared_key: Optional[str] = None,
+        dns: str = "1.1.1.1,1.0.0.1",
+        mtu: int = AWG_DEFAULT_MTU,
+        allowed_ips: str = "0.0.0.0/0",
+        persistent_keepalive: int = 25,
+        description: str = "Flirexa",
+        # obfuscation overrides (fall back to instance params)
+        jc: Optional[int] = None,
+        jmin: Optional[int] = None,
+        jmax: Optional[int] = None,
+        s1: Optional[int] = None,
+        s2: Optional[int] = None,
+        h1: Optional[int] = None,
+        h2: Optional[int] = None,
+        h3: Optional[int] = None,
+        h4: Optional[int] = None,
+    ) -> str:
+        """Build a vpn://... share URL for the AmneziaVPN mobile/desktop app.
+
+        Wraps the same .conf content the wg-quick path uses, but inside the
+        JSON shape the mobile app actually parses (containers / amnezia-awg
+        / last_config). Plain text QR codes get rejected with 'ErrorCode 900'.
+        """
+        _jc   = jc   if jc   is not None else self.jc
+        _jmin = jmin if jmin is not None else self.jmin
+        _jmax = jmax if jmax is not None else self.jmax
+        _s1   = s1   if s1   is not None else self.s1
+        _s2   = s2   if s2   is not None else self.s2
+        _h1   = h1   if h1   is not None else self.h1
+        _h2   = h2   if h2   is not None else self.h2
+        _h3   = h3   if h3   is not None else self.h3
+        _h4   = h4   if h4   is not None else self.h4
+
+        # The same .conf text the desktop client / awg-quick consumes — the
+        # mobile app keeps a copy under last_config for quick re-export.
+        wg_conf = self.generate_client_config(
+            client_private_key=client_private_key,
+            client_ipv4=client_ipv4,
+            client_ipv6=client_ipv6,
+            server_public_key=server_public_key,
+            server_endpoint=server_endpoint,
+            preshared_key=preshared_key,
+            dns=dns,
+            mtu=mtu,
+            allowed_ips=allowed_ips,
+            persistent_keepalive=persistent_keepalive,
+            jc=_jc, jmin=_jmin, jmax=_jmax,
+            s1=_s1, s2=_s2,
+            h1=_h1, h2=_h2, h3=_h3, h4=_h4,
+        )
+
+        # Split host:port for the JSON fields. Endpoint always carries a port
+        # at this layer (caller is responsible).
+        host = server_endpoint
+        port = ""
+        if "]:" in server_endpoint:                # IPv6 literal "[::1]:51820"
+            host, _, port = server_endpoint.rpartition(":")
+        elif server_endpoint.count(":") == 1:      # plain "host:port"
+            host, _, port = server_endpoint.rpartition(":")
+
+        last_config_inner = {
+            "H1": str(_h1), "H2": str(_h2), "H3": str(_h3), "H4": str(_h4),
+            "Jc": str(_jc), "Jmax": str(_jmax), "Jmin": str(_jmin),
+            "S1": str(_s1), "S2": str(_s2),
+            "client_ip":          client_ipv4.split("/")[0],
+            "client_priv_key":    client_private_key,
+            "client_pub_key":     client_public_key,
+            "config":             wg_conf,
+            "hostName":           host,
+            "mtu":                str(mtu),
+            "persistent_keep_alive": str(persistent_keepalive),
+            "port":               port or "0",
+            "psk_key":            preshared_key or "",
+            "server_pub_key":     server_public_key,
+        }
+
+        awg_block = {
+            "H1": str(_h1), "H2": str(_h2), "H3": str(_h3), "H4": str(_h4),
+            "Jc": str(_jc), "Jmax": str(_jmax), "Jmin": str(_jmin),
+            "S1": str(_s1), "S2": str(_s2),
+            "last_config":  json.dumps(last_config_inner, separators=(",", ":")),
+            "port":         port or "0",
+            "transport_proto": "udp",
+        }
+
+        share_payload = {
+            "containers": [{
+                "container":   "amnezia-awg",
+                "amnezia-awg": awg_block,
+            }],
+            "defaultContainer": "amnezia-awg",
+            "description":      description or "Flirexa",
+            "dns1":             "1.1.1.1",
+            "dns2":             "1.0.0.1",
+            "hostName":         host,
+        }
+        return _amnezia_vpn_share_url(share_payload)
 
     def generate_server_config(
         self,

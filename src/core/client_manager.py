@@ -772,6 +772,24 @@ class ClientManager:
 
         is_awg = server_type == 'amneziawg'
 
+        # WireGuard / AmneziaWG configs require Endpoint = host:port. The
+        # server.endpoint column may be stored either with or without the
+        # port (operator might type just an IP in the create-server form).
+        # Append listen_port whenever the field doesn't already contain a
+        # port. IPv6 literals "[::1]:51820" are also handled.
+        def _with_port(endpoint: str, port: int) -> str:
+            if not endpoint:
+                return endpoint
+            stripped = endpoint.strip().rstrip("/")
+            # IPv6 literal
+            if stripped.startswith("["):
+                return stripped if "]:" in stripped else f"{stripped}:{port}"
+            # Hostname or IPv4 — has colon → already has port
+            if ":" in stripped:
+                return stripped
+            return f"{stripped}:{port}"
+        client_endpoint = _with_port(server.endpoint, server.listen_port)
+
         # Always use full tunnel — AmneziaVPN client handles site-based split tunneling
         # when AllowedIPs = 0.0.0.0/0. Setting specific IPs disables the client's
         # split tunneling page (isDefaultServerDefaultContainerHasSplitTunneling = true).
@@ -798,7 +816,7 @@ class ClientManager:
                 client_ipv4=f"{client.ipv4}/32",
                 client_ipv6=f"{client.ipv6}/128" if client.ipv6 else None,
                 server_public_key=server.public_key,
-                server_endpoint=server.endpoint,
+                server_endpoint=client_endpoint,
                 preshared_key=client.preshared_key,
                 dns=server.dns,
                 mtu=awg_mtu,
@@ -811,12 +829,55 @@ class ClientManager:
             client_ipv4=f"{client.ipv4}/32",
             client_ipv6=f"{client.ipv6}/128" if client.ipv6 else None,
             server_public_key=server.public_key,
-            server_endpoint=server.endpoint,
+            server_endpoint=client_endpoint,
             preshared_key=client.preshared_key,
             dns=server.dns,
             mtu=server.mtu,
             allowed_ips=allowed_ips,
             persistent_keepalive=server.persistent_keepalive
+        )
+
+    def get_amneziavpn_share_url(self, client_id: int) -> Optional[str]:
+        """
+        Build a vpn://... share URL for an AmneziaWG client. Used by the QR
+        endpoint — the AmneziaVPN mobile app expects this wrapper, not raw
+        wg-quick text.
+        """
+        client = self.get_client(client_id)
+        if not client:
+            return None
+        server = client.server
+        if not server or getattr(server, 'server_type', None) != 'amneziawg':
+            return None
+
+        # Endpoint must include port for the share URL to be valid.
+        endpoint = server.endpoint or ""
+        if endpoint and ":" not in endpoint.lstrip("[").split("]", 1)[-1]:
+            endpoint = f"{endpoint}:{server.listen_port}"
+
+        from .amneziawg import AmneziaWGManager, AWG_DEFAULT_MTU
+        awg_mtu = getattr(server, 'awg_mtu', None) or AWG_DEFAULT_MTU
+        mgr = AmneziaWGManager(
+            interface=server.interface,
+            config_path=server.config_path,
+            jc=server.awg_jc,   jmin=server.awg_jmin, jmax=server.awg_jmax,
+            s1=server.awg_s1,   s2=server.awg_s2,
+            h1=server.awg_h1,   h2=server.awg_h2,
+            h3=server.awg_h3,   h4=server.awg_h4,
+        )
+        return mgr.generate_amneziavpn_share_url(
+            client_private_key=client.private_key,
+            client_public_key=client.public_key,
+            client_ipv4=f"{client.ipv4}/32",
+            client_ipv6=f"{client.ipv6}/128" if client.ipv6 else None,
+            server_public_key=server.public_key,
+            server_endpoint=endpoint,
+            preshared_key=client.preshared_key,
+            dns=server.dns,
+            mtu=awg_mtu,
+            allowed_ips="0.0.0.0/0",
+            persistent_keepalive=server.persistent_keepalive,
+            description=server.name or "Flirexa",
         )
 
     def get_proxy_client_access(self, client_id: int) -> Optional[Dict]:

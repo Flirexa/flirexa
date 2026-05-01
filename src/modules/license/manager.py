@@ -53,6 +53,13 @@ def _normalize_license_type(raw: str) -> LicenseType:
     return LicenseType.FREE
 
 
+# Total license duration at or below this threshold (in days) is treated as a
+# trial: when it expires, the user falls back to FREE *immediately* — no
+# grace window. The 7-day grace period exists for paid customers who hit a
+# transient connectivity issue with the licence server, not for trials.
+TRIAL_DURATION_THRESHOLD_DAYS = 14
+
+
 @dataclass
 class LicenseInfo:
     """License information"""
@@ -61,6 +68,7 @@ class LicenseInfo:
     max_servers: int
     features: List[str]
     expires_at: Optional[datetime] = None
+    issued_at: Optional[datetime] = None
     is_valid: bool = True
     validation_message: str = ""
     hardware_id: str = ""
@@ -72,17 +80,29 @@ class LicenseInfo:
         """Canonical plan name (normalized from old tier if needed)."""
         return _TIER_TO_PLAN.get(self.type.value, self.type.value)
 
+    def is_trial(self) -> bool:
+        """Treat short-duration licenses (<= 14 days total) as trials."""
+        if self.expires_at is None or self.issued_at is None:
+            return False
+        return (self.expires_at - self.issued_at).days <= TRIAL_DURATION_THRESHOLD_DAYS
+
+    def effective_grace_days(self) -> int:
+        return 0 if self.is_trial() else GRACE_PERIOD_DAYS
+
     def is_expired(self) -> bool:
         if self.expires_at is None:
             return False
         return datetime.now(timezone.utc) >= self.expires_at
 
     def in_grace_period(self) -> bool:
-        """Check if in grace period after expiry"""
+        """Check if in grace period after expiry. Trials get no grace."""
         if self.expires_at is None:
             return False
+        grace_days = self.effective_grace_days()
+        if grace_days <= 0:
+            return False
         now = datetime.now(timezone.utc)
-        grace_end = self.expires_at + timedelta(days=GRACE_PERIOD_DAYS)
+        grace_end = self.expires_at + timedelta(days=grace_days)
         return self.expires_at <= now < grace_end
 
     def days_remaining(self) -> Optional[int]:
@@ -524,6 +544,19 @@ class LicenseManager:
             except Exception:
                 return self._create_free_license("Invalid license expiry date")
 
+        # Parse issued_at (optional in older payloads). Used to detect trial
+        # licenses by their total length so they don't get the 7-day post-
+        # expiry grace period that's meant for paying customers.
+        issued_at = None
+        issued_str = payload.get("issued_at")
+        if issued_str:
+            try:
+                idt = datetime.fromisoformat(issued_str)
+                if idt.tzinfo is not None:
+                    issued_at = idt
+            except Exception:
+                issued_at = None
+
         # Check hardware binding (timing-safe comparison).
         # hardware_id must be explicitly non-empty; an absent or blank string would
         # allow a signed key to run on any server — we reject such keys.
@@ -533,11 +566,18 @@ class LicenseManager:
             logger.warning("License hardware ID mismatch")
             return self._create_free_license("License not valid for this server")
 
-        # Check expiry
+        # Check expiry. Trials (<= 14 days total) get no grace window — the
+        # 7-day grace is meant for transient lic-server outages on paid
+        # subscriptions, not for free trial extensions.
         grace_period = False
         if expires_at:
+            is_trial = (
+                issued_at is not None
+                and (expires_at - issued_at).days <= TRIAL_DURATION_THRESHOLD_DAYS
+            )
+            grace_days = 0 if is_trial else GRACE_PERIOD_DAYS
             now = datetime.now(timezone.utc)
-            grace_end = expires_at + timedelta(days=GRACE_PERIOD_DAYS)
+            grace_end = expires_at + timedelta(days=grace_days)
             if now >= grace_end:
                 return self._create_free_license("License expired (past grace period)")
             elif now >= expires_at:
@@ -549,6 +589,7 @@ class LicenseManager:
             max_servers=max_servers,
             features=features,
             expires_at=expires_at,
+            issued_at=issued_at,
             is_valid=True,
             validation_message=f"License validated: {license_type.value}" + (" (grace period)" if grace_period else ""),
             hardware_id=hardware_id,
