@@ -69,7 +69,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSystemStore } from '../stores/system'
@@ -84,8 +84,10 @@ const { locale, t } = useI18n()
 const langOpen = ref(false)
 
 // ── Update-available badge ──────────────────────────────────────────────────
-// Polls /api/v1/updates/status every 30 minutes. The backend auto-check loop
-// refreshes the cache every 6h, so this is mostly a UI-side reconcile.
+// Polls /api/v1/updates/status every 60 seconds + on tab focus + on route
+// change. The backend cache makes /status cheap (no upstream call unless its
+// own 6h tick has elapsed), so this is just UI-side reconcile against fresh
+// data without forcing the operator to click "Check for updates".
 const updateBadge = ref({ available: false, title: '' })
 let _updateBadgeTimer = null
 
@@ -106,12 +108,20 @@ async function refreshUpdateBadge() {
   }
 }
 
+function _refreshOnFocus() { if (!document.hidden) refreshUpdateBadge() }
+
+// Refresh whenever the user navigates between admin pages — every route change
+// is a chance to surface a freshly-published version without waiting up to 60s.
+watch(() => route.fullPath, () => refreshUpdateBadge())
+
 onMounted(() => {
   refreshUpdateBadge()
-  _updateBadgeTimer = setInterval(refreshUpdateBadge, 30 * 60 * 1000)
+  _updateBadgeTimer = setInterval(refreshUpdateBadge, 60 * 1000)
+  document.addEventListener('visibilitychange', _refreshOnFocus)
 })
 onBeforeUnmount(() => {
   if (_updateBadgeTimer) clearInterval(_updateBadgeTimer)
+  document.removeEventListener('visibilitychange', _refreshOnFocus)
 })
 
 const routeNameMap = {

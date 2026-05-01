@@ -17,17 +17,17 @@
           <div class="srv-card__identity">
             <span class="srv-card__name">{{ server.name }}</span>
             <span v-if="server.display_name" class="srv-display-name" :title="$t('servers.displayNameTitle') || 'Shown to clients'">
-              👁 {{ server.display_name }}
+              <i class="mdi mdi-eye-outline me-1"></i>{{ server.display_name }}
             </span>
             <div class="srv-card__badges">
-              <span v-if="server.server_type === 'amneziawg'" class="srv-proto srv-proto--awg">🛡 AWG</span>
-              <span v-else-if="server.server_type === 'hysteria2'" class="srv-proto srv-proto--hy2">🌐 HY2</span>
-              <span v-else-if="server.server_type === 'tuic'" class="srv-proto srv-proto--tuic">🌐 TUIC</span>
-              <span v-if="server.is_default" class="srv-proto srv-proto--default">⭐ Default</span>
+              <span v-if="server.server_type === 'amneziawg'" class="srv-proto srv-proto--awg"><i class="mdi mdi-shield-outline me-1"></i>AWG</span>
+              <span v-else-if="server.server_type === 'hysteria2'" class="srv-proto srv-proto--hy2"><i class="mdi mdi-web me-1"></i>HY2</span>
+              <span v-else-if="server.server_type === 'tuic'" class="srv-proto srv-proto--tuic"><i class="mdi mdi-web me-1"></i>TUIC</span>
+              <span v-if="server.is_default" class="srv-proto srv-proto--default"><i class="mdi mdi-star me-1"></i>Default</span>
               <button v-if="server.agent_mode === 'agent'" class="srv-agent-badge" @click.stop="openAgentMenu(server)" title="Manage agent">
-                🤖
+                <i class="mdi mdi-robot-outline"></i>
                 <span v-if="checkingStatus[server.id]" class="spinner-border spinner-border-sm" style="width:.6em;height:.6em;border-width:1.5px"></span>
-                <span v-else-if="agentStatuses[server.id]">{{ agentStatuses[server.id].healthy ? '🟢' : '🔴' }}</span>
+                <i v-else-if="agentStatuses[server.id]" :class="agentStatuses[server.id].healthy ? 'mdi mdi-circle text-success' : 'mdi mdi-circle text-danger'" style="font-size:.6em"></i>
               </button>
               <span v-else-if="server.is_remote" class="srv-agent-badge">SSH</span>
             </div>
@@ -47,36 +47,36 @@
               </button>
               <div v-if="openMenuId === server.id" class="srv-menu__drop">
                 <button v-if="!isOnline(server)" class="srv-menu__item srv-menu__item--ok"
-                  @click="menuAction(() => serverAction(server.id, 'start'))">▶ {{ $t('common.start') }}</button>
+                  @click="menuAction(() => serverAction(server.id, 'start'))"><i class="mdi mdi-play me-1"></i>{{ $t('common.start') }}</button>
                 <template v-if="isOnline(server)">
-                  <button class="srv-menu__item" @click="menuAction(() => serverAction(server.id, 'restart'))">🔄 {{ $t('common.restart') }}</button>
-                  <button class="srv-menu__item" @click="menuAction(() => serverAction(server.id, 'stop'))">⏹ {{ $t('common.stop') }}</button>
+                  <button class="srv-menu__item" @click="menuAction(() => serverAction(server.id, 'restart'))"><i class="mdi mdi-restart me-1"></i>{{ $t('common.restart') }}</button>
+                  <button class="srv-menu__item" @click="menuAction(() => serverAction(server.id, 'stop'))"><i class="mdi mdi-stop me-1"></i>{{ $t('common.stop') }}</button>
                 </template>
                 <div class="srv-menu__sep"></div>
-                <button class="srv-menu__item" @click="menuAction(() => saveConfig(server.id))">💾 {{ $t('servers.saveConfig') }}</button>
-                <button class="srv-menu__item" @click="menuAction(() => backupServer(server))" :disabled="backingUp[server.id]">📥 {{ $t('servers.backup') || 'Backup' }}</button>
-                <button class="srv-menu__item" @click="menuAction(() => triggerRestore(server))">📤 {{ $t('servers.restore') || 'Restore' }}</button>
+                <button class="srv-menu__item" @click="menuAction(() => saveConfig(server.id))"><i class="mdi mdi-content-save-outline me-1"></i>{{ $t('servers.saveConfig') }}</button>
+                <button class="srv-menu__item" @click="menuAction(() => backupServer(server))" :disabled="backingUp[server.id]"><i class="mdi mdi-tray-arrow-down me-1"></i>{{ $t('servers.backup') || 'Backup' }}</button>
+                <button class="srv-menu__item" @click="menuAction(() => triggerRestore(server))"><i class="mdi mdi-tray-arrow-up me-1"></i>{{ $t('servers.restore') || 'Restore' }}</button>
                 <div class="srv-menu__sep"></div>
                 <button v-if="server.server_type !== 'amneziawg' && server.server_category !== 'proxy'"
                   class="srv-menu__item" @click="menuAction(() => toggleSplitTunnel(server))" :disabled="togglingTunnel[server.id]">
-                  ✂️ Split {{ server.split_tunnel_support ? 'ON' : 'OFF' }}
+                  <i class="mdi mdi-call-split me-1"></i>Split {{ server.split_tunnel_support ? 'ON' : 'OFF' }}
                 </button>
                 <button v-if="!server.is_default" class="srv-menu__item"
-                  @click="menuAction(() => setDefaultServer(server.id))">⭐ {{ $t('servers.setDefault') }}</button>
+                  @click="menuAction(() => setDefaultServer(server.id))"><i class="mdi mdi-star-outline me-1"></i>{{ $t('servers.setDefault') }}</button>
                 <template v-if="server.server_category !== 'proxy'">
                   <button v-if="server.agent_mode === 'agent'" class="srv-menu__item"
-                    @click="menuAction(() => openAgentMenu(server))">🤖 {{ $t('servers.manageAgent') || 'Manage Agent' }}</button>
+                    @click="menuAction(() => openAgentMenu(server))"><i class="mdi mdi-robot-outline me-1"></i>{{ $t('servers.manageAgent') || 'Manage Agent' }}</button>
                   <button v-else class="srv-menu__item" @click="menuAction(() => openInstallModal(server.id))"
-                    :disabled="installingAgent[server.id]">🤖 {{ $t('servers.installAgent') || 'Install Agent' }}</button>
+                    :disabled="installingAgent[server.id]"><i class="mdi mdi-robot-outline me-1"></i>{{ $t('servers.installAgent') || 'Install Agent' }}</button>
                   <button v-if="server.ssh_host" class="srv-menu__item"
-                    @click="menuAction(() => openInstallProxyModal(server))">🌐 {{ $t('servers.installProxy') || 'Install Proxy' }}</button>
+                    @click="menuAction(() => openInstallProxyModal(server))"><i class="mdi mdi-web me-1"></i>{{ $t('servers.installProxy') || 'Install Proxy' }}</button>
                 </template>
                 <div class="srv-menu__sep"></div>
-                <button class="srv-menu__item" @click="menuAction(() => openRenameModal(server))">✏️ {{ $t('servers.rename') || 'Rename (display)' }}</button>
+                <button class="srv-menu__item" @click="menuAction(() => openRenameModal(server))"><i class="mdi mdi-pencil-outline me-1"></i>{{ $t('servers.rename') || 'Rename (display)' }}</button>
                 <template v-if="!server.is_default">
                   <div class="srv-menu__sep"></div>
                   <button class="srv-menu__item srv-menu__item--danger"
-                    @click="menuAction(() => confirmDeleteServer(server))">🗑 {{ server.server_category === 'proxy' ? ($t('servers.uninstallProxy') || 'Uninstall Proxy') : ($t('common.delete') || 'Delete') }}</button>
+                    @click="menuAction(() => confirmDeleteServer(server))"><i class="mdi mdi-trash-can-outline me-1"></i>{{ server.server_category === 'proxy' ? ($t('servers.uninstallProxy') || 'Uninstall Proxy') : ($t('common.delete') || 'Delete') }}</button>
                 </template>
               </div>
             </div>
@@ -166,14 +166,14 @@
         <!-- Primary actions -->
         <div class="srv-card__actions">
           <button class="btn btn-primary btn-sm" @click="viewClients(server.id)">
-            👥 {{ $t('servers.viewClients') }}
+            <i class="mdi mdi-account-group-outline me-1"></i>{{ $t('servers.viewClients') }}
           </button>
           <button v-if="server.agent_mode === 'agent'"
             class="btn btn-outline-secondary btn-sm"
             @click="checkAgentStatus(server.id, true)"
             :disabled="checkingStatus[server.id]">
             <span v-if="checkingStatus[server.id]" class="spinner-border spinner-border-sm me-1"></span>
-            <span v-else>🔌 </span>{{ checkingStatus[server.id] ? ($t('servers.testing') || 'Testing...') : ($t('servers.testConnection') || 'Test') }}
+            <i v-else class="mdi mdi-power-plug-outline me-1"></i>{{ checkingStatus[server.id] ? ($t('servers.testing') || 'Testing...') : ($t('servers.testConnection') || 'Test') }}
           </button>
         </div>
 
@@ -185,7 +185,7 @@
 
     <!-- Empty state -->
     <div class="srv-empty" v-if="store.servers.length === 0 && !store.loading">
-      <div class="srv-empty__icon">🖥</div>
+      <div class="srv-empty__icon"><i class="mdi mdi-server-network"></i></div>
       <h5 class="srv-empty__title">{{ $t('servers.noServers') }}</h5>
       <p class="srv-empty__desc">{{ $t('servers.noServersDesc') }}</p>
       <button class="btn btn-primary" @click="showAddModal = true">{{ $t('servers.addServer') }}</button>
@@ -209,7 +209,7 @@
                      :class="newServer.server_category === 'vpn' ? 'add-card--active-blue' : ''"
                      @click="selectCategory('vpn')">
                   <div class="d-flex align-items-center gap-2 mb-2">
-                    <span>🛡</span><strong>VPN</strong>
+                    <i class="mdi mdi-shield-outline"></i><strong>VPN</strong>
                   </div>
                   <ul class="mb-0 ps-3 text-muted" style="font-size:0.78em">
                     <li>{{ $t('servers.vpnFeature1') }}</li>
@@ -220,7 +220,7 @@
                      :class="newServer.server_category === 'proxy' ? 'add-card--active-amber' : ''"
                      @click.self="selectCategory('proxy')">
                   <div class="d-flex align-items-center gap-2 mb-2">
-                    <span>🌐</span>
+                    <i class="mdi mdi-web"></i>
                     <strong @click="selectCategory('proxy')">Proxy</strong>
                     <HelpTooltip :text="$t('servers.protocolMatrixHint')" />
                   </div>
@@ -336,7 +336,7 @@
                 </div>
               </div>
               <div v-if="newServer.server_type === 'amneziawg'" class="info-pill mb-2">
-                🛡 {{ $t('servers.awgAutoParams') }}
+                <i class="mdi mdi-shield-outline me-1"></i>{{ $t('servers.awgAutoParams') }}
               </div>
               <div v-if="newServer.server_type === 'wireguard'" class="d-flex align-items-center gap-2">
                 <input class="form-check-input mt-0" type="checkbox" v-model="newServer.split_tunnel_support" id="splitTunnelNew"
@@ -348,7 +348,7 @@
 
             <!-- Proxy Quick Start hint -->
             <div v-if="newServer.server_category === 'proxy'" class="quick-start mb-3">
-              <span class="quick-start__icon">⚡</span>
+              <span class="quick-start__icon"><i class="mdi mdi-flash"></i></span>
               <div>
                 <div class="quick-start__title">{{ $t('servers.quickStart') }}</div>
                 <div class="quick-start__steps">
@@ -370,17 +370,17 @@
                   <button type="button" class="tls-seg__btn"
                           :class="{ 'tls-seg__btn--warn': newServer.proxy_tls_mode === 'self_signed' }"
                           @click="newServer.proxy_tls_mode = 'self_signed'">
-                    ⚠️ {{ $t('servers.tlsLabelTest') }}
+                    <i class="mdi mdi-alert me-1"></i>{{ $t('servers.tlsLabelTest') }}
                   </button>
                   <button type="button" class="tls-seg__btn"
                           :class="{ 'tls-seg__btn--ok': newServer.proxy_tls_mode === 'acme' }"
                           @click="newServer.proxy_tls_mode = 'acme'">
-                    🔒 {{ $t('servers.tlsLabelAuto') }}
+                    <i class="mdi mdi-lock me-1"></i>{{ $t('servers.tlsLabelAuto') }}
                   </button>
                   <button type="button" class="tls-seg__btn"
                           :class="{ 'tls-seg__btn--ok': newServer.proxy_tls_mode === 'manual' }"
                           @click="newServer.proxy_tls_mode = 'manual'">
-                    🔐 {{ $t('servers.tlsLabelCustom') }}
+                    <i class="mdi mdi-shield-key-outline me-1"></i>{{ $t('servers.tlsLabelCustom') }}
                   </button>
                 </div>
                 <!-- Dynamic hint under control -->
@@ -388,15 +388,15 @@
                   'tls-hint--warn': newServer.proxy_tls_mode === 'self_signed',
                   'tls-hint--ok':   newServer.proxy_tls_mode !== 'self_signed'
                 }">
-                  <span v-if="newServer.proxy_tls_mode === 'self_signed'">⚠️ {{ $t('servers.tlsOnelinerTest') }}</span>
-                  <span v-if="newServer.proxy_tls_mode === 'acme'">ℹ️ {{ $t('servers.tlsOnelinerAuto') }}</span>
-                  <span v-if="newServer.proxy_tls_mode === 'manual'">✅ {{ $t('servers.tlsOnelinerCustom') }}</span>
+                  <span v-if="newServer.proxy_tls_mode === 'self_signed'"><i class="mdi mdi-alert me-1"></i>{{ $t('servers.tlsOnelinerTest') }}</span>
+                  <span v-if="newServer.proxy_tls_mode === 'acme'"><i class="mdi mdi-information-outline me-1"></i>{{ $t('servers.tlsOnelinerAuto') }}</span>
+                  <span v-if="newServer.proxy_tls_mode === 'manual'"><i class="mdi mdi-check-circle me-1 text-success"></i>{{ $t('servers.tlsOnelinerCustom') }}</span>
                 </div>
               </div>
 
               <!-- ACME requirements banner -->
               <div v-if="newServer.proxy_tls_mode === 'acme'" class="acme-banner mb-3">
-                <div class="acme-banner__title">🔒 Let's Encrypt — требования</div>
+                <div class="acme-banner__title"><i class="mdi mdi-lock me-1"></i>Let's Encrypt — требования</div>
                 <ul class="acme-banner__list">
                   <li>Домен <strong>должен</strong> указывать на IP этого сервера (A-запись)</li>
                   <li>Порт <strong>80</strong> должен быть открыт (HTTP-01 challenge)</li>
@@ -501,7 +501,7 @@
             <div v-if="bootstrapTaskId" class="bootstrap-log-box">
               <div class="bootstrap-log-box__header">
                 <span v-if="addingServer" class="spinner-border spinner-border-sm me-2"></span>
-                <span v-else class="me-2">✅</span>
+                <i v-else class="mdi mdi-check-circle text-success me-2"></i>
                 <span class="fw-semibold small">{{ addingServer ? (installProgress || 'Installing...') : 'Done' }}</span>
               </div>
               <div class="bootstrap-log-box__body" ref="logBoxRef">
@@ -527,7 +527,7 @@
 
     <!-- Server created toast -->
     <div v-if="serverCreatedToast" class="server-toast">
-      <span>✅ {{ $t('servers.serverCreated', { name: serverCreatedToast.name }) }}</span>
+      <span><i class="mdi mdi-check-circle text-success me-1"></i>{{ $t('servers.serverCreated', { name: serverCreatedToast.name }) }}</span>
       <div class="d-flex align-items-center gap-2 ms-auto">
         <button class="btn btn-sm btn-primary" @click="goCreateClient(serverCreatedToast.id)">
           {{ $t('servers.createClientNow') }}
@@ -635,7 +635,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title d-flex align-items-center gap-2">🤖 {{ $t('servers.installAgent') || 'Install Agent' }}<HelpTooltip :text="$t('help.agentMode')" /></h5>
+            <h5 class="modal-title d-flex align-items-center gap-2"><i class="mdi mdi-robot-outline"></i>{{ $t('servers.installAgent') || 'Install Agent' }}<HelpTooltip :text="$t('help.agentMode')" /></h5>
             <button type="button" class="btn-close" @click="showInstallModal = false"></button>
           </div>
           <div class="modal-body">
@@ -658,7 +658,7 @@
                   :class="installMode === 'auto' ? 'btn-primary' : 'btn-outline-primary'"
                   @click="installMode = 'auto'"
                 >
-                  🚀 {{ $t('servers.autoInstall') || 'Automatic' }}
+                  <i class="mdi mdi-rocket-launch-outline me-1"></i>{{ $t('servers.autoInstall') || 'Automatic' }}
                 </button>
                 <button
                   type="button"
@@ -666,7 +666,7 @@
                   :class="installMode === 'manual' ? 'btn-primary' : 'btn-outline-primary'"
                   @click="installMode = 'manual'"
                 >
-                  ⚙️ {{ $t('servers.manualInstall') || 'Custom Port' }}
+                  <i class="mdi mdi-cog-outline me-1"></i>{{ $t('servers.manualInstall') || 'Custom Port' }}
                 </button>
               </div>
             </div>
@@ -717,7 +717,7 @@
               class="btn btn-success"
               @click="installAgent(selectedServerId, installMode === 'manual' ? customPort : 8001)"
             >
-              🚀 {{ $t('servers.startInstallation') || 'Start Installation' }}
+              <i class="mdi mdi-rocket-launch-outline me-1"></i>{{ $t('servers.startInstallation') || 'Start Installation' }}
             </button>
           </div>
         </div>
@@ -730,7 +730,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">🤖 Agent: {{ agentServer?.name }}</h5>
+            <h5 class="modal-title"><i class="mdi mdi-robot-outline me-2"></i>Agent: {{ agentServer?.name }}</h5>
             <button type="button" class="btn-close" @click="showAgentModal = false"></button>
           </div>
           <div class="modal-body">
@@ -739,8 +739,8 @@
               <div class="d-flex align-items-center mb-2">
                 <strong class="me-2">{{ $t('servers.connectionStatus') || 'Status' }}:</strong>
                 <span v-if="checkingStatus[agentServer?.id]" class="spinner-border spinner-border-sm"></span>
-                <span v-else-if="agentStatuses[agentServer?.id]?.healthy" class="badge bg-success">🟢 Online</span>
-                <span v-else class="badge bg-danger">🔴 Offline</span>
+                <span v-else-if="agentStatuses[agentServer?.id]?.healthy" class="badge bg-success"><i class="mdi mdi-circle me-1" style="font-size:.55em"></i>Online</span>
+                <span v-else class="badge bg-danger"><i class="mdi mdi-circle me-1" style="font-size:.55em"></i>Offline</span>
               </div>
               <table class="table table-sm mb-0">
                 <tbody>
@@ -772,7 +772,7 @@
                 :disabled="checkingStatus[agentServer?.id]"
               >
                 <span v-if="checkingStatus[agentServer?.id]" class="spinner-border spinner-border-sm me-1"></span>
-                🔌 {{ $t('servers.testConnection') || 'Test Connection' }}
+                <i v-else class="mdi mdi-power-plug-outline me-1"></i>{{ $t('servers.testConnection') || 'Test Connection' }}
               </button>
               <button
                 class="btn btn-outline-warning btn-sm"
@@ -780,7 +780,7 @@
                 :disabled="installingAgent[agentServer?.id]"
               >
                 <span v-if="installingAgent[agentServer?.id]" class="spinner-border spinner-border-sm me-1"></span>
-                🔄 {{ $t('servers.reinstallAgent') || 'Reinstall Agent' }}
+                <i v-else class="mdi mdi-restart me-1"></i>{{ $t('servers.reinstallAgent') || 'Reinstall Agent' }}
               </button>
               <button
                 class="btn btn-outline-danger btn-sm"
@@ -788,7 +788,7 @@
                 :disabled="uninstallingAgent"
               >
                 <span v-if="uninstallingAgent" class="spinner-border spinner-border-sm me-1"></span>
-                🗑 {{ $t('servers.deleteAgent') || 'Delete Agent (switch to SSH)' }}
+                <i v-else class="mdi mdi-trash-can-outline me-1"></i>{{ $t('servers.deleteAgent') || 'Delete Agent (switch to SSH)' }}
               </button>
             </div>
           </div>
@@ -805,7 +805,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
-            <h5 class="modal-title">🌐 Install Proxy on {{ installProxyServer?.name }}</h5>
+            <h5 class="modal-title"><i class="mdi mdi-web me-2"></i>Install Proxy on {{ installProxyServer?.name }}</h5>
             <button type="button" class="btn-close" @click="showInstallProxyModal = false" :disabled="installingProxy"></button>
           </div>
           <div class="modal-body">
@@ -860,7 +860,7 @@
             <button type="button" class="btn btn-secondary" @click="showInstallProxyModal = false" :disabled="installingProxy">{{ $t('common.cancel') }}</button>
             <button type="button" class="btn btn-success" @click="doInstallProxy" :disabled="installingProxy || (installProxyForm.tls_mode === 'acme' && !installProxyForm.domain)">
               <span v-if="installingProxy" class="spinner-border spinner-border-sm me-1"></span>
-              🌐 Install
+              <i class="mdi mdi-web me-1"></i>Install
             </button>
           </div>
         </div>

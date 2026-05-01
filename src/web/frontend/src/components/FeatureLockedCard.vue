@@ -1,6 +1,6 @@
 <template>
   <div class="feature-locked">
-    <div class="feature-locked__icon">🔒</div>
+    <div class="feature-locked__icon"><i class="mdi mdi-lock-outline"></i></div>
     <h3 class="feature-locked__title">{{ title }}</h3>
     <p class="feature-locked__desc">{{ description }}</p>
     <div class="feature-locked__tier-pill">{{ tierLabel }} tier</div>

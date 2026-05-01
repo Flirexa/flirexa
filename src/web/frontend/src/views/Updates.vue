@@ -1,7 +1,7 @@
 <template>
   <div class="container-fluid py-4 updates-page">
     <div class="updates-page__header">
-      <h2 class="mb-0 updates-page__title">⬆️ {{ $t('nav.updates') }}</h2>
+      <h2 class="mb-0 updates-page__title"><i class="mdi mdi-arrow-up-bold-circle me-2"></i>{{ $t('nav.updates') }}</h2>
       <div class="updates-page__actions">
         <button class="btn btn-outline-secondary btn-sm updates-page__action-btn"
                 @click="checkUpdates"
@@ -13,14 +13,14 @@
                 @click="restartServices"
                 :disabled="restarting || updateInProgress">
           <span v-if="restarting" class="spinner-border spinner-border-sm me-1"></span>
-          {{ restarting ? $t('updates.restarting') : '🔄 ' + $t('updates.restartServices') }}
+          <i v-if="!restarting" class="mdi mdi-restart me-1"></i>{{ restarting ? $t('updates.restarting') : $t('updates.restartServices') }}
         </button>
       </div>
     </div>
 
     <!-- Check error alert (inline, not hidden in card) -->
     <div v-if="checkError" class="alert alert-warning alert-dismissible d-flex align-items-start gap-2 mb-3">
-      <span>⚠️</span>
+      <i class="mdi mdi-alert text-warning fs-5"></i>
       <div class="flex-grow-1">
         <strong>{{ $t('updates.checkFailed') }}:</strong> {{ checkError }}
       </div>
@@ -39,7 +39,7 @@
               <!-- Up-to-date badge -->
               <span v-if="!status.available_update && !status.check_error && status.current_version && !updateInProgress"
                     class="badge bg-success">
-                ✓ {{ $t('updates.upToDate') }}
+                <i class="mdi mdi-check me-1"></i>{{ $t('updates.upToDate') }}
               </span>
               <!-- In-progress badge -->
               <span v-if="updateInProgress" class="badge bg-primary">
@@ -74,7 +74,7 @@
 
             <!-- Check error (compact) -->
             <div v-else-if="status.check_error && !status.available_update">
-              <div class="text-warning small">⚠️ {{ status.check_error }}</div>
+              <div class="text-warning small"><i class="mdi mdi-alert me-1"></i>{{ status.check_error }}</div>
             </div>
 
             <!-- Update available -->
@@ -95,13 +95,13 @@
                 <button class="btn btn-sm btn-outline-info"
                         @click="showChangelog(status.available_update)"
                         :disabled="updateInProgress || applying">
-                  📋 {{ $t('updates.changelog') }}
+                  <i class="mdi mdi-text-box-outline me-1"></i>{{ $t('updates.changelog') }}
                 </button>
                 <button class="btn btn-sm btn-primary"
                         @click="confirmApply"
                         :disabled="updateInProgress || applying">
                   <span v-if="applying" class="spinner-border spinner-border-sm me-1"></span>
-                  ⬆️ {{ $t('updates.install') }}
+                  <i v-else class="mdi mdi-arrow-up-bold me-1"></i>{{ $t('updates.install') }}
                 </button>
               </div>
             </div>
@@ -134,9 +134,9 @@
     <div v-if="progress && !isActiveStatus(progress.status)" class="card mb-4"
          :class="terminalCardClass(progress.status)">
       <div class="card-header" :class="terminalHeaderClass(progress.status)">
-        <span v-if="progress.status === 'success'">✓ {{ $t('updates.success') }}</span>
-        <span v-else-if="progress.status === 'rolled_back'">↩️ {{ $t('updates.rolledBack') }}</span>
-        <span v-else>✗ {{ $t('updates.failed') }}<span v-if="progress.error">: {{ progress.error }}</span></span>
+        <span v-if="progress.status === 'success'"><i class="mdi mdi-check-circle me-1"></i>{{ $t('updates.success') }}</span>
+        <span v-else-if="progress.status === 'rolled_back'"><i class="mdi mdi-undo-variant me-1"></i>{{ $t('updates.rolledBack') }}</span>
+        <span v-else><i class="mdi mdi-close-circle me-1"></i>{{ $t('updates.failed') }}<span v-if="progress.error">: {{ progress.error }}</span></span>
       </div>
       <div v-if="progress.log && progress.log.length" class="card-body">
         <div class="update-log bg-dark text-light p-3 rounded"
@@ -150,7 +150,7 @@
     <div v-if="status.restart_pending && !updateInProgress" class="card mb-4 border-warning">
       <div class="card-body d-flex align-items-center justify-content-between gap-3 flex-wrap">
         <div>
-          <strong>🔄 {{ $t('updates.restartRequired') }}</strong>
+          <strong><i class="mdi mdi-restart text-warning me-1"></i>{{ $t('updates.restartRequired') }}</strong>
           <div class="text-muted small mt-1">{{ $t('updates.restartNote') }}</div>
         </div>
         <button class="btn btn-warning"
@@ -167,7 +167,7 @@
       <div class="card-body">
         <div class="d-flex align-items-center gap-3 mb-2">
           <span class="spinner-border spinner-border-sm text-warning flex-shrink-0"></span>
-          <strong>🔄 {{ $t('updates.waitingRestart') }}</strong>
+          <strong><i class="mdi mdi-restart text-warning me-1"></i>{{ $t('updates.waitingRestart') }}</strong>
         </div>
         <div class="text-muted small">
           {{ $t('updates.restartInProgress') }}
@@ -181,7 +181,7 @@
     <!-- Update History -->
     <div class="card update-history-card">
       <div class="card-header">
-        <h5 class="mb-0">📋 {{ $t('updates.history') }}</h5>
+        <h5 class="mb-0"><i class="mdi mdi-history me-2"></i>{{ $t('updates.history') }}</h5>
       </div>
       <div class="card-body p-0">
         <div v-if="!history.length" class="text-center text-muted py-4">
@@ -211,7 +211,7 @@
                   <small class="text-muted d-md-none">{{ formatDate(rec.started_at) }}</small>
                 </td>
                 <td class="d-none d-sm-table-cell">
-                  <span v-if="rec.is_rollback" class="badge bg-info text-dark">↩️ rollback</span>
+                  <span v-if="rec.is_rollback" class="badge bg-info text-dark"><i class="mdi mdi-undo-variant me-1"></i>rollback</span>
                   <span v-else class="badge" :class="updateTypeBadge(rec.update_type)">{{ rec.update_type || '—' }}</span>
                 </td>
                 <td>
@@ -223,17 +223,17 @@
                 <td>
                   <button v-if="rec.has_log" class="btn btn-xs btn-outline-secondary me-1"
                           @click="viewLog(rec.id)" :title="$t('updates.updateLog')">
-                    📄
+                    <i class="mdi mdi-file-document-outline"></i>
                   </button>
                   <button v-if="rec.rollback_available && rec.backup_path_exists && !updateInProgress"
                           class="btn btn-xs btn-outline-warning"
                           @click="confirmRollback(rec)"
                           :title="$t('updates.rollbackNow')">
-                    ↩️
+                    <i class="mdi mdi-undo-variant"></i>
                   </button>
                   <span v-else-if="rec.rollback_available && !rec.backup_path_exists"
                         class="text-muted small" :title="$t('updates.backupMissing')">
-                    ⚠️
+                    <i class="mdi mdi-alert"></i>
                   </span>
                 </td>
               </tr>
@@ -256,7 +256,7 @@
               <div class="updates-history-mobile-card__meta-row">
                 <span class="text-muted">{{ $t('updates.type') }}</span>
                 <span>
-                  <span v-if="rec.is_rollback" class="badge bg-info text-dark">↩️ rollback</span>
+                  <span v-if="rec.is_rollback" class="badge bg-info text-dark"><i class="mdi mdi-undo-variant me-1"></i>rollback</span>
                   <span v-else class="badge" :class="updateTypeBadge(rec.update_type)">{{ rec.update_type || '—' }}</span>
                 </span>
               </div>
@@ -277,16 +277,16 @@
             <div class="updates-history-mobile-card__actions">
               <button v-if="rec.has_log" class="btn btn-sm btn-outline-secondary"
                       @click="viewLog(rec.id)">
-                📄 {{ $t('updates.updateLog') }}
+                <i class="mdi mdi-file-document-outline me-1"></i>{{ $t('updates.updateLog') }}
               </button>
               <button v-if="rec.rollback_available && rec.backup_path_exists && !updateInProgress"
                       class="btn btn-sm btn-outline-warning"
                       @click="confirmRollback(rec)">
-                ↩️ {{ $t('updates.rollbackNow') }}
+                <i class="mdi mdi-undo-variant me-1"></i>{{ $t('updates.rollbackNow') }}
               </button>
               <div v-else-if="rec.rollback_available && !rec.backup_path_exists"
                    class="text-muted small updates-history-mobile-card__warning">
-                ⚠️ {{ $t('updates.backupMissing') }}
+                <i class="mdi mdi-alert me-1"></i>{{ $t('updates.backupMissing') }}
               </div>
             </div>
           </div>
@@ -307,11 +307,11 @@
           </div>
           <div class="modal-body">
             <div v-if="changelogModal.release_date" class="text-muted small mb-3">
-              📅 {{ formatDate(changelogModal.release_date) }}
+              <i class="mdi mdi-calendar-outline me-1"></i>{{ formatDate(changelogModal.release_date) }}
             </div>
             <pre class="bg-light p-3 rounded" style="white-space: pre-wrap; font-family: inherit;">{{ changelogModal.changelog || $t('updates.noChangelog') }}</pre>
             <div v-if="changelogModal.has_db_migrations" class="alert alert-warning mt-3 mb-0">
-              ⚠️ {{ $t('updates.hasMigrations') }}
+              <i class="mdi mdi-alert me-1"></i>{{ $t('updates.hasMigrations') }}
             </div>
           </div>
           <div class="modal-footer">
@@ -319,7 +319,7 @@
             <button class="btn btn-primary"
                     @click="confirmApply(); changelogModal=null"
                     :disabled="updateInProgress || applying">
-              ⬆️ {{ $t('updates.install') }}
+              <i class="mdi mdi-arrow-up-bold me-1"></i>{{ $t('updates.install') }}
             </button>
           </div>
         </div>
@@ -350,7 +350,7 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header bg-primary text-white">
-            <h5 class="modal-title">⬆️ {{ $t('updates.confirmInstall') }}</h5>
+            <h5 class="modal-title"><i class="mdi mdi-arrow-up-bold me-2"></i>{{ $t('updates.confirmInstall') }}</h5>
             <button class="btn-close btn-close-white" @click="applyConfirm=false"></button>
           </div>
           <div class="modal-body">
@@ -378,12 +378,12 @@
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header bg-warning">
-            <h5 class="modal-title d-flex align-items-center gap-2">↩️ {{ $t('updates.confirmRollback') }}<HelpTooltip :text="$t('help.rollback')" /></h5>
+            <h5 class="modal-title d-flex align-items-center gap-2"><i class="mdi mdi-undo-variant"></i>{{ $t('updates.confirmRollback') }}<HelpTooltip :text="$t('help.rollback')" /></h5>
             <button class="btn-close" @click="rollbackTarget=null"></button>
           </div>
           <div class="modal-body">
             <p>{{ $t('updates.confirmRollbackMsg', {from: rollbackTarget.to_version, to: rollbackTarget.from_version}) }}</p>
-            <div class="alert alert-warning">⚠️ {{ $t('updates.rollbackWarning') }}</div>
+            <div class="alert alert-warning"><i class="mdi mdi-alert me-1"></i>{{ $t('updates.rollbackWarning') }}</div>
           </div>
           <div class="modal-footer">
             <button class="btn btn-secondary" @click="rollbackTarget=null">{{ $t('common.cancel') }}</button>

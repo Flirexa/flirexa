@@ -119,17 +119,17 @@
                     @click="reconcileOne(srv.server_id)"
                     :title="$t('serverMonitoring.drifted')">
               <span v-if="reconciling[srv.server_id]" class="spinner-border spinner-border-sm"></span>
-              <span v-else>&#x1F527;</span>
+              <i v-else class="mdi mdi-wrench-outline"></i>
             </button>
             <button class="sm-action-btn"
                     @click="refreshOne(srv.server_id)" :disabled="refreshing[srv.server_id]">
               <span v-if="refreshing[srv.server_id]" class="spinner-border spinner-border-sm"></span>
-              <span v-else>&#x1F504;</span>
+              <i v-else class="mdi mdi-refresh"></i>
             </button>
             <button class="sm-action-btn"
                     @click="toggleEvents(srv.server_id)"
                     :class="{ 'sm-action-btn--active': expandedEvents[srv.server_id] }">
-              &#x1F4CB;
+              <i class="mdi mdi-clipboard-text-outline"></i>
             </button>
           </div>
 

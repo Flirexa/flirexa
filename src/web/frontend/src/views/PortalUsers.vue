@@ -98,7 +98,7 @@
     <!-- Filters -->
     <div class="pu-filters mb-4">
       <div class="pu-filters__search">
-        <span class="pu-filters__search-icon">&#x1F50D;</span>
+        <span class="pu-filters__search-icon"><i class="mdi mdi-magnify"></i></span>
         <input
           type="text"
           class="form-control form-control-sm pu-filters__input"
@@ -119,7 +119,7 @@
       </select>
       <button class="btn btn-sm btn-outline-secondary pu-filters__refresh" @click="loadUsers" :disabled="loading">
         <span v-if="loading" class="spinner-border spinner-border-sm"></span>
-        <span v-else>&#x21BB;</span>
+        <i v-else class="mdi mdi-refresh"></i>
       </button>
     </div>
 
@@ -377,7 +377,7 @@
                         <small class="text-muted d-block mb-1">{{ $t('portalUsers.trafficUsed') || 'Traffic' }}</small>
                         <span class="fw-medium">{{ (detail.subscription.traffic_used_gb ?? 0).toFixed(2) }} GB</span>
                         <small class="text-muted" v-if="detail.subscription.traffic_limit_gb"> / {{ detail.subscription.traffic_limit_gb }} GB</small>
-                        <small class="text-muted" v-else> / &#x221E;</small>
+                        <small class="text-muted" v-else> / ∞</small>
                         <!-- Traffic progress bar -->
                         <div v-if="detail.subscription.traffic_limit_gb" class="progress mt-2" style="height: 6px;">
                           <div class="progress-bar" :class="subTrafficBarClass" :style="{ width: subTrafficPercent + '%' }"></div>
@@ -485,7 +485,7 @@
                             {{ d.enabled ? 'ON' : 'OFF' }}
                           </span>
                         </td>
-                        <td>{{ d.bandwidth_limit ? d.bandwidth_limit + ' Mbps' : '&#x221E;' }}</td>
+                        <td>{{ d.bandwidth_limit ? d.bandwidth_limit + ' Mbps' : '∞' }}</td>
                         <td>
                           <div class="d-flex align-items-center gap-2">
                             <span>{{ formatBytes((d.traffic_rx || 0) + (d.traffic_tx || 0)) }}</span>
@@ -529,13 +529,13 @@
                         <td>
                           <div class="d-flex gap-1">
                             <button v-if="p.status === 'pending'" class="btn btn-sm btn-outline-success py-0 px-1" @click="confirmPaymentInDetail(p.id)" :disabled="actionLoading" :title="$t('portalUsers.confirmPayment')">
-                              &#x2713;
+                              <i class="mdi mdi-check"></i>
                             </button>
                             <button v-if="p.status !== 'completed'" class="btn btn-sm btn-outline-warning py-0 px-1" @click="rejectPaymentInDetail(p.id)" :disabled="actionLoading" :title="$t('portalUsers.rejectPayment') || 'Reject'">
-                              &#x2717;
+                              <i class="mdi mdi-close"></i>
                             </button>
                             <button class="btn btn-sm btn-outline-danger py-0 px-1" @click="deletePaymentInDetail(p.id)" :disabled="actionLoading" :title="$t('common.delete')">
-                              &#x1D5EB;
+                              <i class="mdi mdi-trash-can-outline"></i>
                             </button>
                           </div>
                         </td>

@@ -361,6 +361,8 @@ export default {
   clients: {
     searchPlaceholder: 'Поиск клиентов...',
     all: 'Все',
+    online: 'Онлайн',
+    offline: 'Оффлайн',
     allServers: 'Все серверы',
     newClient: '+ Новый клиент',
     server: 'Сервер',

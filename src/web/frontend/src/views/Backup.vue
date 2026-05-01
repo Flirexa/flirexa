@@ -3,12 +3,12 @@
     <!-- Header -->
     <div class="d-flex justify-content-between align-items-center mb-4 mobile-toolbar">
       <div>
-        <h4 class="mb-0 d-flex align-items-center gap-2">&#x1F4BE; {{ $t('backup.header') }}<HelpTooltip :text="$t('help.backup')" /></h4>
+        <h4 class="mb-0 d-flex align-items-center gap-2"><i class="mdi mdi-database-outline"></i>{{ $t('backup.header') }}<HelpTooltip :text="$t('help.backup')" /></h4>
         <small class="text-muted">{{ $t('backup.subtitle') }}</small>
       </div>
       <button class="btn btn-primary btn-sm" @click="createBackup" :disabled="creating">
         <span v-if="creating" class="spinner-border spinner-border-sm me-1"></span>
-        &#x2795; Create Backup
+        <i class="mdi mdi-plus me-1"></i>Create Backup
       </button>
     </div>
 
@@ -24,17 +24,17 @@
       <strong>{{ lastResult.title }}</strong>
       <div class="small mt-1">{{ lastResult.message }}</div>
       <div v-if="lastResult.errors && lastResult.errors.length" class="mt-2">
-        <div v-for="e in lastResult.errors" :key="e" class="text-danger small">&#x26A0; {{ e }}</div>
+        <div v-for="e in lastResult.errors" :key="e" class="text-danger small"><i class="mdi mdi-alert me-1"></i>{{ e }}</div>
       </div>
     </div>
 
     <!-- Backup list -->
     <div class="card border-0 shadow-sm">
       <div class="card-header py-2 d-flex justify-content-between align-items-center">
-        <span class="fw-semibold small">&#x1F4C2; {{ $t('backup.availableBackups') }}</span>
+        <span class="fw-semibold small"><i class="mdi mdi-folder-open-outline me-1"></i>{{ $t('backup.availableBackups') }}</span>
         <button class="btn btn-sm btn-outline-secondary" @click="loadBackups" :disabled="loading">
           <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
-          &#x1F504; Refresh
+          <i v-else class="mdi mdi-refresh me-1"></i>Refresh
         </button>
       </div>
 
@@ -47,7 +47,7 @@
       </div>
 
       <div v-else-if="!backups.length" class="card-body text-center text-muted py-5">
-        <div style="font-size:2rem">&#x1F4BE;</div>
+        <div style="font-size:2rem"><i class="mdi mdi-database-outline"></i></div>
         <div class="mt-2">{{ $t('backup.noBackups') }}</div>
       </div>
 
@@ -101,13 +101,13 @@
                             title="Verify integrity">
                       <span v-if="operating === b.backup_id && opType === 'verify'"
                             class="spinner-border spinner-border-sm"></span>
-                      <span v-else>&#x2714; Verify</span>
+                      <span v-else><i class="mdi mdi-check me-1"></i>Verify</span>
                     </button>
                     <button v-if="b.format === 'tar.gz' && !b.is_prerestore"
                             class="btn btn-outline-warning"
                             @click="confirmRestore(b, 'full')"
                             :disabled="!!operating">
-                      &#x1F504; {{ $t('backup.btnFullRestore') }}<HelpTooltip :text="$t('help.fullRestore')" />
+                      <i class="mdi mdi-restore me-1"></i>{{ $t('backup.btnFullRestore') }}<HelpTooltip :text="$t('help.fullRestore')" />
                     </button>
                     <button class="btn btn-outline-primary"
                             @click="confirmRestore(b, 'database')"
@@ -117,7 +117,7 @@
                     <button class="btn btn-outline-danger"
                             @click="confirmDelete(b)"
                             :disabled="!!operating">
-                      &#x1F5D1;
+                      <i class="mdi mdi-trash-can-outline"></i>
                     </button>
                   </div>
                 </td>
@@ -203,7 +203,7 @@
       <div class="card-header py-2 d-flex justify-content-between align-items-center"
            :class="verifyResult.ok ? 'bg-success bg-opacity-10 text-success' : 'bg-warning bg-opacity-10 text-warning'">
         <span class="fw-semibold small">
-          {{ verifyResult.ok ? '✅ ' + $t('backup.verifiedOk') : '⚠️ ' + $t('backup.verifiedFail') }}
+          <i :class="verifyResult.ok ? 'mdi mdi-check-circle me-1' : 'mdi mdi-alert me-1'"></i>{{ verifyResult.ok ? $t('backup.verifiedOk') : $t('backup.verifiedFail') }}
           — {{ verifyResult.backup_id }}
         </span>
         <button class="btn-close btn-sm" @click="verifyResult = null"></button>
@@ -226,7 +226,7 @@
           </template>
         </div>
         <div v-if="verifyResult.errors && verifyResult.errors.length" class="mt-2">
-          <div v-for="e in verifyResult.errors" :key="e" class="text-danger small">&#x26A0; {{ e }}</div>
+          <div v-for="e in verifyResult.errors" :key="e" class="text-danger small"><i class="mdi mdi-alert me-1"></i>{{ e }}</div>
         </div>
         <div v-else class="text-success small mt-1">{{ $t('backup.checksumOk') }}</div>
       </div>
@@ -235,7 +235,7 @@
     <!-- Disaster Recovery info box -->
     <div class="card border-0 shadow-sm mt-3">
       <div class="card-header py-2">
-        <span class="fw-semibold small">&#x1F6A8; {{ $t('backup.disasterRecovery') }}</span>
+        <span class="fw-semibold small"><i class="mdi mdi-alert-circle-outline text-danger me-1"></i>{{ $t('backup.disasterRecovery') }}</span>
       </div>
       <div class="card-body py-3 small">
         <p class="mb-2">{{ $t('backup.drInstructions') }}:</p>
