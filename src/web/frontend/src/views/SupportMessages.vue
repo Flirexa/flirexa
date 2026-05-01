@@ -2,7 +2,7 @@
   <div class="support-messages-page">
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-stretch align-items-md-center gap-2 mb-4 mobile-toolbar">
       <div class="d-flex align-items-center gap-2">
-        <h4 class="mb-0">💬 {{ $t('support.title') }}</h4>
+        <h4 class="mb-0"><i class="mdi mdi-message-text-outline me-2"></i>{{ $t('support.title') }}</h4>
         <span class="badge badge-offline" v-if="unreadCount > 0">{{ unreadCount }} {{ $t('support.unread') }}</span>
       </div>
       <div class="d-flex flex-wrap gap-2 mobile-filter-bar">
@@ -86,7 +86,7 @@
                 </button>
                 <button class="btn btn-sm btn-outline-secondary" @click="selectedTicket = null">
                   <span class="d-lg-none">← {{ $t('common.back') || 'Back' }}</span>
-                  <span class="d-none d-lg-inline">✕</span>
+                  <span class="d-none d-lg-inline"><i class="mdi mdi-close"></i></span>
                 </button>
               </div>
             </div>

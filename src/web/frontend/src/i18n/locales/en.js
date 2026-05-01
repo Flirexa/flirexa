@@ -477,6 +477,8 @@ export default {
   clients: {
     searchPlaceholder: 'Search clients...',
     all: 'All',
+    online: 'Online',
+    offline: 'Offline',
     allServers: 'All Servers',
     newClient: '+ New Client',
     server: 'Server',

@@ -10,7 +10,7 @@
               <div class="stat-value">{{ accounts.length }}</div>
               <div class="stat-label">{{ $t('applications.totalAccounts') }}</div>
             </div>
-            <div class="stat-icon">👥</div>
+            <div class="stat-icon"><i class="mdi mdi-account-group-outline"></i></div>
           </div>
         </div>
       </div>
@@ -21,7 +21,7 @@
               <div class="stat-value text-success">{{ accounts.filter(a => a.is_active).length }}</div>
               <div class="stat-label">{{ $t('applications.activeAccounts') }}</div>
             </div>
-            <div class="stat-icon">✅</div>
+            <div class="stat-icon"><i class="mdi mdi-check-circle text-success"></i></div>
           </div>
         </div>
       </div>
@@ -32,7 +32,7 @@
               <div class="stat-value text-primary">{{ accounts.filter(a => a.role === 'admin').length }}</div>
               <div class="stat-label">{{ $t('applications.admins') }}</div>
             </div>
-            <div class="stat-icon">🔑</div>
+            <div class="stat-icon"><i class="mdi mdi-key-variant"></i></div>
           </div>
         </div>
       </div>
@@ -43,7 +43,7 @@
               <div class="stat-value text-warning">{{ accounts.filter(a => a.role === 'manager').length }}</div>
               <div class="stat-label">{{ $t('applications.managers') }}</div>
             </div>
-            <div class="stat-icon">🛡️</div>
+            <div class="stat-icon"><i class="mdi mdi-shield-account-outline"></i></div>
           </div>
         </div>
       </div>
@@ -110,13 +110,13 @@
                 <td class="col-date">{{ acc.last_login ? formatDate(acc.last_login) : '—' }}</td>
                 <td class="col-actions">
                   <div class="action-group">
-                    <button class="action-btn" @click="openEdit(acc)" :title="$t('applications.editAccount')">✏️</button>
-                    <button class="action-btn" @click="openPermissions(acc)" :title="$t('applications.editPermissions')">🛡️</button>
+                    <button class="action-btn" @click="openEdit(acc)" :title="$t('applications.editAccount')"><i class="mdi mdi-pencil-outline"></i></button>
+                    <button class="action-btn" @click="openPermissions(acc)" :title="$t('applications.editPermissions')"><i class="mdi mdi-shield-account-outline"></i></button>
                     <button class="action-btn" @click="toggleActive(acc)"
                       :title="acc.is_active ? $t('applications.disable') : $t('applications.enable')">
-                      {{ acc.is_active ? '🔒' : '🔓' }}
+                      <i :class="acc.is_active ? 'mdi mdi-lock-outline' : 'mdi mdi-lock-open-outline'"></i>
                     </button>
-                    <button class="action-btn action-btn--danger" @click="confirmDelete(acc)" :title="$t('common.delete')">🗑️</button>
+                    <button class="action-btn action-btn--danger" @click="confirmDelete(acc)" :title="$t('common.delete')"><i class="mdi mdi-trash-can-outline"></i></button>
                   </div>
                 </td>
               </tr>
@@ -153,12 +153,12 @@
             </div>
             <!-- Row 4: 2×2 action grid -->
             <div class="acc-card__actions">
-              <button class="acc-card__btn" @click="openEdit(acc)">✏️ {{ $t('applications.editAccount') }}</button>
-              <button class="acc-card__btn" @click="openPermissions(acc)">🛡️ {{ $t('applications.editPermissions') }}</button>
+              <button class="acc-card__btn" @click="openEdit(acc)"><i class="mdi mdi-pencil-outline me-1"></i>{{ $t('applications.editAccount') }}</button>
+              <button class="acc-card__btn" @click="openPermissions(acc)"><i class="mdi mdi-shield-account-outline me-1"></i>{{ $t('applications.editPermissions') }}</button>
               <button class="acc-card__btn acc-card__btn--warn" @click="toggleActive(acc)">
-                {{ acc.is_active ? '🔒 ' + $t('applications.disable') : '🔓 ' + $t('applications.enable') }}
+                <i :class="acc.is_active ? 'mdi mdi-lock-outline me-1' : 'mdi mdi-lock-open-outline me-1'"></i>{{ acc.is_active ? $t('applications.disable') : $t('applications.enable') }}
               </button>
-              <button class="acc-card__btn acc-card__btn--danger" @click="confirmDelete(acc)">🗑️ {{ $t('common.delete') }}</button>
+              <button class="acc-card__btn acc-card__btn--danger" @click="confirmDelete(acc)"><i class="mdi mdi-trash-can-outline me-1"></i>{{ $t('common.delete') }}</button>
             </div>
           </div>
         </div>
@@ -187,7 +187,7 @@
                 <label class="form-label">{{ $t('applications.password') }}</label>
                 <div class="input-group">
                   <input v-model="form.password" :type="showPassword ? 'text' : 'password'" class="form-control" placeholder="min 6 chars">
-                  <button class="btn btn-outline-secondary" type="button" @click="showPassword = !showPassword">{{ showPassword ? '🔒' : '👁' }}</button>
+                  <button class="btn btn-outline-secondary" type="button" @click="showPassword = !showPassword"><i :class="showPassword ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button>
                 </div>
               </div>
               <div class="col-md-6">

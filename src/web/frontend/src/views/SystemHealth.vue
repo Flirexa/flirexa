@@ -34,7 +34,7 @@
       <!-- Overall status banner (compact) -->
       <div class="sh-banner" :class="'sh-banner--' + health.status">
         <div class="sh-banner__left">
-          <span class="sh-banner__icon">{{ overallIcon }}</span>
+          <span class="sh-banner__icon"><i :class="'mdi mdi-' + overallIcon"></i></span>
           <div>
             <div class="sh-banner__title">{{ overallLabel }}</div>
             <div class="sh-banner__summary">
@@ -99,7 +99,7 @@
             <!-- Level 1: Name + Status -->
             <div class="sh-comp__header">
               <div class="sh-comp__title">
-                <span class="sh-comp__icon">{{ compIcon(comp.name) }}</span>
+                <span class="sh-comp__icon"><i :class="'mdi mdi-' + compIcon(comp.name)"></i></span>
                 {{ compLabel(comp.name) }}
               </div>
               <span class="sh-status" :class="'sh-status--' + comp.status">
@@ -219,7 +219,13 @@ const healthyCount = computed(() => {
 const totalCount = computed(() => health.value?.components?.length || 0)
 
 const overallIcon = computed(() => {
-  return { healthy: '✅', warning: '⚠️', error: '❌', offline: '🔴', unknown: '❓' }[health.value?.status] || '❓'
+  return {
+    healthy: 'check-circle',
+    warning: 'alert',
+    error: 'close-circle',
+    offline: 'circle-off-outline',
+    unknown: 'help-circle',
+  }[health.value?.status] || 'help-circle'
 })
 const overallLabel = computed(() => {
   const m = {
@@ -249,9 +255,18 @@ function severityBadge(sev) {
   return { critical: 'bg-danger', warning: 'bg-warning text-dark', info: 'bg-secondary' }[sev] || 'bg-secondary'
 }
 function compIcon(name) {
-  return { database: '🗄️', api_process: '⚙️', worker: '🔧', license_server: '🔑',
-           wireguard_local: '🌐', telegram_bots: '🤖', payment_provider: '💳',
-           disk: '💾', memory: '🧮', cpu: '🖥️' }[name] || '🔲'
+  return {
+    database:         'database',
+    api_process:      'cog',
+    worker:           'wrench',
+    license_server:   'key',
+    wireguard_local:  'web',
+    telegram_bots:    'robot',
+    payment_provider: 'credit-card',
+    disk:             'harddisk',
+    memory:           'memory',
+    cpu:              'chip',
+  }[name] || 'square-outline'
 }
 function compLabel(name) {
   return { database: 'Database', api_process: 'API Process', worker: 'Background Worker',

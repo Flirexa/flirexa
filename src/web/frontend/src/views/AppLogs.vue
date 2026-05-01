@@ -31,7 +31,7 @@
         <small v-if="entries.length" class="text-muted">{{ entries.length }} {{ $t('appLogs.entries') }}</small>
         <button class="btn btn-sm btn-outline-primary" @click="load" :disabled="loading">
           <span v-if="loading" class="spinner-border spinner-border-sm me-1"></span>
-          &#x1F504; Refresh
+          <i class="mdi mdi-refresh me-1"></i>Refresh
         </button>
       </div>
     </div>
@@ -43,7 +43,7 @@
 
     <!-- Empty state -->
     <div v-else-if="!loading && !entries.length" class="text-center text-muted py-5">
-      <div style="font-size:2rem">📋</div>
+      <div style="font-size:2rem"><i class="mdi mdi-file-document-outline"></i></div>
       <div>{{ $t('appLogs.noEntries') }}</div>
       <small v-if="errorsOnly">{{ $t('appLogs.noErrorsFor', { component: component }) }}</small>
       <small v-else>{{ $t('appLogs.fileNotExist') }}</small>
@@ -111,9 +111,9 @@ import { systemApi } from '../api'
 const { t } = useI18n()
 
 const components = computed(() => [
-  { value: 'api',    label: '⚙️ ' + t('appLogs.tabApi') },
-  { value: 'worker', label: '⏱ ' + t('appLogs.tabWorker') },
-  { value: 'agent',  label: '🖥 ' + t('appLogs.tabAgent') },
+  { value: 'api',    label: t('appLogs.tabApi') },
+  { value: 'worker', label: t('appLogs.tabWorker') },
+  { value: 'agent',  label: t('appLogs.tabAgent') },
 ])
 
 const component  = ref('api')

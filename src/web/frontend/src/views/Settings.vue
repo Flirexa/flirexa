@@ -5,7 +5,7 @@
 
     <!-- Revocation banner (highest priority) -->
     <div v-if="licServer.online_status === 'revoked'" class="alert alert-danger d-flex align-items-start mb-3">
-      <span class="me-2" style="font-size:1.2em">🚫</span>
+      <span class="me-2" style="font-size:1.2em"><i class="mdi mdi-cancel text-danger"></i></span>
       <div>
         <strong>{{ $t('settings.licenseRevoked') }}</strong> — {{ $t('settings.revokedMessage') }}
         <span v-if="brand.support_email || brand.support_url">
@@ -150,7 +150,7 @@
         <div class="small text-muted mb-1 settings-copy-row">
           {{ $t('settings.serverId') }}: <code>{{ license.server_id }}</code>
           <button class="btn btn-outline-secondary btn-sm ms-2 py-0 px-1" style="font-size:0.7rem"
-                  @click="copyToClipboard(license.server_id)" title="Copy">⎘</button>
+                  @click="copyToClipboard(license.server_id)" title="Copy"><i class="mdi mdi-content-copy"></i></button>
         </div>
         <div v-if="license.activation_code_masked" class="small text-muted mb-2">
           {{ $t('settings.activationCode') }}: <code>{{ license.activation_code_masked }}</code>
@@ -256,13 +256,13 @@
           <!-- CryptoPay -->
           <div class="pm-card" :class="{ 'pm-active': payConfigured }">
             <div class="pm-card-head" @click="pmOpen === 'cryptopay' ? pmOpen = '' : pmOpen = 'cryptopay'">
-              <span class="pm-icon">💎</span>
+              <span class="pm-icon"><i class="mdi mdi-bitcoin"></i></span>
               <div class="pm-info"><strong>CryptoPay</strong><small>Telegram @CryptoBot · USDT, BTC, TON, ETH</small></div>
               <span class="badge" :class="payConfigured ? 'bg-success' : 'bg-secondary'">{{ payConfigured ? 'Active' : 'Off' }}</span>
               <i class="mdi" :class="pmOpen === 'cryptopay' ? 'mdi-chevron-up' : 'mdi-chevron-down'"></i>
             </div>
             <div v-if="pmOpen === 'cryptopay'" class="pm-card-body">
-              <div class="mb-2"><label class="form-label small fw-bold">API Token</label><div class="input-group input-group-sm"><input :type="showToken ? 'text' : 'password'" class="form-control" v-model="tokenInput" :placeholder="payMasked || 'CryptoPay API token'" /><button class="btn btn-outline-secondary" type="button" @click="showToken = !showToken">{{ showToken ? '🙈' : '👁' }}</button></div></div>
+              <div class="mb-2"><label class="form-label small fw-bold">API Token</label><div class="input-group input-group-sm"><input :type="showToken ? 'text' : 'password'" class="form-control" v-model="tokenInput" :placeholder="payMasked || 'CryptoPay API token'" /><button class="btn btn-outline-secondary" type="button" @click="showToken = !showToken"><i :class="showToken ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button></div></div>
               <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="testnet2" v-model="testnetMode" /><label class="form-check-label small" for="testnet2">Testnet</label></div>
               <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="saveCryptoPay" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="payConfigured" class="btn btn-outline-danger btn-sm" @click="disconnectCryptoPay" :disabled="saving">Disconnect</button></div>
               <div v-if="alertMsg" class="alert mt-2 py-1 small" :class="alertType">{{ alertMsg }}</div>
@@ -272,14 +272,14 @@
           <!-- PayPal -->
           <div class="pm-card" :class="{ 'pm-active': paypal.configured }">
             <div class="pm-card-head" @click="pmOpen === 'paypal' ? pmOpen = '' : pmOpen = 'paypal'">
-              <span class="pm-icon">🅿️</span>
+              <span class="pm-icon"><i class="mdi mdi-credit-card"></i></span>
               <div class="pm-info"><strong>PayPal</strong><small>Visa, Mastercard, PayPal · Worldwide</small></div>
               <span class="badge" :class="paypal.configured ? 'bg-success' : 'bg-secondary'">{{ paypal.configured ? 'Active' : 'Off' }}</span>
               <i class="mdi" :class="pmOpen === 'paypal' ? 'mdi-chevron-up' : 'mdi-chevron-down'"></i>
             </div>
             <div v-if="pmOpen === 'paypal'" class="pm-card-body">
               <div class="mb-2"><label class="form-label small fw-bold">Client ID</label><input type="text" class="form-control form-control-sm" v-model="paypal.clientId" :placeholder="paypal.clientIdMasked || 'PayPal Client ID'" /></div>
-              <div class="mb-2"><label class="form-label small fw-bold">Client Secret</label><div class="input-group input-group-sm"><input :type="paypal.showSecret ? 'text' : 'password'" class="form-control" v-model="paypal.clientSecret" placeholder="PayPal Client Secret" /><button class="btn btn-outline-secondary" type="button" @click="paypal.showSecret = !paypal.showSecret">{{ paypal.showSecret ? '🙈' : '👁' }}</button></div></div>
+              <div class="mb-2"><label class="form-label small fw-bold">Client Secret</label><div class="input-group input-group-sm"><input :type="paypal.showSecret ? 'text' : 'password'" class="form-control" v-model="paypal.clientSecret" placeholder="PayPal Client Secret" /><button class="btn btn-outline-secondary" type="button" @click="paypal.showSecret = !paypal.showSecret"><i :class="paypal.showSecret ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button></div></div>
               <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="ppSandbox2" v-model="paypal.sandbox" /><label class="form-check-label small" for="ppSandbox2">Sandbox</label></div>
               <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="savePayPal" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="paypal.configured" class="btn btn-outline-danger btn-sm" @click="disconnectPayPal" :disabled="saving">Disconnect</button></div>
               <div v-if="paypal.alert" class="alert mt-2 py-1 small" :class="paypal.alertType">{{ paypal.alert }}</div>
@@ -289,14 +289,14 @@
           <!-- NOWPayments -->
           <div class="pm-card" :class="{ 'pm-active': nowpay.configured }">
             <div class="pm-card-head" @click="pmOpen === 'nowpay' ? pmOpen = '' : pmOpen = 'nowpay'">
-              <span class="pm-icon">🔗</span>
+              <span class="pm-icon"><i class="mdi mdi-currency-btc"></i></span>
               <div class="pm-info"><strong>NOWPayments</strong><small>100+ Crypto · BTC, ETH, USDT, XMR, TON</small></div>
               <span class="badge" :class="nowpay.configured ? 'bg-success' : 'bg-secondary'">{{ nowpay.configured ? 'Active' : 'Off' }}</span>
               <i class="mdi" :class="pmOpen === 'nowpay' ? 'mdi-chevron-up' : 'mdi-chevron-down'"></i>
             </div>
             <div v-if="pmOpen === 'nowpay'" class="pm-card-body">
-              <div class="mb-2"><label class="form-label small fw-bold">API Key</label><div class="input-group input-group-sm"><input :type="nowpay.showKey ? 'text' : 'password'" class="form-control" v-model="nowpay.apiKey" :placeholder="nowpay.apiKeyMasked || 'NOWPayments API Key'" /><button class="btn btn-outline-secondary" type="button" @click="nowpay.showKey = !nowpay.showKey">{{ nowpay.showKey ? '🙈' : '👁' }}</button></div></div>
-              <div class="mb-2"><label class="form-label small fw-bold">IPN Secret</label><div class="input-group input-group-sm"><input :type="nowpay.showSecret ? 'text' : 'password'" class="form-control" v-model="nowpay.ipnSecret" placeholder="IPN Callback Secret" /><button class="btn btn-outline-secondary" type="button" @click="nowpay.showSecret = !nowpay.showSecret">{{ nowpay.showSecret ? '🙈' : '👁' }}</button></div></div>
+              <div class="mb-2"><label class="form-label small fw-bold">API Key</label><div class="input-group input-group-sm"><input :type="nowpay.showKey ? 'text' : 'password'" class="form-control" v-model="nowpay.apiKey" :placeholder="nowpay.apiKeyMasked || 'NOWPayments API Key'" /><button class="btn btn-outline-secondary" type="button" @click="nowpay.showKey = !nowpay.showKey"><i :class="nowpay.showKey ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button></div></div>
+              <div class="mb-2"><label class="form-label small fw-bold">IPN Secret</label><div class="input-group input-group-sm"><input :type="nowpay.showSecret ? 'text' : 'password'" class="form-control" v-model="nowpay.ipnSecret" placeholder="IPN Callback Secret" /><button class="btn btn-outline-secondary" type="button" @click="nowpay.showSecret = !nowpay.showSecret"><i :class="nowpay.showSecret ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button></div></div>
               <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="npSandbox2" v-model="nowpay.sandbox" /><label class="form-check-label small" for="npSandbox2">Sandbox</label></div>
               <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="saveNowPayments" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="nowpay.configured" class="btn btn-outline-danger btn-sm" @click="disconnectNowPayments" :disabled="saving">Disconnect</button></div>
               <div v-if="nowpay.alert" class="alert mt-2 py-1 small" :class="nowpay.alertType">{{ nowpay.alert }}</div>
@@ -306,13 +306,13 @@
           <!-- Stripe -->
           <div class="pm-card" :class="{ 'pm-active': pluginProviders.stripe }">
             <div class="pm-card-head" @click="pmOpen === 'stripe' ? pmOpen = '' : pmOpen = 'stripe'">
-              <span class="pm-icon">💳</span>
+              <span class="pm-icon"><i class="mdi mdi-credit-card-outline"></i></span>
               <div class="pm-info"><strong>Stripe</strong><small>Cards, Apple Pay, Google Pay · 46 countries</small></div>
               <span class="badge" :class="pluginProviders.stripe ? 'bg-success' : 'bg-secondary'">{{ pluginProviders.stripe ? 'Active' : 'Off' }}</span>
               <i class="mdi" :class="pmOpen === 'stripe' ? 'mdi-chevron-up' : 'mdi-chevron-down'"></i>
             </div>
             <div v-if="pmOpen === 'stripe'" class="pm-card-body">
-              <div class="mb-2"><label class="form-label small fw-bold">Secret Key</label><div class="input-group input-group-sm"><input type="password" class="form-control" v-model="pluginKeys.stripe_secret_key" :placeholder="pluginMasked.stripe || 'sk_live_...'" /><button class="btn btn-outline-secondary" type="button" @click="togglePluginShow('stripe')">👁</button></div></div>
+              <div class="mb-2"><label class="form-label small fw-bold">Secret Key</label><div class="input-group input-group-sm"><input type="password" class="form-control" v-model="pluginKeys.stripe_secret_key" :placeholder="pluginMasked.stripe || 'sk_live_...'" /><button class="btn btn-outline-secondary" type="button" @click="togglePluginShow('stripe')"><i class="mdi mdi-eye-outline"></i></button></div></div>
               <div class="mb-2"><label class="form-label small fw-bold">Webhook Secret <small class="text-muted">(optional)</small></label><input type="password" class="form-control form-control-sm" v-model="pluginKeys.stripe_webhook_secret" placeholder="whsec_..." /></div>
               <small class="text-muted d-block mb-2">Get keys at <a href="https://dashboard.stripe.com/apikeys" target="_blank">dashboard.stripe.com/apikeys</a></small>
               <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="savePlugin('stripe')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.stripe" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('stripe')" :disabled="saving">Disconnect</button></div>
@@ -323,7 +323,7 @@
           <!-- Payme -->
           <div class="pm-card" :class="{ 'pm-active': pluginProviders.payme }">
             <div class="pm-card-head" @click="pmOpen === 'payme' ? pmOpen = '' : pmOpen = 'payme'">
-              <span class="pm-icon">🇺🇿</span>
+              <span class="pm-icon"><i class="mdi mdi-bank-outline"></i></span>
               <div class="pm-info"><strong>Payme</strong><small>UzCard, Humo, Visa · Uzbekistan</small></div>
               <span class="badge" :class="pluginProviders.payme ? 'bg-success' : 'bg-secondary'">{{ pluginProviders.payme ? 'Active' : 'Off' }}</span>
               <i class="mdi" :class="pmOpen === 'payme' ? 'mdi-chevron-up' : 'mdi-chevron-down'"></i>
@@ -340,13 +340,13 @@
           <!-- Mollie -->
           <div class="pm-card" :class="{ 'pm-active': pluginProviders.mollie }">
             <div class="pm-card-head" @click="pmOpen === 'mollie' ? pmOpen = '' : pmOpen = 'mollie'">
-              <span class="pm-icon">🇪🇺</span>
+              <span class="pm-icon"><i class="mdi mdi-credit-card-multiple-outline"></i></span>
               <div class="pm-info"><strong>Mollie</strong><small>Cards, iDEAL, SEPA, Klarna · Europe</small></div>
               <span class="badge" :class="pluginProviders.mollie ? 'bg-success' : 'bg-secondary'">{{ pluginProviders.mollie ? 'Active' : 'Off' }}</span>
               <i class="mdi" :class="pmOpen === 'mollie' ? 'mdi-chevron-up' : 'mdi-chevron-down'"></i>
             </div>
             <div v-if="pmOpen === 'mollie'" class="pm-card-body">
-              <div class="mb-2"><label class="form-label small fw-bold">API Key</label><div class="input-group input-group-sm"><input type="password" class="form-control" v-model="pluginKeys.mollie_api_key" :placeholder="pluginMasked.mollie || 'live_...'" /><button class="btn btn-outline-secondary" type="button" @click="togglePluginShow('mollie')">👁</button></div></div>
+              <div class="mb-2"><label class="form-label small fw-bold">API Key</label><div class="input-group input-group-sm"><input type="password" class="form-control" v-model="pluginKeys.mollie_api_key" :placeholder="pluginMasked.mollie || 'live_...'" /><button class="btn btn-outline-secondary" type="button" @click="togglePluginShow('mollie')"><i class="mdi mdi-eye-outline"></i></button></div></div>
               <small class="text-muted d-block mb-2">Get keys at <a href="https://www.mollie.com/dashboard" target="_blank">mollie.com/dashboard</a></small>
               <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="savePlugin('mollie')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.mollie" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('mollie')" :disabled="saving">Disconnect</button></div>
               <div v-if="pluginAlert.mollie" class="alert mt-2 py-1 small" :class="pluginAlert.mollie.type">{{ pluginAlert.mollie.msg }}</div>
@@ -356,7 +356,7 @@
           <!-- Razorpay -->
           <div class="pm-card" :class="{ 'pm-active': pluginProviders.razorpay }">
             <div class="pm-card-head" @click="pmOpen === 'razorpay' ? pmOpen = '' : pmOpen = 'razorpay'">
-              <span class="pm-icon">🇮🇳</span>
+              <span class="pm-icon"><i class="mdi mdi-credit-card-chip-outline"></i></span>
               <div class="pm-info"><strong>Razorpay</strong><small>Cards, UPI, NetBanking · India</small></div>
               <span class="badge" :class="pluginProviders.razorpay ? 'bg-success' : 'bg-secondary'">{{ pluginProviders.razorpay ? 'Active' : 'Off' }}</span>
               <i class="mdi" :class="pmOpen === 'razorpay' ? 'mdi-chevron-up' : 'mdi-chevron-down'"></i>

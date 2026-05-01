@@ -23,6 +23,8 @@
           <option value="">{{ $t('clients.all') }}</option>
           <option value="enabled">{{ $t('common.enabled') }}</option>
           <option value="disabled">{{ $t('common.disabled') }}</option>
+          <option value="online">{{ $t('clients.online') || 'Online' }}</option>
+          <option value="offline">{{ $t('clients.offline') || 'Offline' }}</option>
         </select>
         <select v-model="filterServer" class="form-select form-select-sm filter-select-wide">
           <option value="">{{ $t('clients.allServers') }}</option>
@@ -119,31 +121,31 @@
               </td>
               <td class="d-none d-lg-table-cell">
                 <span v-if="isProxyClient(client)" class="text-muted small fst-italic">—</span>
-                <span v-else>{{ client.bandwidth_limit ? client.bandwidth_limit + ' Mbps' : '&#x267E;' }}</span>
+                <span v-else>{{ client.bandwidth_limit ? client.bandwidth_limit + ' Mbps' : '∞' }}</span>
               </td>
               <td class="d-none d-lg-table-cell">
                 <span v-if="client.expiry_date" :class="isExpiringSoon(client) ? 'text-danger' : ''">
                   {{ formatDate(client.expiry_date) }}
                 </span>
-                <span v-else class="text-muted">&#x267E;</span>
+                <span v-else class="text-muted">∞</span>
               </td>
               <td>
                 <!-- Desktop (sm+): connected btn-group -->
                 <div class="btn-group btn-group-sm d-none d-sm-inline-flex">
                   <button class="btn btn-outline-secondary" @click="toggleClient(client)" :title="client.enabled ? 'Disable' : 'Enable'">
-                    {{ client.enabled ? '&#x23F8;' : '&#x25B6;' }}
+                    <i :class="client.enabled ? 'mdi mdi-pause' : 'mdi mdi-play'"></i>
                   </button>
-                  <button class="btn btn-outline-secondary" @click="showConfig(client)" title="Config">&#x1F4E5;</button>
-                  <button class="btn btn-outline-secondary" @click="editClient(client)" title="Edit">&#x270F;</button>
-                  <button class="btn btn-outline-danger" @click="confirmDelete(client)" title="Delete">&#x1F5D1;</button>
+                  <button class="btn btn-outline-secondary" @click="showConfig(client)" title="Config"><i class="mdi mdi-tray-arrow-down"></i></button>
+                  <button class="btn btn-outline-secondary" @click="editClient(client)" title="Edit"><i class="mdi mdi-pencil-outline"></i></button>
+                  <button class="btn btn-outline-danger" @click="confirmDelete(client)" title="Delete"><i class="mdi mdi-trash-can-outline"></i></button>
                 </div>
                 <!-- Mobile (xs): compact buttons + detail sheet -->
                 <div class="d-flex gap-1 d-sm-none client-actions-mobile">
                   <button class="btn btn-sm btn-outline-secondary" @click="toggleClient(client)" :title="client.enabled ? 'Disable' : 'Enable'">
-                    {{ client.enabled ? '&#x23F8;' : '&#x25B6;' }}
+                    <i :class="client.enabled ? 'mdi mdi-pause' : 'mdi mdi-play'"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-secondary" @click="showConfig(client)" title="Config">&#x1F4E5;</button>
-                  <button class="btn btn-sm btn-outline-secondary" @click="openDetail(client)" title="More">&#x22EF;</button>
+                  <button class="btn btn-sm btn-outline-secondary" @click="showConfig(client)" title="Config"><i class="mdi mdi-tray-arrow-down"></i></button>
+                  <button class="btn btn-sm btn-outline-secondary" @click="openDetail(client)" title="More"><i class="mdi mdi-dots-horizontal"></i></button>
                 </div>
               </td>
             </tr>
@@ -234,7 +236,7 @@
             <template v-if="isProxyConfig">
               <!-- Info hint -->
               <div class="alert alert-info py-2 small mb-3">
-                🌐 {{ $t('clients.proxyConnectHint') }}
+                <i class="mdi mdi-web me-1"></i>{{ $t('clients.proxyConnectHint') }}
               </div>
 
               <!-- URI copy box -->
@@ -318,7 +320,7 @@
                   :class="editForm.bandwidth === bw ? 'btn-primary' : 'btn-outline-secondary'"
                   @click="editForm.bandwidth = bw"
                 >
-                  {{ bw === 0 ? '&#x267E;' : bw + ' Mbps' }}
+                  {{ bw === 0 ? '∞' : bw + ' Mbps' }}
                 </button>
               </div>
               <input
@@ -339,7 +341,7 @@
                   :class="editForm.trafficLimit === tl ? 'btn-primary' : 'btn-outline-secondary'"
                   @click="editForm.trafficLimit = tl"
                 >
-                  {{ tl === 0 ? '&#x267E;' : formatMB(tl) }}
+                  {{ tl === 0 ? '∞' : formatMB(tl) }}
                 </button>
               </div>
               <input
@@ -368,7 +370,7 @@
                   :class="editForm.expiryDays === d ? 'btn-primary' : 'btn-outline-secondary'"
                   @click="editForm.expiryDays = d"
                 >
-                  {{ d === 0 ? '&#x267E;' : d + 'd' }}
+                  {{ d === 0 ? '∞' : d + 'd' }}
                 </button>
               </div>
               <input
@@ -381,7 +383,7 @@
             </div>
             <div class="mb-3">
               <button class="btn btn-outline-warning btn-sm" @click="resetTraffic">
-                &#x1F504; {{ $t('clients.resetTraffic') }}
+                <i class="mdi mdi-refresh me-1"></i>{{ $t('clients.resetTraffic') }}
               </button>
             </div>
           </div>
@@ -424,7 +426,7 @@
         <template v-if="!isProxyClient(detailClient)">
           <div class="vxy-detail-row">
             <span class="vxy-detail-label">{{ $t('dashboard.bandwidth') }}</span>
-            <span class="vxy-detail-value">{{ detailClient.bandwidth_limit ? detailClient.bandwidth_limit + ' Mbps' : '&#x267E;' }}</span>
+            <span class="vxy-detail-value">{{ detailClient.bandwidth_limit ? detailClient.bandwidth_limit + ' Mbps' : '∞' }}</span>
           </div>
           <div class="vxy-detail-row">
             <span class="vxy-detail-label">{{ $t('dashboard.traffic') }}</span>
@@ -453,7 +455,7 @@
             <span v-if="detailClient.expiry_date" :class="isExpiringSoon(detailClient) ? 'text-danger fw-semibold' : ''">
               {{ formatDate(detailClient.expiry_date) }}
             </span>
-            <span v-else class="text-muted">&#x267E;</span>
+            <span v-else class="text-muted">∞</span>
           </span>
         </div>
       </template>
@@ -461,10 +463,10 @@
       <template #footer>
         <div class="d-flex gap-2 w-100">
           <button class="btn btn-outline-secondary btn-sm flex-fill" @click="editClient(detailClient); showDetailSheet = false">
-            &#x270F; {{ $t('common.edit') }}
+            <i class="mdi mdi-pencil-outline me-1"></i>{{ $t('common.edit') }}
           </button>
           <button class="btn btn-outline-danger btn-sm flex-fill" @click="confirmDelete(detailClient); showDetailSheet = false">
-            &#x1F5D1; {{ $t('common.delete') }}
+            <i class="mdi mdi-trash-can-outline me-1"></i>{{ $t('common.delete') }}
           </button>
         </div>
       </template>
@@ -562,6 +564,8 @@ const filteredClients = computed(() => {
   }
   if (filterStatus.value === 'enabled') result = result.filter((c) => c.enabled)
   if (filterStatus.value === 'disabled') result = result.filter((c) => !c.enabled)
+  if (filterStatus.value === 'online') result = result.filter((c) => isClientOnline(c))
+  if (filterStatus.value === 'offline') result = result.filter((c) => !isClientOnline(c))
   if (filterServer.value) result = result.filter((c) => c.server_id === Number(filterServer.value))
 
   // Sort

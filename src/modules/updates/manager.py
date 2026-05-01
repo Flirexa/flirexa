@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Optional
 
 import httpx
-from sqlalchemy import String, cast
+from sqlalchemy import String, and_, cast, or_
 
 from .checker import verify_package_checksum, check_for_update, invalidate_cache
 from src.utils.runtime_paths import (
@@ -331,6 +331,13 @@ def _resolve_orphan(rec, now) -> str:
     Returns "resolved" if we successfully determined and saved the outcome,
     "running"  if the apply script is still in progress (don't touch),
     "unknown"  if we can't determine outcome (will be marked FAILED).
+
+    Grace-period rule: if the record was started < UPDATE_RESOLVE_GRACE_SECS
+    ago AND the state_dir has been touched recently (apply.log mtime within
+    the same grace window), treat it as "running". This prevents the panel
+    from briefly flashing "✗ Update failed" right after the API restarts
+    but before the detached subprocess has had time to write apply.pid /
+    apply.exitcode / phase markers.
     """
     from src.database.models import UpdateStatus
 
@@ -376,7 +383,12 @@ def _resolve_orphan(rec, now) -> str:
             if rc == 0:
                 rec.status           = UpdateStatus.SUCCESS
                 rec.rollback_available = bool(log_file.exists())
-                logger.info("Update %d resolved as SUCCESS (exitcode=0)", rec.id)
+                # Clear any stale "Server restarted..." or other interim error message
+                # left over from an earlier reconcile pass that ran before the script
+                # finished writing its exit code.
+                rec.error_message = None
+                rec.last_step = "Finalising"
+                logger.info("Update {} resolved as SUCCESS (exitcode=0)", rec.id)
             elif rc == 2:
                 rec.status        = UpdateStatus.FAILED
                 rec.error_message = "update_apply.sh failed — auto-rollback was attempted"
@@ -397,6 +409,9 @@ def _resolve_orphan(rec, now) -> str:
         if marker_health.exists():
             rec.status = UpdateStatus.SUCCESS
             rec.completed_at = now
+            # Clear stale interim error message left by an earlier reconcile pass
+            rec.error_message = None
+            rec.last_step = "Finalising"
             return "resolved"
         rec.status = UpdateStatus.ROLLBACK_REQUIRED
         rec.error_message = (
@@ -410,6 +425,28 @@ def _resolve_orphan(rec, now) -> str:
                 started = started.replace(tzinfo=timezone.utc)
             rec.duration_seconds = (now - started).total_seconds()
         return "resolved"
+
+    # Grace period: subprocess may not have written apply.pid yet (or its
+    # state_dir might be empty for the first ~10s). Don't speculatively mark
+    # the record FAILED — prefer leaving it as APPLYING so the panel keeps
+    # rendering the in-progress card. _mark_stale_progress_failed will catch
+    # genuinely stuck updates after _STALE_PROGRESS_MINUTES (default 30 min).
+    grace_secs = int(os.getenv("UPDATE_RESOLVE_GRACE_SECS", "120"))
+    started = rec.started_at
+    if started:
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if (now - started).total_seconds() < grace_secs:
+            return "running"
+    # Also consider state_dir freshness — if the apply.log was touched in the
+    # last grace window, the subprocess is alive even without apply.pid.
+    try:
+        if log_file.exists():
+            mtime = datetime.fromtimestamp(log_file.stat().st_mtime, tz=timezone.utc)
+            if (now - mtime).total_seconds() < grace_secs:
+                return "running"
+    except Exception:
+        pass
 
     return "unknown"
 
@@ -438,9 +475,23 @@ def reconcile_inflight_updates() -> int:
             UpdateStatus.APPLYING.name,
             UpdateStatus.ROLLING_BACK.name,
         ]
+        # Also pick up records that an earlier reconcile pass prematurely marked
+        # FAILED with the "Server restarted ..." message before the script had
+        # finished writing its exit code. If the script later succeeded we need
+        # to flip the record back to SUCCESS and clear the stale error_message —
+        # otherwise the panel keeps showing "✗ Failed" for a successful update.
+        _STALE_RESTART_MARK = "Server restarted during update"
         orphaned = (
             db.query(UpdateHistory)
-            .filter(cast(UpdateHistory.status, String).in_(in_flight_statuses))
+            .filter(
+                or_(
+                    cast(UpdateHistory.status, String).in_(in_flight_statuses),
+                    and_(
+                        UpdateHistory.status == UpdateStatus.FAILED,
+                        UpdateHistory.error_message.like(f"{_STALE_RESTART_MARK}%"),
+                    ),
+                )
+            )
             .all()
         )
         now = datetime.now(timezone.utc)
@@ -454,6 +505,10 @@ def reconcile_inflight_updates() -> int:
                 resolved.append(rec.id)
             elif outcome == "running":
                 still_running.append(rec.id)
+            elif rec.status == UpdateStatus.FAILED:
+                # Already FAILED with the stale-restart marker, and we still
+                # can't determine outcome — leave as is, don't double-mark.
+                pass
             else:
                 rec.status        = UpdateStatus.FAILED
                 rec.error_message = (

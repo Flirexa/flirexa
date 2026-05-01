@@ -16,7 +16,7 @@
         <div class="stat-card">
           <div class="d-flex justify-content-between align-items-start mb-3">
             <div>
-              <h5 class="mb-1">&#x1F916; {{ $t('bots.adminBot') }}</h5>
+              <h5 class="mb-1"><i class="mdi mdi-robot-outline me-2"></i>{{ $t('bots.adminBot') }}</h5>
               <small class="text-muted">{{ $t('bots.adminBotDesc') }}</small>
             </div>
             <span class="badge" :class="adminBot?.is_running ? 'badge-online' : 'badge-offline'">
@@ -46,7 +46,7 @@
               :disabled="adminBot?.is_running || botActionLoading['admin_start']"
             >
               <span v-if="botActionLoading['admin_start']" class="spinner-border spinner-border-sm me-1"></span>
-              &#x25B6; {{ $t('common.start') }}
+              <i class="mdi mdi-play me-1"></i>{{ $t('common.start') }}
             </button>
             <button
               class="btn btn-danger btn-sm"
@@ -54,7 +54,7 @@
               :disabled="!adminBot?.is_running || botActionLoading['admin_stop']"
             >
               <span v-if="botActionLoading['admin_stop']" class="spinner-border spinner-border-sm me-1"></span>
-              &#x23F9; {{ $t('common.stop') }}
+              <i class="mdi mdi-stop me-1"></i>{{ $t('common.stop') }}
             </button>
             <button
               class="btn btn-warning btn-sm"
@@ -62,7 +62,7 @@
               :disabled="botActionLoading['admin_restart']"
             >
               <span v-if="botActionLoading['admin_restart']" class="spinner-border spinner-border-sm me-1"></span>
-              &#x1F504; {{ $t('common.restart') }}
+              <i class="mdi mdi-restart me-1"></i>{{ $t('common.restart') }}
             </button>
           </div>
         </div>
@@ -73,7 +73,7 @@
         <div class="stat-card">
           <div class="d-flex justify-content-between align-items-start mb-3">
             <div>
-              <h5 class="mb-1">&#x1F465; {{ $t('bots.clientBot') }}</h5>
+              <h5 class="mb-1"><i class="mdi mdi-account-group-outline me-2"></i>{{ $t('bots.clientBot') }}</h5>
               <small class="text-muted">{{ $t('bots.clientBotDesc') }}</small>
             </div>
             <span class="badge" :class="clientBot?.is_running ? 'badge-online' : 'badge-offline'">
@@ -103,7 +103,7 @@
               :disabled="clientBot?.is_running || botActionLoading['client_start']"
             >
               <span v-if="botActionLoading['client_start']" class="spinner-border spinner-border-sm me-1"></span>
-              &#x25B6; {{ $t('common.start') }}
+              <i class="mdi mdi-play me-1"></i>{{ $t('common.start') }}
             </button>
             <button
               class="btn btn-danger btn-sm"
@@ -111,7 +111,7 @@
               :disabled="!clientBot?.is_running || botActionLoading['client_stop']"
             >
               <span v-if="botActionLoading['client_stop']" class="spinner-border spinner-border-sm me-1"></span>
-              &#x23F9; {{ $t('common.stop') }}
+              <i class="mdi mdi-stop me-1"></i>{{ $t('common.stop') }}
             </button>
             <button
               class="btn btn-warning btn-sm"
@@ -119,7 +119,7 @@
               :disabled="botActionLoading['client_restart']"
             >
               <span v-if="botActionLoading['client_restart']" class="spinner-border spinner-border-sm me-1"></span>
-              &#x1F504; {{ $t('common.restart') }}
+              <i class="mdi mdi-restart me-1"></i>{{ $t('common.restart') }}
             </button>
           </div>
         </div>
@@ -131,7 +131,7 @@
       <div class="col-12">
         <div class="stat-card">
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <h5 class="mb-0">&#x1F4CB; Bot Logs</h5>
+            <h5 class="mb-0"><i class="mdi mdi-file-document-outline me-2"></i>Bot Logs</h5>
             <div class="d-flex gap-2 align-items-center">
               <select v-model="logComponent" class="form-select form-select-sm" style="width: auto">
                 <option value="worker">Worker (bots)</option>
@@ -169,7 +169,7 @@
     <div class="row g-4 mt-2">
       <div class="col-12">
         <div class="stat-card">
-          <h5 class="mb-3">&#x2699; {{ $t('bots.botConfig') }}</h5>
+          <h5 class="mb-3"><i class="mdi mdi-cog me-2"></i>{{ $t('bots.botConfig') }}</h5>
 
           <div v-if="configAlert" class="alert" :class="configAlert.type === 'success' ? 'alert-success' : 'alert-danger'" role="alert">
             {{ configAlert.message }}
