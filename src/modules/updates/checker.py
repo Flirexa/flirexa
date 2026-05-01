@@ -17,7 +17,7 @@ Trust model:
 import base64
 import hashlib
 import json
-import logging
+from loguru import logger
 import os
 import time
 from pathlib import Path
@@ -26,7 +26,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -205,7 +204,7 @@ async def fetch_manifest(channel: str = "stable", force: bool = False) -> Tuple[
     if not force and _cache is not None:
         manifest, fetched_at, cached_channel = _cache
         if cached_channel == channel and time.time() - fetched_at < _CACHE_TTL:
-            logger.debug("Using cached manifest for channel=%s", channel)
+            logger.debug("Using cached manifest for channel={}", channel)
             return manifest, None
 
     url = _manifest_url(channel)
@@ -253,7 +252,7 @@ async def fetch_manifest(channel: str = "stable", force: bool = False) -> Tuple[
 
     if not _verify_manifest_signature(raw_manifest):
         logger.warning(
-            "Manifest signature FAILED for version=%s channel=%s",
+            "Manifest signature FAILED for version={} channel={}",
             raw_manifest.get("version"), raw_manifest.get("channel"),
         )
         return None, "Manifest signature invalid — update rejected for security"
@@ -299,7 +298,7 @@ async def fetch_manifest(channel: str = "stable", force: bool = False) -> Tuple[
 
     # Verify signature (must come after field validation)
     logger.info(
-        "Manifest OK: version=%s channel=%s type=%s",
+        "Manifest OK: version={} channel={} type={}",
         manifest["version"], manifest["channel"], manifest["update_type"],
     )
 
@@ -353,6 +352,6 @@ def verify_package_checksum(file_path: Path, expected_sha256: str) -> bool:
             sha.update(chunk)
     actual = sha.hexdigest()
     if actual != expected_sha256:
-        logger.error("Checksum mismatch: expected=%s actual=%s", expected_sha256, actual)
+        logger.error("Checksum mismatch: expected={} actual={}", expected_sha256, actual)
         return False
     return True

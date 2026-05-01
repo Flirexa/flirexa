@@ -18,10 +18,9 @@ The asyncio task is owned by api/main.py lifespan and is cancelled on shutdown.
 """
 
 import asyncio
-import logging
 import os
 
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 _INTERVAL_DEFAULT  = 21600    # 6 hours
 _INTERVAL_MIN      = 3600     # never poll faster than once an hour
@@ -68,20 +67,20 @@ async def _run_one_check() -> bool:
     try:
         manifest, error = await check_for_update(current, channel, force=True)
     except Exception as exc:
-        logger.warning("Update auto-check raised unexpectedly: %s", exc)
+        logger.warning("Update auto-check raised unexpectedly: {}", exc)
         return True
 
     if error:
-        logger.info("Update auto-check (%s): %s", channel, error)
+        logger.info("Update auto-check ({}): {}", channel, error)
         return True
 
     if manifest is None:
-        logger.info("Update auto-check (%s): up to date on %s", channel, current)
+        logger.info("Update auto-check ({}): up to date on {}", channel, current)
         return False
 
     new_version = manifest.get("version", "?")
     logger.warning(
-        "Update auto-check (%s): new version available %s → %s (current %s)",
+        "Update auto-check ({}): new version available {} → {} (current {})",
         channel, current, new_version, current,
     )
     return False
@@ -96,7 +95,7 @@ async def run_auto_update_check_loop():
     await asyncio.sleep(_STARTUP_DELAY)
 
     interval = _interval()
-    logger.info("Auto update-check started (interval=%ds)", interval)
+    logger.info("Auto update-check started (interval={}s)", interval)
 
     while True:
         had_failure = await _run_one_check()

@@ -11,7 +11,7 @@ import base64
 import dataclasses
 import hashlib
 import json
-import logging
+from loguru import logger
 import os
 import threading
 import time
@@ -26,7 +26,6 @@ import certifi
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
-logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -42,7 +41,7 @@ def _load_server_urls():
         from .server_config import get_server_urls
         return get_server_urls()
     except Exception as exc:
-        logger.error("Failed to load server URLs from config: %s", exc)
+        logger.error("Failed to load server URLs from config: {}", exc)
         return "", ""
 
 
@@ -53,7 +52,7 @@ def reload_server_urls():
     """Reload server URLs — call after applying a migration code."""
     global _SERVER_URL, _SERVER_URL_BACKUP
     _SERVER_URL, _SERVER_URL_BACKUP = _load_server_urls()
-    logger.info("License server URLs reloaded: primary=%s backup=%s",
+    logger.info("License server URLs reloaded: primary={} backup={}",
                 _SERVER_URL or "—", _SERVER_URL_BACKUP or "—")
 
 # Path to the server response signing public key (committed to repo)
@@ -189,7 +188,7 @@ def is_license_blocked() -> tuple[bool, str]:
     if _last_apply_wall_time > 0 and time.time() < _last_apply_wall_time - 300:
         delta = int(_last_apply_wall_time - time.time())
         logger.error(
-            "SECURITY: System clock rollback detected (%ds) — blocking license",
+            "SECURITY: System clock rollback detected ({}s) — blocking license",
             delta
         )
         _send_tamper_report_sync("clock_rollback", {
@@ -280,7 +279,7 @@ def _load_server_pub_key():
     try:
         return serialization.load_pem_public_key(path.read_bytes())
     except Exception as exc:
-        logger.error("Failed to load server_verify_public.pem: %s", exc)
+        logger.error("Failed to load server_verify_public.pem: {}", exc)
         return None
 
 
@@ -322,7 +321,7 @@ def _verify_response(payload_b64: str, sig_b64: str) -> Optional[dict]:
             hashes.SHA256(),
         )
     except Exception as exc:
-        logger.error("License server response signature INVALID: %s", exc)
+        logger.error("License server response signature INVALID: {}", exc)
         _send_tamper_report_sync("invalid_server_signature", {"error": str(exc)})
         return None
 
@@ -342,7 +341,7 @@ def _save_cache(payload: dict, payload_b64: str, sig_b64: str):
             "cached_at": datetime.now(timezone.utc).isoformat(),
         }))
     except Exception as exc:
-        logger.warning("Could not save license cache: %s", exc)
+        logger.warning("Could not save license cache: {}", exc)
 
 
 def _load_cache() -> Optional[dict]:
@@ -352,7 +351,7 @@ def _load_cache() -> Optional[dict]:
         data = json.loads(_CACHE_PATH.read_text())
         return _verify_response(data["payload"], data["signature"])
     except Exception as exc:
-        logger.warning("Could not load license cache: %s", exc)
+        logger.warning("Could not load license cache: {}", exc)
         return None
 
 
@@ -434,7 +433,7 @@ def _send_tamper_report_sync(report_type: str, details: dict):
                 client.post(f"{url}/api/report", json=body)
             return  # sent successfully
         except Exception as exc:
-            logger.debug("Tamper report send failed (%s): %s", url, exc)
+            logger.debug("Tamper report send failed ({}): {}", url, exc)
 
 
 # ── Main check loop ───────────────────────────────────────────────────────────
@@ -459,22 +458,22 @@ async def _try_server(url: str, payload: dict) -> Optional[bool]:
             if verified:
                 _apply_payload(verified)
                 _save_cache(verified, data["payload"], data["signature"])
-                logger.info("Online license check via %s: status=%s tier=%s",
+                logger.info("Online license check via {}: status={} tier={}",
                             url, verified.get("status"), verified.get("tier"))
                 return True
             else:
-                logger.error("License server %s returned INVALID signature — possible MITM", url)
+                logger.error("License server {} returned INVALID signature — possible MITM", url)
                 asyncio.create_task(_send_tamper_report("invalid_server_signature", {"url": url}))
                 return False  # server responded but suspicious
         else:
-            logger.warning("License server %s returned HTTP %d", url, resp.status_code)
+            logger.warning("License server {} returned HTTP {}", url, resp.status_code)
             return False
 
     except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as exc:
-        logger.warning("License server %s unreachable: %s", url, exc)
+        logger.warning("License server {} unreachable: {}", url, exc)
         return None  # network error → try backup
     except Exception as exc:
-        logger.error("Unexpected error contacting %s: %s", url, exc)
+        logger.error("Unexpected error contacting {}: {}", url, exc)
         return None
 
 
@@ -504,7 +503,7 @@ async def _do_check():
 
     # Try backup server
     if _SERVER_URL_BACKUP:
-        logger.info("Primary license server unreachable, trying backup: %s", _SERVER_URL_BACKUP)
+        logger.info("Primary license server unreachable, trying backup: {}", _SERVER_URL_BACKUP)
         result = await _try_server(_SERVER_URL_BACKUP, payload)
         if result is not None:
             with _state_lock:
@@ -514,7 +513,7 @@ async def _do_check():
     # Both servers unreachable
     with _state_lock:
         _state.server_reachable = False
-    logger.warning("All license servers unreachable (primary=%s, backup=%s)",
+    logger.warning("All license servers unreachable (primary={}, backup={})",
                    _SERVER_URL or "—", _SERVER_URL_BACKUP or "—")
 
 
@@ -536,7 +535,7 @@ async def _send_tamper_report(report_type: str, details: dict):
                 await client.post(f"{url}/api/report", json=body)
             return  # sent successfully
         except Exception as exc:
-            logger.debug("Tamper report send failed (%s): %s", url, exc)
+            logger.debug("Tamper report send failed ({}): {}", url, exc)
 
 
 def _warmup_from_cache() -> bool:
@@ -546,7 +545,7 @@ def _warmup_from_cache() -> bool:
     if cached:
         _apply_payload(cached)
         _cache_warmed = True
-        logger.info("Loaded cached license status: %s", cached.get("status"))
+        logger.debug("Loaded cached license status: {}", cached.get("status"))
         return True
     _cache_warmed = True
     return False

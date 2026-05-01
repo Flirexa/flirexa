@@ -14,7 +14,7 @@ import asyncio
 import hashlib
 import hmac
 import json
-import logging
+from loguru import logger
 import os
 import re
 import socket
@@ -26,7 +26,6 @@ from typing import Optional
 import httpx
 import certifi
 
-logger = logging.getLogger(__name__)
 
 _HEARTBEAT_INTERVAL = 300   # 5 minutes
 _REQUEST_TIMEOUT    = 10    # seconds per server attempt
@@ -70,7 +69,7 @@ def _save_env(key: str, value: str) -> None:
         with open(path, "w") as f:
             f.write(content)
     except Exception as e:
-        logger.debug("Could not save %s to .env: %s", key, e)
+        logger.debug("Could not save {} to .env: {}", key, e)
 
 
 # ── Instance ID ───────────────────────────────────────────────────────────────
@@ -83,7 +82,7 @@ def get_instance_id() -> str:
     new_id = str(uuid.uuid4())
     os.environ["INSTANCE_ID"] = new_id
     _save_env("INSTANCE_ID", new_id)
-    logger.info("Generated new instance ID: %s", new_id)
+    logger.info("Generated new instance ID: {}", new_id)
     return new_id
 
 
@@ -227,7 +226,7 @@ def _save_server_list(primary: str, backups: list) -> None:
         _DYN_PATH.parent.mkdir(parents=True, exist_ok=True)
         _DYN_PATH.write_text(json.dumps(data))
     except Exception as e:
-        logger.debug("Could not save server list: %s", e)
+        logger.debug("Could not save server list: {}", e)
 
 
 # ── HTTP send ─────────────────────────────────────────────────────────────────
@@ -243,7 +242,7 @@ async def _send_one(client: httpx.AsyncClient, url: str, body: dict, sig: str) -
         if resp.status_code == 200:
             return resp.json()
     except Exception as e:
-        logger.debug("Heartbeat to %s failed: %s", url, e)
+        logger.debug("Heartbeat to {} failed: {}", url, e)
     return None
 
 
@@ -287,7 +286,7 @@ async def send_heartbeat() -> bool:
                     _save_server_list(primary, backups)
                 return True
 
-    logger.debug("Heartbeat failed: all %d server(s) unreachable", len(servers))
+    logger.debug("Heartbeat failed: all {} server(s) unreachable", len(servers))
     return False
 
 
@@ -312,7 +311,7 @@ async def _heartbeat_loop():
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.debug("Heartbeat error: %s", e)
+            logger.debug("Heartbeat error: {}", e)
         try:
             await asyncio.sleep(_HEARTBEAT_INTERVAL)
         except asyncio.CancelledError:
@@ -323,5 +322,5 @@ def start_heartbeat_task() -> asyncio.Task:
     """Create and return the background heartbeat asyncio task."""
     global _heartbeat_task
     _heartbeat_task = asyncio.create_task(_heartbeat_loop())
-    logger.info("Instance heartbeat started (interval: %ds)", _HEARTBEAT_INTERVAL)
+    logger.info("Instance heartbeat started (interval: {}s)", _HEARTBEAT_INTERVAL)
     return _heartbeat_task
