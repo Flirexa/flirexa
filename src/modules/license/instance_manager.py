@@ -294,11 +294,21 @@ async def send_heartbeat() -> bool:
 # ── Background loop ───────────────────────────────────────────────────────────
 
 async def _heartbeat_loop():
+    """
+    Background heartbeat. Stays dormant on un-activated installs (FREE tier
+    with no LICENSE_KEY) — no calls to the license server, no telemetry of
+    any kind. Wakes up on the first iteration that sees a non-empty
+    LICENSE_KEY in the environment, which appears once the operator enters
+    an activation code via install.sh or the admin panel.
+    """
     # Small delay so the API is fully started before first heartbeat
     await asyncio.sleep(20)
     while True:
         try:
-            await send_heartbeat()
+            license_key = os.getenv("LICENSE_KEY", "").strip()
+            if license_key:
+                await send_heartbeat()
+            # else: dormant — license server stays asleep until activation
         except asyncio.CancelledError:
             break
         except Exception as e:

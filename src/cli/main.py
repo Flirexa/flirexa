@@ -14,16 +14,42 @@ CLI_ENV_ERROR: str | None = None
 
 
 def _load_cli_env() -> None:
+    """
+    Locate and load the install's `.env`. Two layouts to support:
+      - compat-inplace: code at <ROOT>/src/cli/main.py     → .env at <ROOT>/.env
+      - release-layout: code at <ROOT>/releases/<ver>/src/cli/main.py
+                        → .env at <ROOT>/.env (two levels up from release dir)
+
+    Walk up from this file looking for the first `.env`, with bounded depth so
+    we never accidentally pick up a `.env` from a user's home or /etc.
+    """
     global CLI_ENV_ERROR
-    project_root = Path(__file__).resolve().parents[2]
-    env_file = project_root / ".env"
-    if env_file.exists():
+    here = Path(__file__).resolve()
+    candidates = []
+    # parents[0]=cli, [1]=src, [2]=<release-or-install-root>, [3]=releases, [4]=<install-root-in-release-layout>
+    for depth in range(2, 5):
         try:
-            load_dotenv(env_file, override=False)
-        except PermissionError:
-            CLI_ENV_ERROR = (
-                f"Cannot read {env_file}. Run vpnmanager with sudo or as root."
-            )
+            candidates.append(here.parents[depth] / ".env")
+        except IndexError:
+            break
+    # explicit final fallbacks for known install paths
+    candidates.append(Path("/opt/vpnmanager/.env"))
+    candidates.append(Path("/opt/spongebot/.env"))
+
+    seen: set[Path] = set()
+    for env_file in candidates:
+        if env_file in seen:
+            continue
+        seen.add(env_file)
+        if env_file.exists():
+            try:
+                load_dotenv(env_file, override=False)
+                return
+            except PermissionError:
+                CLI_ENV_ERROR = (
+                    f"Cannot read {env_file}. Run vpnmanager with sudo or as root."
+                )
+                return
 
 
 _load_cli_env()
