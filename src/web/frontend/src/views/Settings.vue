@@ -132,6 +132,21 @@
           </div>
           <div class="form-text">{{ $t('settings.upgradeHint') }}</div>
         </div>
+
+        <div class="mb-3">
+          <label class="form-label">{{ $t('settings.refetchLicense') || 'Re-fetch License' }}</label>
+          <div class="input-group settings-stack-input-group">
+            <input type="text" class="form-control" v-model="license.replayCode"
+                   placeholder="XXXX-XXXX-XXXX-XXXX" />
+            <button class="btn btn-outline-primary" @click="replayLicense"
+                    :disabled="replaying || !license.replayCode">
+              {{ replaying ? ($t('settings.fetching') || 'Fetching…') : ($t('settings.refetch') || 'Re-fetch') }}
+            </button>
+          </div>
+          <div class="form-text">
+            {{ $t('settings.refetchHint') || 'Already activated but lost your license key? Enter the activation code from the original purchase to re-fetch the same key. Hardware-bound — only works from this machine.' }}
+          </div>
+        </div>
         <div class="small text-muted mb-1 settings-copy-row">
           {{ $t('settings.serverId') }}: <code>{{ license.server_id }}</code>
           <button class="btn btn-outline-secondary btn-sm ms-2 py-0 px-1" style="font-size:0.7rem"
@@ -919,9 +934,11 @@ export default {
         activation_code_masked: '',
         message: '',
         newKey: '',
+        replayCode: '',
         alert: '',
         alertType: 'alert-info',
       },
+      replaying: false,
       licServer: {
         primary_url: null,
         backup_url: null,
@@ -1173,6 +1190,25 @@ export default {
         this.license.alert = e.response?.data?.detail || String(e.message || e)
       }
       finally { this.saving = false }
+    },
+
+    async replayLicense() {
+      if (!this.license.replayCode) return
+      this.replaying = true; this.license.alert = ''
+      try {
+        var r = await systemApi.replayLicense({ activation_code: this.license.replayCode })
+        this.license.alertType = 'alert-success'
+        this.license.alert = (this.$t('settings.refetchSuccess')
+          || 'License re-fetched successfully — same payload, fresh signature.')
+        this.license.replayCode = ''
+        var lic = r.data.license || {}
+        if (lic.license_type && !lic.type) lic.type = lic.license_type
+        Object.assign(this.license, lic)
+      } catch(e) {
+        this.license.alertType = 'alert-danger'
+        this.license.alert = e.response?.data?.detail || String(e.message || e)
+      }
+      finally { this.replaying = false }
     },
 
     async loadPaymentSettings() {

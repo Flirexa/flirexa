@@ -151,7 +151,7 @@ export const clientsApi = {
   enable: (id) => api.post(`/clients/${id}/enable`),
   disable: (id) => api.post(`/clients/${id}/disable`),
   getConfig: (id) => api.get(`/clients/${id}/config`),
-  getQR: (id) => api.get(`/clients/${id}/qrcode`, { responseType: 'blob' }),
+  getQR: (id, format) => api.get(`/clients/${id}/qrcode${format ? '?format=' + format : ''}`, { responseType: 'blob' }),
   getPeerDevices: (id) => api.get(`/clients/${id}/peer-devices`),
   setTrafficLimit: (id, data) => api.post(`/clients/${id}/traffic-limit`, data),
   resetTraffic: (id) => api.post(`/clients/${id}/reset-traffic`),
@@ -301,6 +301,7 @@ export const systemApi = {
   // License
   getLicense: () => api.get('/system/license'),
   activateLicense: (data) => api.post('/system/license', data),
+  replayLicense: (data) => api.post('/system/license/replay', data),
   getLicenseServer: () => api.get('/system/license-server'),
   applyMigrationCode: (data) => api.post('/system/license-migration', data),
   triggerLicenseCheck: () => api.post('/system/license-check'),
