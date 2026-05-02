@@ -144,6 +144,7 @@ class ServerManager:
         awg_mtu: Optional[int] = None,
         supports_peer_visibility: bool = True,
         split_tunnel_support: bool = False,
+        ipv4_only: bool = False,
         # Proxy protocol fields
         server_category: Optional[str] = None,
         proxy_domain: Optional[str] = None,
@@ -241,6 +242,7 @@ class ServerManager:
             awg_mtu=awg_mtu,
             supports_peer_visibility=supports_peer_visibility,
             split_tunnel_support=split_tunnel_support,
+            ipv4_only=ipv4_only,
             proxy_domain=proxy_domain,
             proxy_tls_mode=proxy_tls_mode,
             proxy_cert_path=proxy_cert_path,
@@ -309,7 +311,7 @@ class ServerManager:
             "name", "display_name", "endpoint", "listen_port", "dns", "max_clients",
             "description", "location", "status", "mtu", "persistent_keepalive",
             "max_bandwidth_mbps", "supports_peer_visibility", "split_tunnel_support",
-            "is_active",
+            "ipv4_only", "is_active",
         }
 
         for key, value in kwargs.items():

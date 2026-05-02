@@ -811,10 +811,14 @@ class ClientManager:
                 h3=server.awg_h3,
                 h4=server.awg_h4,
             )
+            client_ipv6 = (
+                None if getattr(server, "ipv4_only", False) or not client.ipv6
+                else f"{client.ipv6}/128"
+            )
             return mgr.generate_client_config(
                 client_private_key=client.private_key,
                 client_ipv4=f"{client.ipv4}/32",
-                client_ipv6=f"{client.ipv6}/128" if client.ipv6 else None,
+                client_ipv6=client_ipv6,
                 server_public_key=server.public_key,
                 server_endpoint=client_endpoint,
                 preshared_key=client.preshared_key,
@@ -824,10 +828,14 @@ class ClientManager:
                 persistent_keepalive=server.persistent_keepalive,
             )
 
+        client_ipv6 = (
+            None if getattr(server, "ipv4_only", False) or not client.ipv6
+            else f"{client.ipv6}/128"
+        )
         return self.wg_manager.generate_client_config(
             client_private_key=client.private_key,
             client_ipv4=f"{client.ipv4}/32",
-            client_ipv6=f"{client.ipv6}/128" if client.ipv6 else None,
+            client_ipv6=client_ipv6,
             server_public_key=server.public_key,
             server_endpoint=client_endpoint,
             preshared_key=client.preshared_key,
@@ -865,11 +873,15 @@ class ClientManager:
             h1=server.awg_h1,   h2=server.awg_h2,
             h3=server.awg_h3,   h4=server.awg_h4,
         )
+        client_ipv6 = (
+            None if getattr(server, "ipv4_only", False) or not client.ipv6
+            else f"{client.ipv6}/128"
+        )
         return mgr.generate_amneziavpn_share_url(
             client_private_key=client.private_key,
             client_public_key=client.public_key,
             client_ipv4=f"{client.ipv4}/32",
-            client_ipv6=f"{client.ipv6}/128" if client.ipv6 else None,
+            client_ipv6=client_ipv6,
             server_public_key=server.public_key,
             server_endpoint=endpoint,
             preshared_key=client.preshared_key,

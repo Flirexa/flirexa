@@ -46,8 +46,12 @@ _MAX_PACKAGE_BYTES = int(os.getenv("UPDATE_MAX_PACKAGE_BYTES", str(512 * 1024 * 
 _PUB_KEY_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "update_public.pem"
 
 # In-memory cache: (manifest_dict, fetched_at_timestamp, channel)
+# 1-minute TTL: Navbar's update-available badge polls /updates/status every
+# 60 seconds. If the cache outlived the poll cadence, the badge would only
+# refresh after a manual "Check for updates" click — exactly the bug the
+# operator hit when the panel kept showing the previous version.
 _cache: Optional[Tuple[dict, float, str]] = None
-_CACHE_TTL = 3600  # 1 hour
+_CACHE_TTL = 60
 
 
 # ── Manifest schema ────────────────────────────────────────────────────────────

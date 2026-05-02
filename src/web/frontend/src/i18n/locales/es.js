@@ -1,4 +1,8 @@
 export default {
+  navbar: {
+    logout: 'Cerrar sesión',
+  },
+
   nav: {
     home: 'Inicio',
     main: 'Principal',
@@ -158,6 +162,7 @@ export default {
     editPermissions: 'Permisos',
   },
   common: {
+    account: 'Cuenta',
     name: 'Nombre',
     status: 'Estado',
     actions: 'Acciones',
@@ -359,6 +364,8 @@ export default {
     totalUsers: 'Total',
   },
   clients: {
+    qrHintAmneziaVpn: 'para la aplicación principal AmneziaVPN (escanear QR)',
+    qrHintWg: 'para las aplicaciones WireGuard o AmneziaWG (lite)',
     searchPlaceholder: 'Buscar clientes...',
     all: 'Todos',
     online: 'En línea',
@@ -396,6 +403,8 @@ export default {
     justNow: 'Ahora mismo',
   },
   servers: {
+    ipv4OnlyHint: 'Elimina la línea Address IPv6 de las configuraciones generadas. Útil cuando IPv6 no se tuneliza completamente y podría filtrar DNS.',
+    ipv4OnlyLabel: 'Solo IPv4 (sin IPv6 en las configuraciones)',
     count: '{count} servidor(es)',
     bandwidth: 'Ancho de banda',
     addServer: '+ A\u00f1adir servidor',

@@ -196,8 +196,28 @@
               <input v-model.number="newClient.bandwidth_limit" type="number" class="form-control" :placeholder="$t('clients.unlimitedPlaceholder')" />
             </div>
             <div class="mb-3">
-              <label class="form-label">{{ $t('clients.expiryDays') }}</label>
-              <input v-model.number="newClient.expiry_days" type="number" class="form-control" :placeholder="$t('clients.noExpiryPlaceholder')" />
+              <label class="form-label">{{ $t('clients.expiryLabel') || 'Expiry' }}</label>
+              <div class="d-flex flex-wrap gap-1 mb-2">
+                <button type="button" class="btn btn-sm"
+                        :class="newClient.expiry_days === 0 || newClient.expiry_days === null ? 'btn-primary' : 'btn-outline-secondary'"
+                        @click="newClient.expiry_days = 0">∞</button>
+                <button type="button" v-for="d in [1,3,7,15,30,90]" :key="d" class="btn btn-sm"
+                        :class="newClient.expiry_days === d ? 'btn-primary' : 'btn-outline-secondary'"
+                        @click="newClient.expiry_days = d">{{ d }}d</button>
+              </div>
+              <div class="row g-2">
+                <div class="col-12 col-sm-6">
+                  <input v-model.number="newClient.expiry_days" type="number" min="0"
+                         class="form-control form-control-sm"
+                         :placeholder="$t('clients.noExpiryPlaceholder') || 'Days (0 = unlimited)'" />
+                </div>
+                <div class="col-12 col-sm-6">
+                  <input :value="daysToDate(newClient.expiry_days)"
+                         @input="newClient.expiry_days = dateToDays($event.target.value)"
+                         type="date" class="form-control form-control-sm"
+                         :min="todayIso()" />
+                </div>
+              </div>
             </div>
             <div class="mb-3 form-check d-flex align-items-center gap-1">
               <input class="form-check-input" type="checkbox" v-model="newClient.peer_visibility" id="peerVisibility" />
@@ -270,19 +290,19 @@
             <!-- VPN client config (WireGuard / AmneziaWG) -->
             <template v-else>
               <pre class="code-block">{{ clientConfig }}</pre>
-              <div class="row text-center mt-3" v-if="qrUrl || qrAmneziaVpnUrl">
-                <div class="col" v-if="qrUrl">
-                  <img :src="qrUrl" alt="QR" class="img-fluid" style="max-width: 220px" />
-                  <div class="text-muted small mt-1">
+              <div class="row g-3 text-center mt-3" v-if="qrUrl || qrAmneziaVpnUrl">
+                <div class="col-12 col-sm-6" v-if="qrUrl">
+                  <img :src="qrUrl" alt="QR" class="img-fluid client-qr-img" />
+                  <div class="text-muted small mt-2">
                     <strong>WireGuard / AmneziaWG</strong>
-                    <div style="font-size:0.78em">для приложений WireGuard или AmneziaWG (lite)</div>
+                    <div style="font-size:0.78em">{{ $t('clients.qrHintWg') || 'для приложений WireGuard или AmneziaWG (lite)' }}</div>
                   </div>
                 </div>
-                <div class="col" v-if="qrAmneziaVpnUrl">
-                  <img :src="qrAmneziaVpnUrl" alt="QR" class="img-fluid" style="max-width: 220px" />
-                  <div class="text-muted small mt-1">
+                <div class="col-12 col-sm-6" v-if="qrAmneziaVpnUrl">
+                  <img :src="qrAmneziaVpnUrl" alt="QR" class="img-fluid client-qr-img" />
+                  <div class="text-muted small mt-2">
                     <strong>AmneziaVPN</strong>
-                    <div style="font-size:0.78em">для основного приложения AmneziaVPN (Scan QR)</div>
+                    <div style="font-size:0.78em">{{ $t('clients.qrHintAmneziaVpn') || 'для основного приложения AmneziaVPN (Scan QR)' }}</div>
                   </div>
                 </div>
               </div>
@@ -373,13 +393,23 @@
                   {{ d === 0 ? '∞' : d + 'd' }}
                 </button>
               </div>
-              <input
-                v-model.number="editForm.expiryDays"
-                type="number"
-                class="form-control form-control-sm"
-                min="0"
-                :placeholder="$t('clients.customDays')"
-              />
+              <div class="row g-2">
+                <div class="col-12 col-sm-6">
+                  <input
+                    v-model.number="editForm.expiryDays"
+                    type="number"
+                    class="form-control form-control-sm"
+                    min="0"
+                    :placeholder="$t('clients.customDays')"
+                  />
+                </div>
+                <div class="col-12 col-sm-6">
+                  <input :value="daysToDate(editForm.expiryDays)"
+                         @input="editForm.expiryDays = dateToDays($event.target.value)"
+                         type="date" class="form-control form-control-sm"
+                         :min="todayIso()" />
+                </div>
+              </div>
             </div>
             <div class="mb-3">
               <button class="btn btn-outline-warning btn-sm" @click="resetTraffic">
@@ -705,6 +735,27 @@ function isExpiringSoon(client) {
   return diff < 7 * 24 * 60 * 60 * 1000
 }
 
+// ── Expiry-date helpers ──────────────────────────────────────────────────────
+// Calendar input UX: user can either type days OR pick a date.
+// 0 / null / negative → unlimited (∞).
+function todayIso() {
+  return new Date().toISOString().slice(0, 10)
+}
+function daysToDate(days) {
+  if (!days || days <= 0) return ''
+  const d = new Date()
+  d.setDate(d.getDate() + Number(days))
+  return d.toISOString().slice(0, 10)
+}
+function dateToDays(iso) {
+  if (!iso) return 0
+  const target = new Date(iso + 'T00:00:00')
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const diff = Math.round((target - today) / (1000 * 60 * 60 * 24))
+  return diff > 0 ? diff : 0
+}
+
 function isClientOnline(client) {
   if (!client.last_handshake) return false
   const diff = Date.now() - new Date(client.last_handshake).getTime()
@@ -921,6 +972,16 @@ onMounted(async () => {
 .filter-input { min-width: 160px; }
 .filter-select { min-width: 110px; }
 .filter-select-wide { min-width: 140px; }
+
+.client-qr-img {
+  max-width: 220px;
+  width: 100%;
+  display: block;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px;
+}
 
 /* Sortable table headers */
 .sortable-th {
