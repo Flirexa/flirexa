@@ -475,6 +475,39 @@ def reconcile_inflight_updates() -> int:
             UpdateStatus.APPLYING.name,
             UpdateStatus.ROLLING_BACK.name,
         ]
+
+        # Supersede any ROLLBACK_REQUIRED rows that are followed by a SUCCESS —
+        # the system has already recovered, the old flag is just blocking
+        # business mutations via _ACTIVE_UPDATE_STATES.
+        stuck_rb_required = (
+            db.query(UpdateHistory)
+            .filter(UpdateHistory.status == UpdateStatus.ROLLBACK_REQUIRED)
+            .all()
+        )
+        superseded_ids = []
+        for rec in stuck_rb_required:
+            later_success = (
+                db.query(UpdateHistory.id)
+                .filter(
+                    UpdateHistory.status == UpdateStatus.SUCCESS,
+                    UpdateHistory.started_at > rec.started_at,
+                )
+                .order_by(UpdateHistory.started_at.desc())
+                .first()
+            )
+            if later_success:
+                rec.status = UpdateStatus.FAILED
+                suffix = f" [auto-cleared: superseded by successful update id={later_success[0]}]"
+                rec.error_message = (rec.error_message or "") + suffix
+                if not rec.completed_at:
+                    rec.completed_at = datetime.now(timezone.utc)
+                superseded_ids.append(rec.id)
+        if superseded_ids:
+            db.commit()
+            logger.info(
+                "Auto-cleared %d stale ROLLBACK_REQUIRED row(s) superseded by later SUCCESS: %s",
+                len(superseded_ids), superseded_ids,
+            )
         # Also pick up records that an earlier reconcile pass prematurely marked
         # FAILED with the "Server restarted ..." message before the script had
         # finished writing its exit code. If the script later succeeded we need

@@ -64,13 +64,25 @@
       <button class="topbar-icon-btn d-none d-sm-flex" @click="refreshData" title="Refresh">
         <i class="mdi mdi-refresh"></i>
       </button>
+
+      <!-- User menu -->
+      <div class="vxy-dropdown">
+        <button class="topbar-icon-btn" @click="userMenuOpen = !userMenuOpen" :title="$t('common.account') || 'Account'">
+          <i class="mdi mdi-account-circle-outline"></i>
+        </button>
+        <div class="vxy-dropdown-menu vxy-dropdown-menu--right" v-if="userMenuOpen" @mouseleave="userMenuOpen = false">
+          <button class="vxy-dropdown-item" @click="logout">
+            <i class="mdi mdi-logout me-2"></i><span>{{ $t('navbar.logout') || 'Logout' }}</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSystemStore } from '../stores/system'
 import api from '../api'
@@ -78,10 +90,21 @@ import api from '../api'
 defineEmits(['open-donate'])
 
 const route = useRoute()
+const router = useRouter()
 const system = useSystemStore()
 const { locale, t } = useI18n()
 
 const langOpen = ref(false)
+const userMenuOpen = ref(false)
+
+function logout() {
+  userMenuOpen.value = false
+  try {
+    localStorage.removeItem('sb_token')
+    localStorage.removeItem('sb_refresh_token')
+  } catch {}
+  router.push('/login')
+}
 
 // ── Update-available badge ──────────────────────────────────────────────────
 // Polls /api/v1/updates/status every 60 seconds + on tab focus + on route
@@ -171,4 +194,5 @@ function refreshData() { window.location.reload() }
   background: #ef4444;
   box-shadow: 0 0 0 2px var(--vxy-bg, #fff);
 }
+.vxy-dropdown-menu--right { right: 0; left: auto; }
 </style>

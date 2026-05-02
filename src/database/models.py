@@ -243,6 +243,12 @@ class Server(Base):
         Boolean, default=False, nullable=False, server_default="false"
     )
 
+    # IPv4-only mode: when True, generated client configs omit the IPv6 Address
+    # line. Useful where IPv6 isn't tunneled cleanly (DNS-leak hygiene).
+    ipv4_only: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+
     # Drift detection (migration 010)
     drift_detected: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"

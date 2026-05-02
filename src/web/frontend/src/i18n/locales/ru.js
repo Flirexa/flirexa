@@ -1,4 +1,8 @@
 export default {
+  navbar: {
+    logout: 'Выход',
+  },
+
   nav: {
     home: 'Главная',
     main: 'Главное',
@@ -158,6 +162,7 @@ export default {
     clientHint: 'Оставьте пустым для применения ко всем',
   },
   common: {
+    account: 'Аккаунт',
     name: 'Имя',
     status: 'Статус',
     actions: 'Действия',
@@ -359,6 +364,8 @@ export default {
     totalUsers: 'Всего',
   },
   clients: {
+    qrHintAmneziaVpn: 'для основного приложения AmneziaVPN (Scan QR)',
+    qrHintWg: 'для приложений WireGuard или AmneziaWG (lite)',
     searchPlaceholder: 'Поиск клиентов...',
     all: 'Все',
     online: 'Онлайн',
@@ -405,6 +412,8 @@ export default {
     justNow: 'Только что',
   },
   servers: {
+    ipv4OnlyHint: 'Убирает IPv6-адрес из сгенерированных конфигов клиентов. Полезно если IPv6 не туннелируется и может утекать DNS.',
+    ipv4OnlyLabel: 'Только IPv4 (без IPv6 в конфиге клиента)',
     count: '{count} сервер(ов)',
     bandwidth: 'Пропускная способность',
     addServer: '+ Добавить сервер',

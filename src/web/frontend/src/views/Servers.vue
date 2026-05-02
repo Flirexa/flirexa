@@ -344,6 +344,12 @@
                 <label class="small mb-0" for="splitTunnelNew" style="cursor:pointer">Split tunneling</label>
                 <HelpTooltip :text="$t('help.splitTunnel')" />
               </div>
+              <div v-if="newServer.server_category === 'vpn'" class="d-flex align-items-center gap-2 mt-2">
+                <input class="form-check-input mt-0" type="checkbox" v-model="newServer.ipv4_only" id="ipv4OnlyNew"
+                       role="switch" style="flex-shrink:0;width:2em;height:1em;cursor:pointer" />
+                <label class="small mb-0" for="ipv4OnlyNew" style="cursor:pointer">{{ $t('servers.ipv4OnlyLabel') || 'IPv4 only (no IPv6 in client configs)' }}</label>
+                <HelpTooltip :text="$t('servers.ipv4OnlyHint') || 'Strips the IPv6 Address line from generated client configs. Useful where IPv6 isn\'t fully tunneled and could leak DNS.'" />
+              </div>
             </div>
 
             <!-- Proxy Quick Start hint -->
@@ -1069,6 +1075,7 @@ const newServer = ref({
   server_type: 'wireguard',
   server_category: 'vpn',
   split_tunnel_support: false,
+  ipv4_only: false,
   // Proxy fields
   proxy_domain: '',
   proxy_tls_mode: 'self_signed',
