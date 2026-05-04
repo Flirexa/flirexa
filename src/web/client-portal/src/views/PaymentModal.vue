@@ -142,7 +142,10 @@ import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 
 const emit = defineEmits(['close', 'success'])
-const props = defineProps({ plan: { type: Object, default: null } })
+const props = defineProps({
+  plan: { type: Object, default: null },
+  preselectProvider: { type: String, default: '' },
+})
 
 const { t } = useI18n()
 
@@ -295,8 +298,12 @@ onMounted(async () => {
     ])
     plans.value = plansRes.data.filter(p => p.tier !== 'free')
     providers.value = providersRes.data
-    if (providers.value.length === 1) selectedProvider.value = providers.value[0].id
-    else if (providers.value.length > 0) selectedProvider.value = providers.value[0].id
+    // Honor the parent's preselectProvider if it matches a configured one,
+    // otherwise fall back to the first available provider.
+    const wanted = (props.preselectProvider || '').trim()
+    const match = wanted && providers.value.find(p => p.id === wanted)
+    if (match) selectedProvider.value = match.id
+    else if (providers.value.length >= 1) selectedProvider.value = providers.value[0].id
   } catch { /* ignore */ }
   if (props.plan) { selectedPlan.value = props.plan; if (props.plan.price_monthly_usd > 0) step.value = 2 }
 })

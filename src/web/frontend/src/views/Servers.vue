@@ -70,9 +70,16 @@
                     :disabled="installingAgent[server.id]"><i class="mdi mdi-robot-outline me-1"></i>{{ $t('servers.installAgent') || 'Install Agent' }}</button>
                   <button v-if="server.ssh_host" class="srv-menu__item"
                     @click="menuAction(() => openInstallProxyModal(server))"><i class="mdi mdi-web me-1"></i>{{ $t('servers.installProxy') || 'Install Proxy' }}</button>
+                  <button v-if="server.ssh_host && server.server_type !== 'amneziawg'" class="srv-menu__item"
+                    @click="menuAction(() => openInstallAwgModal(server))"><i class="mdi mdi-shield-lock-outline me-1"></i>{{ $t('servers.installAwg') || 'Install AmneziaWG' }}</button>
                 </template>
                 <div class="srv-menu__sep"></div>
                 <button class="srv-menu__item" @click="menuAction(() => openRenameModal(server))"><i class="mdi mdi-pencil-outline me-1"></i>{{ $t('servers.rename') || 'Rename (display)' }}</button>
+                <template v-if="server.server_category !== 'proxy'">
+                  <div class="srv-menu__sep"></div>
+                  <button class="srv-menu__item" @click="menuAction(() => openExportKeypair(server))"><i class="mdi mdi-key-outline me-1"></i>{{ $t('servers.exportKeypair') || 'Export keypair' }}</button>
+                  <button class="srv-menu__item" @click="menuAction(() => openMigrateClients(server))"><i class="mdi mdi-account-switch-outline me-1"></i>{{ $t('servers.migrateClients') || 'Migrate clients' }}</button>
+                </template>
                 <template v-if="!server.is_default">
                   <div class="srv-menu__sep"></div>
                   <button class="srv-menu__item srv-menu__item--danger"
@@ -493,6 +500,28 @@
                            :placeholder="$t('servers.sshPasswordPlaceholder')" />
                   </div>
 
+                  <!-- Reuse-keypair toggle for the "replace a dead server" workflow.
+                       Most users never need this — keep it collapsed by default so
+                       the form stays simple. Click expands a single Private Key field. -->
+                  <div class="mt-3 pt-3 border-top">
+                    <button type="button"
+                            class="btn btn-link btn-sm p-0 text-decoration-none d-flex align-items-center gap-1"
+                            @click="reuseKeyOpen = !reuseKeyOpen"
+                            style="color: var(--vxy-primary, #5865f2)">
+                      <i class="mdi" :class="reuseKeyOpen ? 'mdi-chevron-up' : 'mdi-chevron-down'"></i>
+                      {{ $t('servers.reuseKeyToggle') || 'Replacing a broken server? Reuse its private key' }}
+                    </button>
+                    <div v-if="reuseKeyOpen" class="mt-2">
+                      <label class="form-label mb-1 small fw-medium">{{ $t('servers.privateKeyLabel') || 'Server private key (optional)' }}</label>
+                      <input v-model="newServer.private_key" type="password" class="form-control font-monospace"
+                             :placeholder="$t('servers.privateKeyPlaceholder') || '44-character base64 WireGuard private key'"
+                             maxlength="44" minlength="44" />
+                      <div class="form-text small">
+                        {{ $t('servers.privateKeyHint') || 'Paste here the key from the broken server (Servers → ⋯ → Export keypair). The new box will inherit the same identity, so existing client configs keep working without re-issuing.' }}
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             </div>
@@ -812,7 +841,7 @@
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title"><i class="mdi mdi-web me-2"></i>Install Proxy on {{ installProxyServer?.name }}</h5>
-            <button type="button" class="btn-close" @click="showInstallProxyModal = false" :disabled="installingProxy"></button>
+            <button type="button" class="btn-close" @click="cancelInstallProxy"></button>
           </div>
           <div class="modal-body">
             <p class="text-muted small mb-3">Installs Hysteria2 or TUIC on this server's machine via SSH, creating a new proxy server record.</p>
@@ -863,7 +892,10 @@
             <div v-if="installProxyError" class="alert alert-danger small mt-2">{{ installProxyError }}</div>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="showInstallProxyModal = false" :disabled="installingProxy">{{ $t('common.cancel') }}</button>
+            <button type="button" class="btn btn-secondary" @click="cancelInstallProxy">
+              <span v-if="cancellingProxy" class="spinner-border spinner-border-sm me-1"></span>
+              {{ installingProxy ? ($t('servers.cancelInstall') || 'Cancel install') : $t('common.cancel') }}
+            </button>
             <button type="button" class="btn btn-success" @click="doInstallProxy" :disabled="installingProxy || (installProxyForm.tls_mode === 'acme' && !installProxyForm.domain)">
               <span v-if="installingProxy" class="spinner-border spinner-border-sm me-1"></span>
               <i class="mdi mdi-web me-1"></i>Install
@@ -873,6 +905,61 @@
       </div>
     </div>
     <div class="modal-backdrop fade show" v-if="showInstallProxyModal"></div>
+
+    <!-- Install AWG Modal -->
+    <div class="modal fade" :class="{ show: showInstallAwgModal }" :style="{ display: showInstallAwgModal ? 'block' : 'none' }" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="mdi mdi-shield-lock-outline me-2"></i>{{ $t('servers.installAwgTitle') || 'Install AmneziaWG on' }} {{ installAwgServer?.name }}</h5>
+            <button type="button" class="btn-close" @click="cancelInstallAwg"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted small mb-3">{{ $t('servers.installAwgHint') || 'Provisions AmneziaWG (obfuscated WireGuard) on this server\'s machine via SSH alongside its existing protocol. The new AWG server is managed via SSH — the existing WireGuard agent stays untouched.' }}</p>
+
+            <div class="mb-3">
+              <label class="form-label">{{ $t('servers.interface') }}</label>
+              <input v-model="installAwgForm.interface" type="text" class="form-control" :placeholder="installAwgForm.interfacePlaceholder || 'awg1 (auto)'" />
+              <small class="text-muted">{{ $t('servers.installAwgIfaceHint') || 'Leave blank to auto-pick the next free awgN' }}</small>
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">{{ $t('servers.port') }} <span class="text-muted small">(default: 51821)</span></label>
+              <input v-model.number="installAwgForm.listen_port" type="number" class="form-control" placeholder="51821" />
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">IPv4 pool</label>
+              <input v-model="installAwgForm.address_pool_ipv4" type="text" class="form-control" placeholder="10.66.66.0/24" />
+            </div>
+
+            <!-- Progress log -->
+            <div v-if="installingAwg" class="bootstrap-log-box mt-3">
+              <div class="bootstrap-log-box__header">
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                <span class="fw-semibold small">{{ $t('servers.installingAwg') || 'Installing AmneziaWG…' }}</span>
+              </div>
+              <div class="bootstrap-log-box__body" ref="awgLogBoxRef">
+                <div v-for="(line, i) in awgInstallLogs" :key="i" class="bootstrap-log-line">{{ line }}</div>
+                <div v-if="!awgInstallLogs.length" class="text-muted small fst-italic">{{ $t('servers.waitingForServer') || 'Waiting for server...' }}</div>
+              </div>
+            </div>
+            <div v-if="installAwgError" class="alert alert-danger small mt-2">{{ installAwgError }}</div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="cancelInstallAwg">
+              <span v-if="cancellingAwg" class="spinner-border spinner-border-sm me-1"></span>
+              {{ installingAwg ? ($t('servers.cancelInstall') || 'Cancel install') : $t('common.cancel') }}
+            </button>
+            <button type="button" class="btn btn-success" @click="doInstallAwg" :disabled="installingAwg">
+              <span v-if="installingAwg" class="spinner-border spinner-border-sm me-1"></span>
+              <i class="mdi mdi-shield-lock-outline me-1"></i>{{ $t('common.install') || 'Install' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade show" v-if="showInstallAwgModal"></div>
 
     <!-- Bandwidth Settings Modal -->
     <div class="modal fade" :class="{ show: showBwModal }" :style="{ display: showBwModal ? 'block' : 'none' }" tabindex="-1">
@@ -927,6 +1014,147 @@
       </div>
     </div>
     <div class="modal-backdrop fade show" v-if="showRenameModal"></div>
+
+    <!-- ════════ Export Keypair Modal ════════ -->
+    <div v-if="exportKeypairServer" class="modal fade show" style="display:block" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="mdi mdi-key-outline me-2"></i>{{ $t('servers.exportKeypair') || 'Export keypair' }}
+            </h5>
+            <button type="button" class="btn-close" @click="closeExportKeypair"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-warning d-flex gap-2 align-items-start mb-3">
+              <i class="mdi mdi-alert-outline" style="font-size:1.25rem"></i>
+              <div class="small">
+                <strong>{{ $t('servers.keypairWarning') || 'Treat this as a secret.' }}</strong>
+                <div class="text-muted">{{ $t('servers.keypairWarningHint') || 'Anyone with this private key can impersonate the VPN server. Use it only to seed a replacement box where you want existing client configs to keep working.' }}</div>
+              </div>
+            </div>
+
+            <div v-if="!keypairData && !keypairError" class="text-center py-3">
+              <button class="btn btn-primary" @click="confirmRevealKeypair" :disabled="loadingKeypair">
+                <span v-if="loadingKeypair" class="spinner-border spinner-border-sm me-2"></span>
+                <i v-else class="mdi mdi-eye-outline me-1"></i>
+                {{ $t('servers.revealKeys') || 'I understand — reveal keys' }}
+              </button>
+            </div>
+
+            <div v-if="keypairError" class="alert alert-danger">{{ keypairError }}</div>
+
+            <div v-if="keypairData">
+              <div class="mb-3">
+                <label class="form-label small fw-bold">Public key</label>
+                <div class="input-group input-group-sm">
+                  <input :value="keypairData.public_key" readonly class="form-control font-monospace">
+                  <button class="btn btn-outline-secondary" @click="copyToClipboard(keypairData.public_key, 'pub')">
+                    <i class="mdi" :class="copiedField === 'pub' ? 'mdi-check text-success' : 'mdi-content-copy'"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label small fw-bold">Private key</label>
+                <div class="input-group input-group-sm">
+                  <input :value="keypairData.private_key" readonly class="form-control font-monospace">
+                  <button class="btn btn-outline-secondary" @click="copyToClipboard(keypairData.private_key, 'priv')">
+                    <i class="mdi" :class="copiedField === 'priv' ? 'mdi-check text-success' : 'mdi-content-copy'"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="row g-2 small">
+                <div class="col-6"><span class="text-muted">Interface:</span> <code>{{ keypairData.interface }}</code></div>
+                <div class="col-6"><span class="text-muted">Listen port:</span> <code>{{ keypairData.listen_port }}</code></div>
+                <div class="col-6"><span class="text-muted">Endpoint:</span> <code>{{ keypairData.endpoint }}</code></div>
+                <div class="col-6"><span class="text-muted">Subnet:</span> <code>{{ keypairData.address_pool_ipv4 }}</code></div>
+              </div>
+              <div v-if="keypairData.awg_params" class="mt-3 p-2 rounded" style="background:rgba(99,102,241,.06)">
+                <div class="small fw-bold mb-1">AmneziaWG obfuscation params (must match on the new server)</div>
+                <pre class="small mb-0" style="white-space:pre-wrap">{{ formatAwgParams(keypairData.awg_params) }}</pre>
+              </div>
+              <div class="alert alert-info small mt-3 mb-0">
+                <strong>{{ $t('servers.keypairUseHint') || 'How to use:' }}</strong>
+                {{ $t('servers.keypairUseHintBody') || 'Add a new server in this panel and paste the Private key into the corresponding field. The new box will accept all existing client configs without re-issuing them.' }}
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="closeExportKeypair">{{ $t('common.close') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade show" v-if="exportKeypairServer"></div>
+
+    <!-- ════════ Migrate Clients Modal ════════ -->
+    <div v-if="migrateSourceServer" class="modal fade show" style="display:block" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="mdi mdi-account-switch-outline me-2"></i>{{ $t('servers.migrateClients') || 'Migrate clients' }}
+            </h5>
+            <button type="button" class="btn-close" @click="closeMigrateClients"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-3">
+              {{ $t('servers.migrateClientsHint') || 'Move every WG client from this server to another. Client configs will keep working as long as the destination uses the same private key (use "Export keypair" → reuse on a new server).' }}
+            </p>
+
+            <div class="mb-3">
+              <label class="form-label small fw-bold">From</label>
+              <input :value="migrateSourceServer.name + ' (' + (migrateSourceServer.endpoint || '') + ')'" readonly class="form-control form-control-sm">
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label small fw-bold">To</label>
+              <select v-model="migrateTargetId" class="form-select form-select-sm">
+                <option :value="null" disabled>{{ $t('servers.selectTargetServer') || 'Select target server…' }}</option>
+                <option v-for="s in migrateCandidateServers" :key="s.id" :value="s.id">
+                  {{ s.name }} · {{ s.server_type }} · {{ s.endpoint || 'local' }}
+                </option>
+              </select>
+              <small v-if="!migrateCandidateServers.length" class="text-muted">
+                {{ $t('servers.migrateNoTargets') || 'No other server with the same protocol available.' }}
+              </small>
+            </div>
+
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="syncRemote" v-model="migrateSyncRemote">
+              <label class="form-check-label small" for="syncRemote">
+                {{ $t('servers.migrateSyncRemote') || 'Push peers to the new server\'s WireGuard (recommended)' }}
+              </label>
+            </div>
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" id="removeOld" v-model="migrateRemoveFromOld">
+              <label class="form-check-label small" for="removeOld">
+                {{ $t('servers.migrateRemoveOld') || 'Remove peers from the old server\'s WireGuard' }}
+              </label>
+            </div>
+
+            <div v-if="migrateResult" class="alert" :class="migrateResult.failed && migrateResult.failed.length ? 'alert-warning' : 'alert-success'">
+              <strong>{{ migrateResult.message }}</strong>
+              <div v-if="migrateResult.failed && migrateResult.failed.length" class="small mt-2">
+                Failed:
+                <ul class="mb-0">
+                  <li v-for="(f, i) in migrateResult.failed" :key="i">{{ f.client }}: {{ f.error }}</li>
+                </ul>
+              </div>
+            </div>
+            <div v-if="migrateError" class="alert alert-danger">{{ migrateError }}</div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="closeMigrateClients">{{ $t('common.close') }}</button>
+            <button class="btn btn-primary" @click="runMigrate" :disabled="!migrateTargetId || migrating || migrateResult">
+              <span v-if="migrating" class="spinner-border spinner-border-sm me-2"></span>
+              {{ $t('servers.migrateNow') || 'Migrate now' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade show" v-if="migrateSourceServer"></div>
   </div>
 </template>
 
@@ -1082,7 +1310,10 @@ const newServer = ref({
   proxy_cert_path: '',
   proxy_key_path: '',
   proxy_obfs_password: '',
+  private_key: '',
 })
+
+const reuseKeyOpen = ref(false)
 
 const showDiscoverModal = ref(false)
 const discoverError = ref('')
@@ -1104,6 +1335,7 @@ const clientsServerName = ref('')
 const installingAgent = ref({})
 
 const detectingPublicIp = ref(false)
+const autoDetectedPanelIp = ref('')
 
 function autoDetectPublicIp() {
   // Pulls the host's public IPv4 and pre-fills the endpoint field. Skipped
@@ -1116,9 +1348,23 @@ function autoDetectPublicIp() {
   systemApi.getPublicIp().then(res => {
     if (res.data?.public_ip && !newServer.value.endpoint) {
       newServer.value.endpoint = res.data.public_ip
+      autoDetectedPanelIp.value = res.data.public_ip
     }
   }).catch(() => {}).finally(() => { detectingPublicIp.value = false })
 }
+
+// When user fills ssh_host for a REMOTE server, the endpoint must point to
+// that remote host — not the panel host. If endpoint is still the
+// panel-IP we auto-pre-filled (or empty), mirror ssh_host into it. We don't
+// overwrite a deliberately-edited endpoint (e.g. a DNS name).
+watch(() => newServer.value.ssh_host, (val) => {
+  const sshHost = (val || '').trim()
+  if (!sshHost) return
+  const ep = (newServer.value.endpoint || '').trim()
+  if (!ep || ep === autoDetectedPanelIp.value) {
+    newServer.value.endpoint = sshHost
+  }
+})
 
 function selectCategory(cat) {
   newServer.value.server_category = cat
@@ -1178,6 +1424,22 @@ const renameServerInternalName = ref('')
 const renameDisplayName = ref('')
 const savingDisplayName = ref(false)
 
+// Export keypair modal
+const exportKeypairServer = ref(null)
+const keypairData = ref(null)
+const keypairError = ref('')
+const loadingKeypair = ref(false)
+const copiedField = ref('')
+
+// Migrate clients modal
+const migrateSourceServer = ref(null)
+const migrateTargetId = ref(null)
+const migrateSyncRemote = ref(true)
+const migrateRemoveFromOld = ref(true)
+const migrating = ref(false)
+const migrateResult = ref(null)
+const migrateError = ref('')
+
 // Backup/Restore
 const backingUp = ref({})
 const restoreInputs = ref({})
@@ -1209,17 +1471,36 @@ async function setDefaultServer(id) {
 }
 
 async function confirmDeleteServer(server) {
-  const clientCount = server.client_count || 0
+  // Field is `total_clients` from ServerResponse, NOT `client_count` —
+  // earlier check was always 0 because of the wrong key, so the warning
+  // never showed for servers with active clients.
+  const clientCount = server.total_clients ?? server.client_count ?? 0
   let msg
   if (server.server_category === 'proxy') {
     msg = `Uninstall proxy "${server.name}"?\n\nThis will stop and remove the ${server.server_type === 'hysteria2' ? 'Hysteria 2' : 'TUIC'} service from the remote server and delete this server record.`
+    if (clientCount > 0) {
+      msg += `\n\n⚠ This server has ${clientCount} client(s) — they will all be deleted along with the server.`
+    }
   } else {
     msg = `Delete server "${server.name}"?`
     if (clientCount > 0) {
-      msg += `\n\nThis server has ${clientCount} client(s). All clients and their WireGuard configs will be permanently removed.`
+      msg += (
+        `\n\n⚠ THIS SERVER HAS ${clientCount} CLIENT(S).\n\n` +
+        `All ${clientCount} client(s) and their VPN configs will be permanently removed. ` +
+        `Active connections will drop. This cannot be undone.\n\n` +
+        `Type the server name to confirm:`
+      )
+      const typed = prompt(msg, '')
+      if (typed === null) return
+      if (typed.trim() !== server.name) {
+        alert(`Aborted — you typed "${typed}", expected "${server.name}".`)
+        return
+      }
+    } else if (!confirm(msg)) {
+      return
     }
   }
-  if (!confirm(msg)) return
+  if (server.server_category === 'proxy' && !confirm(msg)) return
   try {
     await serversApi.delete(server.id, true)
     await store.fetchServers()
@@ -1301,6 +1582,14 @@ async function addServer() {
   if (!payload.proxy_key_path) delete payload.proxy_key_path
   if (!payload.proxy_obfs_password) delete payload.proxy_obfs_password
 
+  // Reuse-keypair: API requires exactly 44 chars when present, so strip
+  // an empty value rather than sending "" and tripping pydantic.
+  if (!payload.private_key || !payload.private_key.trim()) {
+    delete payload.private_key
+  } else {
+    payload.private_key = payload.private_key.trim()
+  }
+
   if (!payload.ssh_host) {
     delete payload.ssh_host
     delete payload.ssh_port
@@ -1365,6 +1654,8 @@ async function addServer() {
     bootstrapLogs.value = []
     bootstrapTaskId.value = ''
     nameAutoGenerated.value = false
+    newServer.value.private_key = ''
+    reuseKeyOpen.value = false
     // Show success toast
     const createdName = newServerData?.name || payload.name || t('servers.addServer')
     const createdId = newServerData?.id
@@ -1493,10 +1784,12 @@ function openAgentMenu(server) {
 const showInstallProxyModal = ref(false)
 const installProxyServer = ref(null)
 const installingProxy = ref(false)
+const cancellingProxy = ref(false)
 const installProxyError = ref('')
 const proxyInstallLogs = ref([])
 const proxyLogBoxRef = ref(null)
 let proxyPollingHandle = null
+let proxyAbortController = null
 
 const installProxyForm = reactive({
   protocol: 'hysteria2',
@@ -1529,15 +1822,21 @@ function openInstallProxyModal(server) {
 async function doInstallProxy() {
   if (!installProxyServer.value) return
   installingProxy.value = true
+  cancellingProxy.value = false
   installProxyError.value = ''
   proxyInstallLogs.value = []
   if (proxyPollingHandle) clearInterval(proxyPollingHandle)
 
+  proxyAbortController = new AbortController()
   const tid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
 
   // Start polling
   let since = 0
   proxyPollingHandle = setInterval(async () => {
+    if (proxyAbortController?.signal?.aborted) {
+      clearInterval(proxyPollingHandle); proxyPollingHandle = null
+      return
+    }
     try {
       const { data } = await serversApi.getBootstrapLogs(tid, since)
       if (data.logs?.length) {
@@ -1560,7 +1859,9 @@ async function doInstallProxy() {
       obfs_password: installProxyForm.obfs_password || undefined,
       task_id: tid,
     }
-    await serversApi.installProxy(installProxyServer.value.id, payload)
+    await serversApi.installProxy(installProxyServer.value.id, payload, {
+      signal: proxyAbortController.signal,
+    })
     clearInterval(proxyPollingHandle)
     proxyPollingHandle = null
     // Final log sweep
@@ -1577,9 +1878,163 @@ async function doInstallProxy() {
   } catch (err) {
     clearInterval(proxyPollingHandle)
     proxyPollingHandle = null
-    installProxyError.value = err.response?.data?.detail || err.message
+    if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED' || proxyAbortController?.signal?.aborted) {
+      installProxyError.value = ''
+      showInstallProxyModal.value = false
+      setTimeout(() => { store.fetchServers() }, 5000)
+    } else {
+      installProxyError.value = err.response?.data?.detail || err.message
+    }
   } finally {
     installingProxy.value = false
+    cancellingProxy.value = false
+    proxyAbortController = null
+  }
+}
+
+function cancelInstallProxy() {
+  if (!installingProxy.value) {
+    showInstallProxyModal.value = false
+    return
+  }
+  cancellingProxy.value = true
+  if (proxyAbortController) {
+    try { proxyAbortController.abort() } catch (_e) {}
+  }
+  if (proxyPollingHandle) {
+    clearInterval(proxyPollingHandle)
+    proxyPollingHandle = null
+  }
+}
+
+// ── Install AWG on existing server ────────────────────────────────────────────
+const showInstallAwgModal = ref(false)
+const installAwgServer = ref(null)
+const installingAwg = ref(false)
+const cancellingAwg = ref(false)
+const installAwgError = ref('')
+const awgInstallLogs = ref([])
+const awgLogBoxRef = ref(null)
+let awgPollingHandle = null
+let awgAbortController = null
+
+const installAwgForm = reactive({
+  interface: '',
+  listen_port: null,
+  address_pool_ipv4: '10.66.66.0/24',
+  interfacePlaceholder: 'awg1 (auto)',
+})
+
+watch(awgInstallLogs, () => {
+  nextTick(() => {
+    if (awgLogBoxRef.value) {
+      awgLogBoxRef.value.scrollTop = awgLogBoxRef.value.scrollHeight
+    }
+  })
+}, { deep: true })
+
+function openInstallAwgModal(server) {
+  installAwgServer.value = server
+  installAwgError.value = ''
+  awgInstallLogs.value = []
+  installAwgForm.interface = ''
+  installAwgForm.listen_port = null
+  installAwgForm.address_pool_ipv4 = '10.66.66.0/24'
+  showInstallAwgModal.value = true
+}
+
+async function doInstallAwg() {
+  if (!installAwgServer.value) return
+  installingAwg.value = true
+  cancellingAwg.value = false
+  installAwgError.value = ''
+  awgInstallLogs.value = []
+  if (awgPollingHandle) clearInterval(awgPollingHandle)
+
+  // AbortController so the user's Cancel button can actually interrupt
+  // the in-flight install request. Backend will continue running its
+  // bootstrap thread, but its except-block rolls back the partial DB row
+  // on completion, so the panel won't show an orphan server.
+  awgAbortController = new AbortController()
+
+  const tid = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
+
+  let since = 0
+  awgPollingHandle = setInterval(async () => {
+    if (awgAbortController?.signal?.aborted) {
+      clearInterval(awgPollingHandle); awgPollingHandle = null
+      return
+    }
+    try {
+      const { data } = await serversApi.getBootstrapLogs(tid, since)
+      if (data.logs?.length) {
+        awgInstallLogs.value.push(...data.logs)
+        since = data.next_index
+      }
+      if (data.complete) {
+        clearInterval(awgPollingHandle)
+        awgPollingHandle = null
+      }
+    } catch (_e) {}
+  }, 1200)
+
+  try {
+    const payload = {
+      interface: installAwgForm.interface || undefined,
+      listen_port: installAwgForm.listen_port || undefined,
+      address_pool_ipv4: installAwgForm.address_pool_ipv4 || undefined,
+      task_id: tid,
+    }
+    await serversApi.installAwg(installAwgServer.value.id, payload, {
+      signal: awgAbortController.signal,
+    })
+    clearInterval(awgPollingHandle)
+    awgPollingHandle = null
+    try {
+      const { data } = await serversApi.getBootstrapLogs(tid, since)
+      if (data.logs?.length) awgInstallLogs.value.push(...data.logs)
+    } catch (_e) {}
+
+    await store.fetchServers()
+    showInstallAwgModal.value = false
+    const srvName = `${installAwgServer.value.name} — AmneziaWG`
+    serverCreatedToast.value = { name: srvName, id: null }
+    setTimeout(() => { serverCreatedToast.value = null }, 6000)
+  } catch (err) {
+    clearInterval(awgPollingHandle)
+    awgPollingHandle = null
+    if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED' || awgAbortController?.signal?.aborted) {
+      // User cancelled — backend will roll back the partial server record
+      // when its install thread finishes. Just close the modal.
+      installAwgError.value = ''
+      showInstallAwgModal.value = false
+      // Refresh in 5s to pick up any cleanup the backend did.
+      setTimeout(() => { store.fetchServers() }, 5000)
+    } else {
+      installAwgError.value = err.response?.data?.detail || err.message
+    }
+  } finally {
+    installingAwg.value = false
+    cancellingAwg.value = false
+    awgAbortController = null
+  }
+}
+
+function cancelInstallAwg() {
+  // If install is in flight, abort the request and tell the user the
+  // backend is still cleaning up. Otherwise just close the modal as a
+  // normal Cancel.
+  if (!installingAwg.value) {
+    showInstallAwgModal.value = false
+    return
+  }
+  cancellingAwg.value = true
+  if (awgAbortController) {
+    try { awgAbortController.abort() } catch (_e) {}
+  }
+  if (awgPollingHandle) {
+    clearInterval(awgPollingHandle)
+    awgPollingHandle = null
   }
 }
 
@@ -1701,6 +2156,94 @@ async function saveDisplayName() {
     alert('Error: ' + (err.response?.data?.detail || err.message))
   } finally {
     savingDisplayName.value = false
+  }
+}
+
+// --- Export keypair (for cloning a server with the same WG identity) ---
+
+function openExportKeypair(server) {
+  exportKeypairServer.value = server
+  keypairData.value = null
+  keypairError.value = ''
+  copiedField.value = ''
+}
+function closeExportKeypair() {
+  exportKeypairServer.value = null
+  keypairData.value = null
+  keypairError.value = ''
+}
+async function confirmRevealKeypair() {
+  if (!exportKeypairServer.value) return
+  loadingKeypair.value = true
+  keypairError.value = ''
+  try {
+    const { data } = await serversApi.getKeypair(exportKeypairServer.value.id)
+    keypairData.value = data
+  } catch (err) {
+    keypairError.value = err.response?.data?.detail || err.message || 'Failed to fetch keypair'
+  } finally {
+    loadingKeypair.value = false
+  }
+}
+async function copyToClipboard(text, field) {
+  try {
+    await navigator.clipboard.writeText(text || '')
+    copiedField.value = field
+    setTimeout(() => { if (copiedField.value === field) copiedField.value = '' }, 1500)
+  } catch (_e) { /* ignore — admin can select manually */ }
+}
+function formatAwgParams(params) {
+  if (!params) return ''
+  return ['jc','jmin','jmax','s1','s2','h1','h2','h3','h4','mtu']
+    .filter(k => params[k] != null)
+    .map(k => `${k.padEnd(5)} = ${params[k]}`)
+    .join('\n')
+}
+
+// --- Migrate clients (move every client from server X to server Y) ---
+
+const migrateCandidateServers = computed(() => {
+  if (!migrateSourceServer.value) return []
+  const srcType = migrateSourceServer.value.server_type || 'wireguard'
+  return store.servers.filter(s =>
+    s.id !== migrateSourceServer.value.id &&
+    (s.server_type || 'wireguard') === srcType &&
+    s.server_category !== 'proxy'
+  )
+})
+
+function openMigrateClients(server) {
+  migrateSourceServer.value = server
+  migrateTargetId.value = null
+  migrateSyncRemote.value = true
+  migrateRemoveFromOld.value = true
+  migrating.value = false
+  migrateResult.value = null
+  migrateError.value = ''
+}
+function closeMigrateClients() {
+  migrateSourceServer.value = null
+  migrateTargetId.value = null
+  migrateResult.value = null
+  migrateError.value = ''
+}
+async function runMigrate() {
+  if (!migrateSourceServer.value || !migrateTargetId.value) return
+  migrating.value = true
+  migrateError.value = ''
+  try {
+    const { data } = await serversApi.migrateClients(migrateSourceServer.value.id, {
+      target_server_id: migrateTargetId.value,
+      sync_to_remote: migrateSyncRemote.value,
+      remove_from_old: migrateRemoveFromOld.value,
+    })
+    migrateResult.value = data
+    // Refresh client counts on both servers.
+    await store.fetchServers()
+  } catch (err) {
+    migrateError.value = err.response?.data?.detail || err.message || 'Migration failed'
+  } finally {
+    migrating.value = false
   }
 }
 

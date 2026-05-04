@@ -2,7 +2,7 @@
 System Routes — status, logs, configuration, branding
 """
 
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel, Field
@@ -696,6 +696,7 @@ class PaymentSettingsUpdate(BaseModel):
     paypal_client_id: Optional[str] = None
     paypal_client_secret: Optional[str] = None
     paypal_sandbox: Optional[bool] = None
+    paypal_webhook_id: Optional[str] = None
     nowpayments_api_key: Optional[str] = None
     nowpayments_ipn_secret: Optional[str] = None
     nowpayments_sandbox: Optional[bool] = None
@@ -707,6 +708,7 @@ class PaymentSettingsUpdate(BaseModel):
     mollie_api_key: Optional[str] = None
     razorpay_key_id: Optional[str] = None
     razorpay_key_secret: Optional[str] = None
+    razorpay_webhook_secret: Optional[str] = None
 
 
 def _mask_token(token: str) -> str:
@@ -732,6 +734,7 @@ async def get_payment_settings():
         "paypal_configured": client_portal.paypal_provider is not None,
         "paypal_client_id_masked": _mask_token(os.getenv("PAYPAL_CLIENT_ID", "")),
         "paypal_sandbox": os.getenv("PAYPAL_SANDBOX", "true").lower() == "true",
+        "paypal_webhook_id_masked": _mask_token(os.getenv("PAYPAL_WEBHOOK_ID", "")),
         # NOWPayments
         "nowpayments_configured": client_portal.nowpayments_provider is not None,
         "nowpayments_api_key_masked": _mask_token(os.getenv("NOWPAYMENTS_API_KEY", "")),
@@ -772,6 +775,8 @@ async def update_payment_settings(data: PaymentSettingsUpdate):
         updates["PAYPAL_CLIENT_SECRET"] = data.paypal_client_secret
     if data.paypal_sandbox is not None:
         updates["PAYPAL_SANDBOX"] = "true" if data.paypal_sandbox else "false"
+    if data.paypal_webhook_id is not None:
+        updates["PAYPAL_WEBHOOK_ID"] = data.paypal_webhook_id
 
     # NOWPayments
     if data.nowpayments_api_key is not None:
@@ -802,6 +807,8 @@ async def update_payment_settings(data: PaymentSettingsUpdate):
         updates["RAZORPAY_KEY_ID"] = data.razorpay_key_id
     if data.razorpay_key_secret is not None:
         updates["RAZORPAY_KEY_SECRET"] = data.razorpay_key_secret
+    if data.razorpay_webhook_secret is not None:
+        updates["RAZORPAY_WEBHOOK_SECRET"] = data.razorpay_webhook_secret
 
     # Write to .env
     _update_env_file(env_path, updates)
@@ -855,8 +862,13 @@ async def update_payment_settings(data: PaymentSettingsUpdate):
     np_sandbox = os.getenv("NOWPAYMENTS_SANDBOX", "false").lower() == "true"
     if np_key:
         try:
-            from ...modules.subscription.crypto_payment import CryptoPaymentProvider
-            client_portal.nowpayments_provider = CryptoPaymentProvider(
+            # IMPORTANT: must use NOWPaymentsProvider (the new one), not the older
+            # CryptoPaymentProvider class. The new one has verify_signature() that
+            # the webhook handler relies on; the older class doesn't and would
+            # crash on every IPN. main.py boot path uses NOWPaymentsProvider too —
+            # this hot-reload must match it 1:1.
+            from ...modules.payment.providers.nowpayments import NOWPaymentsProvider
+            client_portal.nowpayments_provider = NOWPaymentsProvider(
                 api_key=np_key, ipn_secret=np_secret, sandbox=np_sandbox
             )
             results["nowpayments"] = {"connected": True, "message": "NOWPayments activated"}
@@ -951,6 +963,214 @@ async def update_payment_settings(data: PaymentSettingsUpdate):
         "message": "Settings updated",
         "providers": results,
     }
+
+
+# ============================================================================
+# PAYMENT TEST — fires same checks as tools/test_webhook_signatures.py against
+# the running provider so admins can validate keys without a real charge.
+# ============================================================================
+
+
+async def _payment_test_for_provider(provider_name: str) -> Dict[str, Any]:
+    """
+    Run sign/verify simulation + API ping for a single provider in-process.
+
+    Returns:
+        {
+            "provider": "stripe",
+            "configured": bool,
+            "checks": [{"name": str, "ok": bool, "detail": str}],
+            "passed": int,
+            "failed": int,
+        }
+    """
+    import json as _json
+    import hmac as _hmac
+    import hashlib as _hashlib
+    import base64 as _base64
+
+    from ..routes import client_portal
+
+    checks: List[Dict[str, Any]] = []
+
+    def _add(name: str, ok: bool, detail: str = "") -> None:
+        checks.append({"name": name, "ok": bool(ok), "detail": detail})
+
+    name = (provider_name or "").lower().strip()
+
+    # ── Resolve the live provider object ─────────────────────────────────────
+    if name == "cryptopay":
+        prov = getattr(client_portal, "cryptopay_adapter", None)
+    else:
+        prov = getattr(client_portal, f"{name}_provider", None)
+
+    if not prov:
+        return {
+            "provider": name,
+            "configured": False,
+            "checks": [{"name": "Provider configured", "ok": False,
+                        "detail": "Save the keys above first, then click Test."}],
+            "passed": 0, "failed": 1,
+        }
+
+    _add("Provider loaded in memory", True, prov.__class__.__name__)
+
+    # ── Optional API ping ────────────────────────────────────────────────────
+    if hasattr(prov, "test_connection"):
+        try:
+            ping = await prov.test_connection()
+            ok = bool(ping.get("connected"))
+            _add("API connection (test_connection)", ok, ping.get("message", ""))
+        except Exception as e:
+            _add("API connection (test_connection)", False, str(e))
+
+    # ── Provider-specific signature simulation ───────────────────────────────
+    try:
+        if name == "nowpayments":
+            secret = os.getenv("NOWPAYMENTS_IPN_SECRET", "")
+            _add("IPN secret configured", bool(secret),
+                 "Without it every webhook is rejected." if not secret else "set")
+            if secret:
+                body = _json.dumps({
+                    "payment_status": "finished", "order_id": "test-np",
+                    "payment_id": "1", "price_amount": 10,
+                }, separators=(",", ":")).encode()
+                sorted_body = _json.dumps(_json.loads(body), sort_keys=True, separators=(",", ":")).encode()
+                good = _hmac.new(secret.encode(), sorted_body, _hashlib.sha512).hexdigest()
+                _add("HMAC-SHA512 valid signature accepted", prov.verify_signature(body, good))
+                _add("Forged signature rejected", not prov.verify_signature(body, "deadbeef" * 16))
+                _add("Tampered body rejected",
+                     not prov.verify_signature(body.replace(b"finished", b"FINISHED"), good))
+
+        elif name == "stripe":
+            wh = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+            _add("Webhook secret configured", bool(wh),
+                 "Required to verify Stripe webhooks." if not wh else "set")
+            if wh:
+                # Use the SDK to build a valid signed payload exactly as Stripe would.
+                import stripe as _stripe  # noqa: F401
+                import time as _time
+                body = _json.dumps({
+                    "id": "evt_test", "type": "checkout.session.completed",
+                    "data": {"object": {"id": "cs_test", "payment_status": "paid",
+                                        "metadata": {"invoice_id": "inv-test"}}},
+                }, separators=(",", ":")).encode()
+                ts = int(_time.time())
+                sig_payload = f"{ts}.".encode() + body
+                sig = _hmac.new(wh.encode(), sig_payload, _hashlib.sha256).hexdigest()
+                sig_header = f"t={ts},v1={sig}"
+                res = await prov.process_webhook(body, {"stripe-signature": sig_header})
+                _add("Valid Stripe-Signature accepted", bool(res.get("verified")))
+                _add("Order ID extracted from metadata", res.get("order_id") == "inv-test")
+
+                bad = await prov.process_webhook(body, {"stripe-signature": "t=1,v1=00"})
+                _add("Forged Stripe-Signature rejected", bad.get("verified") is False)
+
+        elif name == "razorpay":
+            wh = os.getenv("RAZORPAY_WEBHOOK_SECRET", "")
+            _add("Webhook secret configured", bool(wh),
+                 "Set RAZORPAY_WEBHOOK_SECRET in .env to verify webhooks." if not wh else "set")
+            if wh:
+                body = _json.dumps({
+                    "event": "payment.captured",
+                    "payload": {"payment": {"entity": {
+                        "id": "pay_test", "order_id": "order_test",
+                        "notes": {"invoice_id": "inv-rzp"},
+                    }}},
+                }, separators=(",", ":")).encode()
+                sig = _hmac.new(wh.encode(), body, _hashlib.sha256).hexdigest()
+                res = await prov.process_webhook(body, {"x-razorpay-signature": sig})
+                _add("Valid X-Razorpay-Signature accepted", bool(res.get("verified")))
+                _add("Order ID extracted from notes", res.get("order_id") == "inv-rzp")
+
+                bad = await prov.process_webhook(body, {"x-razorpay-signature": "0" * 64})
+                _add("Forged signature rejected", bad.get("verified") is False)
+
+        elif name == "payme":
+            secret = os.getenv("PAYME_SECRET_KEY", "")
+            _add("Secret key configured", bool(secret),
+                 "Required for HTTP Basic auth verification." if not secret else "set")
+            if secret:
+                body = _json.dumps({
+                    "method": "receipts.pay",
+                    "params": {"id": "rcpt_test", "account": {"order_id": "inv-payme"}},
+                }, separators=(",", ":")).encode()
+                good_auth = "Basic " + _base64.b64encode(f"Paycom:{secret}".encode()).decode()
+                res = await prov.process_webhook(body, {"authorization": good_auth})
+                _add("Valid Basic auth accepted", bool(res.get("verified")))
+                _add("Order ID extracted from account", res.get("order_id") == "inv-payme")
+
+                bad_auth = "Basic " + _base64.b64encode(b"Paycom:wrong-secret").decode()
+                bad = await prov.process_webhook(body, {"authorization": bad_auth})
+                _add("Wrong secret rejected", bad.get("verified") is False)
+
+                no_auth = await prov.process_webhook(body, {})
+                _add("Missing Authorization rejected", no_auth.get("verified") is False)
+
+        elif name == "mollie":
+            # Mollie has no shared signature — verification is the API call-back
+            # (Mollie sends just the payment ID, we ask the API). The realistic
+            # offline test is "API key works" + "endpoint is reachable" — both
+            # already covered by test_connection() above. Add a parser smoke
+            # test so admins see the webhook handler at least parses input.
+            body = b"id=tr_test_invalid"
+            res = await prov.process_webhook(body, {"content-type": "application/x-www-form-urlencoded"})
+            _add("Form-encoded body parsed by handler",
+                 isinstance(res, dict),
+                 "Mollie verifies via API call-back, not shared signature.")
+
+        elif name == "paypal":
+            wh = os.getenv("PAYPAL_WEBHOOK_ID", "")
+            _add("Webhook ID configured", bool(wh),
+                 "Required in production. Sandbox skips verification." if not wh else "set")
+            # PayPal verification is a remote API call against PayPal — we can't
+            # easily simulate it offline. test_connection() above already proves
+            # OAuth credentials are valid.
+
+        elif name == "cryptopay":
+            # CryptoPay verifies HMAC-SHA256 of body using SHA256(api_token) as key.
+            from src.modules.subscription.cryptopay_adapter import CryptoPayAdapter  # noqa: F401
+            api_token = os.getenv("CRYPTOPAY_API_TOKEN", "")
+            _add("API token configured", bool(api_token))
+            if api_token:
+                body = _json.dumps({"update_type": "invoice_paid",
+                                    "payload": {"invoice_id": 123, "status": "paid"}},
+                                   separators=(",", ":")).encode()
+                key = _hashlib.sha256(api_token.encode()).digest()
+                good = _hmac.new(key, body, _hashlib.sha256).hexdigest()
+                res_good = await prov.process_webhook(body, {"crypto-pay-api-signature": good})
+                _add("Valid CryptoPay signature accepted", res_good is not None)
+                res_bad = await prov.process_webhook(body, {"crypto-pay-api-signature": "0" * 64})
+                _add("Forged signature rejected", res_bad is None)
+
+        else:
+            _add("Provider has no test scenario yet", False,
+                 f"'{name}' is loaded but no automated test was implemented.")
+
+    except Exception as e:
+        _add("Test execution error", False, f"{type(e).__name__}: {e}")
+
+    passed = sum(1 for c in checks if c["ok"])
+    failed = sum(1 for c in checks if not c["ok"])
+    return {
+        "provider": name,
+        "configured": True,
+        "checks": checks,
+        "passed": passed,
+        "failed": failed,
+    }
+
+
+@router.post("/payment-test/{provider_name}")
+async def run_payment_test(provider_name: str):
+    """
+    Run an offline self-test for a single payment provider.
+
+    Validates: configuration is loaded, signing key is present, webhook
+    signature accept/reject paths behave correctly, plus an API ping
+    where the provider supports it. Does NOT make any real charges.
+    """
+    return await _payment_test_for_provider(provider_name)
 
 
 # ============================================================================

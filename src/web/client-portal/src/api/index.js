@@ -45,6 +45,7 @@ export const portalApi = {
   getSubscription: () => api.get('/client-portal/subscription'),
   getPlans: () => api.get('/client-portal/subscription/plans'),
   getDashboardStats: () => api.get('/client-portal/dashboard/stats'),
+  getTrafficSeries: (range = '14d') => api.get(`/client-portal/dashboard/traffic-series?range=${encodeURIComponent(range)}`),
   getFeatures: () => api.get('/client-portal/features'),
 
   // Payments

@@ -38,7 +38,15 @@ class NOWPaymentsProvider(PaymentProvider):
     LIVE_URL = "https://api.nowpayments.io/v1"
     SANDBOX_URL = "https://api-sandbox.nowpayments.io/v1"
 
-    CONFIRMED_STATUSES = {"finished", "confirmed", "complete"}
+    # Per the official IPN spec the only status that means "seller received funds,
+    # final, irreversible" is `finished`. Earlier states (`confirming`, `confirmed`,
+    # `sending`) are mid-flight and can still go to `partially_paid` / `failed`,
+    # so we deliberately do NOT activate subscriptions on them. The recovery
+    # poller catches `pending → finished` transitions later.
+    # https://documenter.getpostman.com/view/7907941/S1a32n38#instant-payments-notifications
+    CONFIRMED_STATUSES = {"finished"}
+    # Final-but-not-paid states. We never credit on these.
+    FAILED_STATUSES = {"failed", "expired", "refunded", "partially_paid"}
 
     def __init__(self, api_key: str, ipn_secret: str = "", sandbox: bool = False):
         self.api_key = api_key
@@ -147,23 +155,33 @@ class NOWPaymentsProvider(PaymentProvider):
         return invoice
 
     async def check_payment(self, invoice_id: str) -> PaymentStatus:
-        """Check payment status by NOWPayments payment ID."""
-        try:
-            result = await self._request("GET", f"/payment/{invoice_id}")
-            status = result.get("payment_status", "").lower()
+        """
+        Check payment status by NOWPayments invoice ID.
 
-            if status in self.CONFIRMED_STATUSES:
-                return PaymentStatus.COMPLETED
-            elif status in ("expired", "refunded"):
-                return PaymentStatus.EXPIRED if status == "expired" else PaymentStatus.REFUNDED
-            elif status in ("failed",):
-                return PaymentStatus.FAILED
-            else:
-                return PaymentStatus.PENDING
+        Endpoint is /v1/invoice/{id} for invoice flow; /v1/payment/{id} would
+        only work for the Payment-API flow. Try invoice first, fall back to
+        payment lookup, otherwise stay PENDING.
+        """
+        status = ""
+        for endpoint in (f"/invoice/{invoice_id}", f"/payment/{invoice_id}"):
+            try:
+                result = await self._request("GET", endpoint)
+                status = (result.get("payment_status") or result.get("invoice_status") or "").lower()
+                if status:
+                    break
+            except Exception:
+                continue
 
-        except Exception as e:
-            logger.error(f"Failed to check NOWPayments status for {invoice_id}: {e}")
-            return PaymentStatus.PENDING
+        if status in self.CONFIRMED_STATUSES:
+            return PaymentStatus.COMPLETED
+        if status == "expired":
+            return PaymentStatus.EXPIRED
+        if status == "refunded":
+            return PaymentStatus.REFUNDED
+        if status in self.FAILED_STATUSES:
+            # `partially_paid` lives here too — final but unpaid.
+            return PaymentStatus.FAILED
+        return PaymentStatus.PENDING
 
     async def get_invoice(self, invoice_id: str) -> Optional[Invoice]:
         """Get payment details."""

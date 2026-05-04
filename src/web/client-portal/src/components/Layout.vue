@@ -1,96 +1,141 @@
 <template>
-  <div class="client-layout">
+  <div class="fx-shell">
     <!-- Header -->
-    <header class="client-header">
-      <div class="client-header-inner">
-        <div class="client-brand">
-          <img v-if="brandLogo" :src="brandLogo" alt="" style="height: 28px;" />
-          <span v-else class="brand-icon">🛡️</span>
-          <span class="brand-text">{{ brandName }}</span>
-        </div>
-        <nav class="client-nav d-none d-md-flex">
+    <header class="fx-header">
+      <div class="fx-header-inner">
+        <button
+          class="fx-burger"
+          :class="{ open: menuOpen }"
+          aria-label="Toggle navigation"
+          :aria-expanded="menuOpen"
+          @click="menuOpen = !menuOpen"
+        >
+          <span class="fx-burger-bars"><span></span><span></span><span></span></span>
+        </button>
+
+        <router-link to="/" class="fx-brand">
+          <img :src="brandLogo" alt="" class="fx-brand-logo" />
+          <span class="fx-brand-text">{{ brandName }}</span>
+          <span class="fx-badge fx-badge-neutral fx-brand-tag">VPN</span>
+        </router-link>
+
+        <nav class="fx-nav" :class="{ open: menuOpen }">
           <router-link
             v-for="item in navItems"
             :key="item.path"
             :to="item.path"
-            class="client-nav-link"
+            class="fx-nav-item"
             :class="{ active: $route.path === item.path }"
+            @click="menuOpen = false"
           >
-            <i :class="'mdi mdi-' + item.mdi"></i>
+            <FxIcon :name="item.icon" :size="15" />
             <span>{{ $t(item.labelKey) }}</span>
           </router-link>
         </nav>
-        <div class="client-header-actions">
-          <!-- Theme toggle -->
-          <button class="header-icon-btn theme-toggle-btn" @click="cycleTheme" :title="themeLabel">
-            <i :class="currentTheme === 'dark' ? 'mdi mdi-weather-sunny' : 'mdi mdi-weather-night'"></i>
+
+        <div class="fx-nav-scrim" :class="{ open: menuOpen }" @click="menuOpen = false" aria-hidden="true" />
+
+        <div class="fx-header-right">
+          <button class="fx-icon-btn" @click="toggleTheme" :title="themeTitle">
+            <FxIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
           </button>
-          <!-- Language picker -->
-          <div class="lang-dropdown">
-            <button class="header-icon-btn" @click="langOpen = !langOpen">
-              <span style="font-size:.7rem;font-weight:700">{{ currentLangFlag }}</span>
+          <button class="fx-icon-btn" :title="$t('nav.notifications')" @click="toggleNotifs" style="position:relative">
+            <FxIcon name="bell" :size="16" />
+            <span v-if="unreadCount > 0" class="fx-bell-dot" />
+          </button>
+          <div class="fx-lang-wrap">
+            <button class="fx-lang-pill" @click="langOpen = !langOpen">
+              <FxIcon name="globe" :size="12" /> {{ currentLangFlag }}
             </button>
-            <div class="lang-menu" v-if="langOpen" @mouseleave="langOpen = false">
+            <div v-if="langOpen" class="fx-lang-menu" @mouseleave="langOpen = false">
               <button
                 v-for="l in languages"
                 :key="l.code"
-                class="lang-item"
+                class="fx-lang-item"
                 :class="{ active: currentLang === l.code }"
                 @click="setLang(l.code)"
               >
-                <span>{{ l.flag }}</span>
+                <span class="flag">{{ l.flag }}</span>
                 <span>{{ l.name }}</span>
               </button>
             </div>
           </div>
-          <span class="user-name d-none d-sm-inline">{{ userName }}</span>
-          <button class="header-icon-btn" @click="logout" :title="$t('nav.logout')">
-            <i class="mdi mdi-logout"></i>
+          <div class="fx-avatar" :title="userName">{{ userInitials }}</div>
+          <button class="fx-icon-btn" :title="$t('nav.logout')" @click="logout">
+            <FxIcon name="logout" :size="16" />
           </button>
+        </div>
+      </div>
+
+      <!-- Notifications dropdown -->
+      <div v-if="notifsOpen && notifications.length" class="fx-notif-panel" @mouseleave="notifsOpen = false">
+        <div class="fx-notif-head">
+          <strong>{{ $t('nav.notifications') }}</strong>
+          <span class="fx-text-3">{{ notifications.length }}</span>
+        </div>
+        <div class="fx-notif-list">
+          <div v-for="n in notifications" :key="n.id" class="fx-notif-item" @click="dismissNotification(n.id)">
+            <strong>{{ n.title }}</strong>
+            <div class="fx-text-3" style="font-size:11px;margin-top:2px">{{ n.message }}</div>
+          </div>
         </div>
       </div>
     </header>
 
-    <!-- Mobile Nav -->
-    <nav class="client-mobile-nav d-md-none">
-      <router-link
-        v-for="item in navItems"
-        :key="item.path"
-        :to="item.path"
-        class="mobile-nav-item"
-        :class="{ active: $route.path === item.path }"
-      >
-        <span class="nav-icon"><i :class="'mdi mdi-' + item.mdi" style="font-size:1.3rem"></i></span>
-        <span class="nav-label">{{ $t(item.labelKey) }}</span>
-      </router-link>
-    </nav>
-
-    <!-- Content -->
-    <main class="client-content">
-      <div class="container-xl py-4">
-        <slot />
-      </div>
+    <main class="fx-main">
+      <slot />
     </main>
+
+    <!-- Footer with auth-gated GitHub promo -->
+    <footer class="fx-footer">
+      <div class="fx-footer-inner">
+        <div class="fx-footer-meta">
+          <span>© {{ year }} {{ brandName }}</span>
+          <span style="color:var(--text-4)">·</span>
+          <a href="#" @click.prevent>{{ $t('footer.privacy') }}</a>
+          <a href="#" @click.prevent>{{ $t('footer.terms') }}</a>
+          <a href="#" @click.prevent>{{ $t('footer.status') }}</a>
+        </div>
+        <a v-if="showGithub" class="fx-gh-promo" href="https://github.com/Flirexa/flirexa" target="_blank" rel="noreferrer">
+          <span class="fx-gh-promo-icon"><FxIcon name="github" :size="16" /></span>
+          <span class="fx-gh-promo-text">
+            <b>{{ $t('footer.openSource') }}</b>
+            <span>{{ $t('footer.openSourceHint') }}</span>
+          </span>
+          <FxIcon name="external" :size="14" style="color:var(--text-3); margin-left:4px" />
+        </a>
+      </div>
+    </footer>
+
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api/index.js'
+import FxIcon from './FxIcon.vue'
+import bundledLogo from '../assets/flirexa-logo.png'
 
 const router = useRouter()
-const { locale } = useI18n()
+const route = useRoute()
+const { locale, t } = useI18n()
 
 const langOpen = ref(false)
+const notifsOpen = ref(false)
+const menuOpen = ref(false)
+const notifications = ref([])
+const featureFlags = ref({ corp_networks: true })
 
-// Branding from global window.__branding (set in App.vue)
-const brandName = computed(() => window.__branding?.branding_app_name || 'VPN Manager')
+// Close the drawer when navigating or when the viewport widens past mobile.
+watch(() => route.path, () => { menuOpen.value = false })
+function onResize() { if (window.innerWidth > 860) menuOpen.value = false }
+
+const brandName = computed(() => window.__branding?.branding_app_name || 'Flirexa')
 const brandLogo = computed(() => {
   const url = window.__branding?.branding_logo_url
-  if (!url) return ''
-  // If logo is from admin panel, construct full URL
+  if (!url) return bundledLogo
   if (url.startsWith('/')) {
     const adminPort = '10086'
     return `${window.location.protocol}//${window.location.hostname}:${adminPort}${url}`
@@ -98,57 +143,27 @@ const brandLogo = computed(() => {
   return url
 })
 
-// Theme toggle: light ↔ dark
-const currentTheme = ref('light')
+const year = new Date().getFullYear()
 
-const themeIcon = computed(() => {
-  return currentTheme.value === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19'
-})
-const themeLabel = computed(() => {
-  return currentTheme.value === 'dark' ? 'Light mode' : 'Dark mode'
-})
-
-function applyTheme(theme) {
-  if (theme === 'dark') {
-    document.documentElement.setAttribute('data-theme', 'dark')
-  } else {
-    document.documentElement.removeAttribute('data-theme')
-  }
+// Theme — body class maintained in App.vue via fx:theme event.
+const theme = ref(localStorage.getItem('sb_theme') === 'dark' ? 'dark' : 'light')
+const themeTitle = computed(() => theme.value === 'dark' ? t('nav.lightMode') : t('nav.darkMode'))
+function toggleTheme() {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  localStorage.setItem('sb_theme', theme.value)
+  window.dispatchEvent(new CustomEvent('fx:theme', { detail: theme.value }))
 }
-
-function initTheme() {
-  let saved = localStorage.getItem('sb_theme') || 'light'
-  if (saved !== 'light' && saved !== 'dark') saved = 'light'
-  currentTheme.value = saved
-  applyTheme(saved)
-}
-
-let _switching = false
-function cycleTheme() {
-  if (_switching) return
-  _switching = true
-  setTimeout(() => { _switching = false }, 300)
-  const next = currentTheme.value === 'light' ? 'dark' : 'light'
-  currentTheme.value = next
-  localStorage.setItem('sb_theme', next)
-  applyTheme(next)
-}
-
-// Apply theme synchronously so there's no flash on load
-initTheme()
-
-const featureFlags = ref({ corp_networks: true })
 
 const navItems = computed(() => {
   const items = [
-    { path: '/',          mdi: 'view-dashboard-outline',  labelKey: 'nav.dashboard' },
-    { path: '/plans',     mdi: 'diamond-outline',         labelKey: 'nav.plans' },
-    { path: '/payments',  mdi: 'credit-card-outline',     labelKey: 'nav.payments' },
-    { path: '/support',   mdi: 'message-text-outline',    labelKey: 'nav.support' },
+    { path: '/',          icon: 'dashboard', labelKey: 'nav.dashboard' },
+    { path: '/plans',     icon: 'tag',       labelKey: 'nav.plans' },
+    { path: '/payments',  icon: 'card',      labelKey: 'nav.payments' },
   ]
   if (featureFlags.value.corp_networks) {
-    items.splice(3, 0, { path: '/corporate', mdi: 'office-building-outline', labelKey: 'nav.corporate' })
+    items.push({ path: '/corporate', icon: 'building', labelKey: 'nav.corporate' })
   }
+  items.push({ path: '/support', icon: 'help', labelKey: 'nav.support' })
   return items
 })
 
@@ -180,166 +195,159 @@ const userName = computed(() => {
     return ''
   }
 })
+const userInitials = computed(() => {
+  const n = userName.value
+  if (!n) return 'FX'
+  const parts = n.split(/[\s@.]/).filter(Boolean)
+  if (!parts.length) return 'FX'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[1][0]).toUpperCase()
+})
 
-const logout = () => {
+function logout() {
   localStorage.removeItem('client_access_token')
   localStorage.removeItem('client_user')
   router.push('/login')
+}
+
+// GitHub promo: default ON. Admin can hide it via branding flag
+// (window.__branding.show_github_footer === false).
+const showGithub = computed(() => window.__branding?.show_github_footer !== false)
+
+const unreadCount = computed(() => notifications.value.length)
+
+function toggleNotifs() {
+  notifsOpen.value = !notifsOpen.value
+}
+
+async function dismissNotification(id) {
+  try {
+    await portalApi.markNotificationRead(id)
+    notifications.value = notifications.value.filter(n => n.id !== id)
+  } catch { /* ignore */ }
 }
 
 async function loadFeatures() {
   if (!localStorage.getItem('client_access_token')) return
   try {
     const { data } = await portalApi.getFeatures()
-    featureFlags.value = {
-      corp_networks: !!data?.features?.corp_networks,
-    }
-  } catch {
-    // Keep the last/default feature state; layout must not become unusable
-    // due to a transient feature check error.
-  }
+    featureFlags.value = { corp_networks: !!data?.features?.corp_networks }
+  } catch { /* keep defaults */ }
 }
 
-onMounted(loadFeatures)
+async function loadNotifications() {
+  if (!localStorage.getItem('client_access_token')) return
+  try {
+    const { data } = await portalApi.getNotifications()
+    notifications.value = Array.isArray(data) ? data : []
+  } catch { /* ignore */ }
+}
+
+let notifIntervalId = null
+onMounted(() => {
+  loadFeatures()
+  loadNotifications()
+  notifIntervalId = setInterval(loadNotifications, 60000)
+  window.addEventListener('resize', onResize)
+})
+onUnmounted(() => {
+  if (notifIntervalId) clearInterval(notifIntervalId)
+  window.removeEventListener('resize', onResize)
+})
 </script>
 
 <style scoped>
-/* ── Vuexy-style Client Layout ─────────────────────────────── */
-.client-layout { min-height: 100vh; background: var(--vxy-body-bg); }
-
-/* Header */
-.client-header {
-  background: var(--vxy-header-bg);
-  color: #fff;
-  position: sticky; top: 0; z-index: 100;
-  box-shadow: 0 2px 20px rgba(44,49,82,.35);
+.fx-shell {
+  min-height: 100vh;
+  display: flex; flex-direction: column;
 }
-.client-header-inner {
-  max-width: 1320px; margin: 0 auto;
-  padding: 0 1.5rem; height: 64px;
+.fx-main {
+  flex: 1;
+}
+
+.fx-brand-text {
+  white-space: nowrap;
+}
+.fx-brand-tag {
+  margin-left: 4px;
+  font-size: 10px;
+  height: 18px;
+  padding: 0 7px;
+}
+
+.fx-bell-dot {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px var(--bg-elev);
+}
+
+/* Language dropdown */
+.fx-lang-wrap { position: relative; }
+.fx-lang-menu {
+  position: absolute; right: 0; top: calc(100% + 6px);
+  z-index: 100; min-width: 160px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+}
+.fx-lang-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 8px 10px;
+  border: 0; background: transparent;
+  border-radius: var(--r-sm);
+  font-size: 13px; color: var(--text);
+  cursor: pointer; font-family: inherit;
+  text-align: left;
+}
+.fx-lang-item:hover { background: var(--bg-hover); }
+.fx-lang-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.fx-lang-item .flag {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 16px;
+  background: var(--bg-subtle);
+  border-radius: 3px;
+  font-size: 10px; font-weight: 700; letter-spacing: .04em;
+  color: var(--text-2);
+}
+
+/* Notifications panel */
+.fx-notif-panel {
+  position: absolute; right: 24px; top: 60px;
+  z-index: 60; width: min(360px, calc(100vw - 32px));
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.fx-notif-head {
   display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
 }
-.client-brand {
-  display: flex; align-items: center; gap: .5rem;
-  font-weight: 700; font-size: 1.1rem; color: #fff;
-  text-decoration: none;
+.fx-notif-head strong { color: var(--text); }
+.fx-notif-head .fx-text-3 { color: var(--text-3); font-size: 12px; }
+.fx-notif-list { max-height: 320px; overflow-y: auto; }
+.fx-notif-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
 }
-.brand-icon { font-size: 1.4rem; }
+.fx-notif-item:last-child { border-bottom: 0; }
+.fx-notif-item:hover { background: var(--bg-hover); }
+.fx-notif-item strong { font-size: 13px; color: var(--text); }
+.fx-notif-item .fx-text-3 { color: var(--text-3); }
 
-/* Desktop nav */
-.client-nav { display: flex; gap: .25rem; }
-.client-nav-link {
-  color: rgba(255,255,255,.65);
-  text-decoration: none;
-  padding: .45rem .875rem;
-  border-radius: .375rem;
-  font-size: .875rem; font-weight: 500;
-  display: flex; align-items: center; gap: .4rem;
-  transition: all .15s;
+@media (max-width: 860px) {
+  /* Notif panel sits below the 56px-tall mobile header. */
+  .fx-notif-panel { top: 56px; right: 12px; }
 }
-.client-nav-link:hover { color: #fff; background: rgba(255,255,255,.1); }
-.client-nav-link.active {
-  color: #fff;
-  background: linear-gradient(118deg, rgba(115,103,240,.7), rgba(115,103,240,.5));
-  box-shadow: 0 0 8px rgba(115,103,240,.4);
-  font-weight: 600;
-}
-
-/* Header actions */
-.client-header-actions { display: flex; align-items: center; gap: .5rem; }
-.user-name { font-size: .8rem; opacity: .7; }
-
-/* Icon buttons in header */
-.header-icon-btn {
-  width: 36px; height: 36px; border-radius: .375rem;
-  border: 1px solid rgba(255,255,255,.15);
-  background: transparent; color: rgba(255,255,255,.75);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: all .15s; font-size: 1rem;
-  touch-action: manipulation; user-select: none; -webkit-tap-highlight-color: transparent;
-}
-.header-icon-btn:hover { background: rgba(255,255,255,.12); color: #fff; }
-
-/* Lang dropdown */
-.lang-dropdown { position: relative; }
-.lang-menu {
-  position: absolute; top: calc(100% + 8px); right: 0;
-  background: var(--vxy-card-bg);
-  border: 1px solid var(--vxy-border);
-  border-radius: .5rem;
-  box-shadow: 0 8px 24px rgba(0,0,0,.15);
-  z-index: 9999; min-width: 140px; padding: .4rem;
-}
-.lang-item {
-  display: flex; align-items: center; gap: .5rem;
-  width: 100%; padding: .45rem .75rem;
-  border: none; background: none; cursor: pointer;
-  font-size: .85rem; color: var(--vxy-text);
-  border-radius: .375rem; transition: background .15s;
-}
-.lang-item:hover { background: var(--vxy-hover-bg); color: var(--vxy-primary); }
-.lang-item.active { background: var(--vxy-primary-light); color: var(--vxy-primary); font-weight: 600; }
-
-/* Mobile bottom nav */
-.client-mobile-nav {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  background: var(--vxy-card-bg);
-  border-top: 1px solid var(--vxy-border);
-  display: flex; z-index: 100; padding: .2rem 0;
-  box-shadow: 0 -4px 20px rgba(0,0,0,.06);
-}
-.mobile-nav-item {
-  flex: 1; display: flex; flex-direction: column;
-  align-items: center; padding: .4rem 0;
-  font-size: .625rem; color: var(--vxy-muted);
-  text-decoration: none; transition: all .15s;
-  min-height: 50px; justify-content: center; position: relative;
-}
-.mobile-nav-item::before {
-  content: ''; position: absolute;
-  top: 0; left: 50%; transform: translateX(-50%) scaleX(0);
-  width: 32px; height: 3px; border-radius: 0 0 3px 3px;
-  background: var(--vxy-primary);
-  transition: transform .2s cubic-bezier(.4,0,.2,1);
-}
-.mobile-nav-item .nav-icon { font-size: 1.2rem; margin-bottom: .1rem; transition: transform .15s; }
-.mobile-nav-item.active { color: var(--vxy-primary); font-weight: 600; }
-.mobile-nav-item.active::before { transform: translateX(-50%) scaleX(1); }
-.mobile-nav-item.active .nav-icon { transform: scale(1.1); }
-
-.client-content {
-  padding-bottom: 80px;
-  /* iOS safe area */
-  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-}
-@media (min-width: 768px) { .client-content { padding-bottom: 2rem; } }
-
-@media (max-width: 768px) {
-  .client-header-inner { padding: 0 .75rem; height: 56px; }
-  .client-brand { font-size: .95rem; }
-  /* Smaller gap between header actions on mobile */
-  .client-header-actions { gap: .35rem; }
-  .header-icon-btn { width: 34px; height: 34px; }
-}
-
 @media (max-width: 480px) {
-  /* On very small screens hide language text, keep icon style */
-  .client-header-actions .user-name { display: none !important; }
-  .brand-text { max-width: 120px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .fx-brand-text { max-width: 140px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 }
-
-@media (max-width: 400px) { .brand-text { display: none; } }
-
-/* Mobile bottom nav improvements */
-.client-mobile-nav {
-  /* Taller touch targets */
-  min-height: 54px;
-  /* iOS safe area */
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-.mobile-nav-item {
-  /* Ensure 44px+ touch target */
-  min-height: 54px;
-}
-@media (max-width: 360px) { .mobile-nav-item .nav-label { display: none; } }
 </style>

@@ -3,14 +3,15 @@ VPN Management Studio API - Server Routes
 WireGuard server management
 """
 
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from loguru import logger
 import asyncio
 import json
+import os
 import re
 from datetime import datetime, timezone
 
@@ -126,6 +127,17 @@ class ProxyInstallRequest(BaseModel):
     cert_path: Optional[str] = None
     key_path: Optional[str] = None
     obfs_password: Optional[str] = None  # Hysteria2 only
+    task_id: Optional[str] = None
+
+
+class AwgInstallRequest(BaseModel):
+    """Schema for installing AmneziaWG on an existing SSH-accessible server."""
+    name: Optional[str] = None
+    interface: Optional[str] = None              # e.g. "awg1" — auto-picked if omitted
+    listen_port: Optional[int] = Field(None, ge=1, le=65535)
+    address_pool_ipv4: str = "10.66.66.0/24"
+    address_pool_ipv6: Optional[str] = None
+    dns: str = "1.1.1.1"
     task_id: Optional[str] = None
 
 
@@ -1076,6 +1088,315 @@ async def install_proxy_on_server(
     return ServerResponse.from_server(server, db=db)
 
 
+@router.post("/{server_id}/install-awg")
+async def install_awg_on_server(
+    server_id: int,
+    req: AwgInstallRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Install AmneziaWG on an existing SSH-accessible server, alongside its
+    current protocol (typically WireGuard).
+
+    Strategy:
+      1. **Agent mode** (preferred). A second `vpnmanager-agent-{interface}`
+         systemd unit on a non-colliding port is provisioned. The original
+         agent for WG keeps running. Each interface has its own agent.
+      2. **SSH-only fallback.** If the agent install can't complete (e.g.
+         launchpad.net unreachable from the host's region), we still
+         provision the AWG interface itself directly via SSH so the user
+         gets a working server, just managed without an agent.
+
+    Returns the newly created AWG ServerResponse.
+    """
+    from ...modules.bootstrap_logger import create_task, attach_task_server
+    from ...core.amneziawg import AmneziaWGManager
+
+    core = ManagementCore(db)
+    src = core.get_server(server_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="Source server not found")
+    if not src.ssh_host:
+        raise HTTPException(status_code=400, detail="Source server has no SSH credentials")
+
+    # License: AmneziaWG is FREE-tier — only check the multi_server cap.
+    try:
+        from sqlalchemy import text as _sql_text
+        from ...modules.license.manager import get_license_manager
+        db.execute(_sql_text("SELECT pg_advisory_xact_lock(1000002)"))
+        info = get_license_manager().get_license_info()
+        same_type = db.query(Server).filter(Server.server_type == "amneziawg").count()
+        if not info.has_feature("multi_server") and same_type >= 1:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "FREE tier allows one AmneziaWG server. Upgrade for multi-server.",
+                    "license_feature_required": "multi_server",
+                    "upgrade_tier": "business",
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # license-check unavailable → fail-open
+
+    # Pick interface name — first free awgN
+    used_ifaces = {s.interface for s in db.query(Server).all()}
+    interface = req.interface
+    if not interface:
+        for n in range(1, 32):
+            cand = f"awg{n}"
+            if cand not in used_ifaces:
+                interface = cand
+                break
+        if not interface:
+            raise HTTPException(status_code=400, detail="No free awgN interface name available")
+    if interface in used_ifaces:
+        raise HTTPException(status_code=400, detail=f"Interface '{interface}' already used by another server")
+
+    # Pick listen port — default 51821, drift on collision
+    used_ports = {s.listen_port for s in db.query(Server).filter(Server.ssh_host == src.ssh_host).all()}
+    listen_port = req.listen_port or 51821
+    while listen_port in used_ports and listen_port < 65535:
+        listen_port += 1
+
+    # Pick a /24 pool that doesn't collide with another VPN interface on the
+    # SAME host. The kernel rejects assigning the same .1 address to two
+    # interfaces ("RTNETLINK answers: Address already in use"), so when the
+    # box already runs e.g. wg0 on 10.66.66.0/24 and we want to add awg1
+    # alongside it, awg1 must use a different /24.
+    #
+    # We can't trust the DB alone: a previous server record may have been
+    # removed without bringing down its interface (zombie iface from older
+    # uninstall code, manual hand-cleanup that only touched DB, etc.).
+    # So we *also* probe the remote box over SSH and ask the kernel which
+    # /24 networks are already assigned to interfaces. Union of DB-known
+    # pools and live kernel-assigned pools is what we avoid.
+    address_pool_ipv4 = req.address_pool_ipv4 or "10.66.66.0/24"
+    if not req.address_pool_ipv4:
+        used_pools = set()
+        # 1. From DB
+        for s in db.query(Server).filter(Server.ssh_host == src.ssh_host).all():
+            if s.address_pool_ipv4:
+                used_pools.add(s.address_pool_ipv4.strip())
+        # 2. From the remote kernel (best-effort SSH probe)
+        try:
+            from ...core.wireguard import WireGuardManager as _WG
+            _probe = _WG(
+                interface="probe",
+                ssh_host=src.ssh_host, ssh_port=src.ssh_port or 22,
+                ssh_user=src.ssh_user or "root",
+                ssh_password=src.ssh_password,
+                ssh_private_key=src.ssh_private_key,
+            )
+            try:
+                _r = _probe._run_cmd(
+                    ["bash", "-c",
+                     "ip -o -4 addr show 2>/dev/null | awk '{print $4}'"],
+                    check=False,
+                )
+                for line in (_r.stdout or "").splitlines():
+                    line = line.strip()
+                    if "/" not in line:
+                        continue
+                    ip_part, _, prefix = line.partition("/")
+                    octets = ip_part.split(".")
+                    if len(octets) != 4:
+                        continue
+                    try:
+                        # Normalise to its /24 network (.0/24)
+                        net24 = f"{octets[0]}.{octets[1]}.{octets[2]}.0/24"
+                        used_pools.add(net24)
+                    except Exception:
+                        pass
+            finally:
+                _probe.close()
+        except Exception as _probe_err:
+            logger.warning(f"install-awg: pool-collision probe failed (continuing with DB-only): {_probe_err}")
+        # Walk 10.66.66.0/24 → 10.66.99.0/24, skipping anything taken.
+        for octet3 in range(66, 100):
+            cand = f"10.66.{octet3}.0/24"
+            if cand not in used_pools:
+                address_pool_ipv4 = cand
+                break
+
+    name = req.name or f"{src.name} — AmneziaWG"
+    if core.servers.get_server_by_name(name):
+        raise HTTPException(status_code=400, detail=f"Server '{name}' already exists")
+
+    # Set up progress logging (mirrors install-proxy behavior)
+    task = None
+    log_cb = None
+    if req.task_id:
+        task = create_task(req.task_id)
+        log_cb = task.log
+
+    def _log(msg: str):
+        logger.info(msg)
+        if log_cb:
+            log_cb(msg)
+
+    # ── Generate keypair locally (panel host needs awg-tools) ─────────────
+    try:
+        local_mgr = AmneziaWGManager(interface=interface)
+        private_key, public_key = local_mgr.generate_keypair()
+        local_mgr.close()
+    except Exception as e:
+        if task:
+            task.finish(error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to generate AWG keypair locally: {e}")
+
+    awg_params = AmneziaWGManager.generate_obfuscation_params()
+
+    # ── Create DB row (initially agent_mode='ssh' — flipped after install) ─
+    server = core.servers.create_server(
+        name=name,
+        endpoint=f"{src.ssh_host}:{listen_port}",
+        public_key=public_key,
+        private_key=private_key,
+        interface=interface,
+        listen_port=listen_port,
+        address_pool_ipv4=address_pool_ipv4,
+        address_pool_ipv6=req.address_pool_ipv6,
+        dns=req.dns,
+        max_clients=250,
+        description=f"AmneziaWG installed on {src.name}",
+        location=src.location,
+        ssh_host=src.ssh_host,
+        ssh_port=src.ssh_port,
+        ssh_user=src.ssh_user,
+        ssh_password=src.ssh_password,
+        ssh_private_key=src.ssh_private_key,
+        server_type="amneziawg",
+        server_category="vpn",
+        awg_jc=awg_params["jc"], awg_jmin=awg_params["jmin"], awg_jmax=awg_params["jmax"],
+        awg_s1=awg_params["s1"], awg_s2=awg_params["s2"],
+        awg_h1=awg_params["h1"], awg_h2=awg_params["h2"],
+        awg_h3=awg_params["h3"], awg_h4=awg_params["h4"],
+    )
+    if not server:
+        if task:
+            task.finish(error="Failed to create server record")
+        raise HTTPException(status_code=500, detail="Failed to create AmneziaWG server record")
+    if task:
+        attach_task_server(req.task_id, server.id)
+
+    # Wrap the entire install attempt so any unexpected error (NameError,
+    # connection blow-up, paramiko crash, etc.) still cleans up the DB row
+    # — otherwise the user is left with an orphan "Server" entry that
+    # appears in the panel after a refresh but can't actually start.
+    try:
+        # ── Try agent install first ────────────────────────────────────────
+        _log(f"🚀 Installing AmneziaWG agent on {src.ssh_host} (iface={interface}, port={listen_port})…")
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        agent_code_path = os.path.join(base_dir, "agent.py")
+
+        agent_ok = False
+        agent_err = None
+        try:
+            agent_ok, agent_err = await asyncio.to_thread(
+                core.servers.install_agent,
+                server_id=server.id,
+                agent_code_path=agent_code_path,
+                port=8001,
+            )
+        except Exception as e:
+            agent_err = str(e)
+
+        if agent_ok:
+            _log(f"✅ AmneziaWG installed via agent on {src.ssh_host}")
+            if task:
+                task.finish()
+            db.refresh(server)
+            return ServerResponse.from_server(server, db=db)
+
+        # ── Fallback: SSH-only provisioning ────────────────────────────────
+        _log(f"⚠ Agent install failed: {agent_err}")
+        _log(f"↳ Falling back to SSH-only provisioning…")
+
+        mgr = AmneziaWGManager(
+            interface=interface,
+            config_path=f"/etc/amnezia/amneziawg/{interface}.conf",
+            ssh_host=src.ssh_host,
+            ssh_port=src.ssh_port or 22,
+            ssh_user=src.ssh_user or "root",
+            ssh_password=src.ssh_password,
+            ssh_private_key=src.ssh_private_key,
+        )
+        try:
+            result = await asyncio.to_thread(
+                mgr.bootstrap_remote,
+                address_pool_ipv4=address_pool_ipv4,
+                address_pool_ipv6=req.address_pool_ipv6,
+                listen_port=listen_port,
+                dns=req.dns,
+                log_callback=log_cb,
+            )
+        finally:
+            try:
+                mgr.close()
+            except Exception:
+                pass
+
+        if not result.get("success"):
+            ssh_err = result.get('message', 'unknown')
+            # If both paths failed because the remote can't reach
+            # launchpadcontent.net, give the user an actionable message
+            # instead of a wall of apt output.
+            blob = (str(agent_err) + " " + str(ssh_err)).lower()
+            launchpad_unreachable = (
+                "launchpadcontent.net" in blob and
+                ("timed out" in blob or "could not connect" in blob or "network is unreachable" in blob)
+            )
+            if launchpad_unreachable:
+                msg = (
+                    f"AmneziaWG install failed: cannot reach launchpadcontent.net "
+                    f"from {src.ssh_host}. The hosting provider appears to block "
+                    "Canonical's CDN (185.125.190.80). Workaround: SSH into the "
+                    "remote and install AmneziaWG manually with:\n\n"
+                    "    apt install -y software-properties-common && \\\n"
+                    "    add-apt-repository -y ppa:amnezia/ppa && \\\n"
+                    "    apt update && apt install -y amneziawg amneziawg-tools\n\n"
+                    "Then click Install AmneziaWG again — the panel will skip "
+                    "the apt step since the binary is already present."
+                )
+            else:
+                msg = (
+                    f"AmneziaWG install failed.\n"
+                    f"  agent path: {agent_err}\n"
+                    f"  ssh fallback: {ssh_err}"
+                )
+            raise RuntimeError(msg)
+
+        _log(f"✅ AmneziaWG installed via SSH fallback (no agent) on {src.ssh_host}")
+        if task:
+            task.finish()
+        db.refresh(server)
+        return ServerResponse.from_server(server, db=db)
+
+    except HTTPException:
+        # Already a proper HTTP error — clean up DB row, surface it.
+        try:
+            await asyncio.to_thread(core.servers.delete_server, server.id, True)
+        except Exception:
+            pass
+        if task:
+            task.finish(error="install failed")
+        raise
+    except Exception as e:
+        # Anything else (NameError, paramiko, runtime). Roll back the row,
+        # log, return 400 with the error message so the panel doesn't show
+        # a misleading orphan server entry on refresh.
+        logger.exception("install-awg crashed for server_id=%s", server.id)
+        try:
+            await asyncio.to_thread(core.servers.delete_server, server.id, True)
+        except Exception:
+            pass
+        if task:
+            task.finish(error=str(e))
+        raise HTTPException(status_code=400, detail=f"AmneziaWG install failed: {e}")
+
+
 @router.get("/{server_id}", response_model=ServerResponse)
 async def get_server(
     server_id: int,
@@ -1091,6 +1412,237 @@ async def get_server(
         raise HTTPException(status_code=404, detail="Server not found")
 
     return ServerResponse.from_server(server, db=db)
+
+
+@router.get("/{server_id}/keypair")
+async def get_server_keypair(
+    server_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Reveal the WireGuard keypair stored for this server.
+
+    Use case: replacing a broken box with a fresh one while keeping all
+    existing client configs working. Paste the same private_key into the
+    new server's `private_key` field on creation and clients keep
+    handshaking — the *server's public key* (which clients pinned) does
+    not change because the private key is the same.
+
+    Sensitive — logged in audit. Admin-auth only (enforced by router prefix).
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    # Audit trail. Goes to the standard application log so the operator can
+    # always answer "who pulled this server's private key, and when?".
+    actor = getattr(request.state, "admin_username", None) or "admin"
+    logger.warning(
+        f"[AUDIT] server.keypair.reveal actor={actor} server_id={server.id} name={server.name}"
+    )
+
+    return {
+        "server_id": server.id,
+        "name": server.name,
+        "interface": server.interface,
+        "listen_port": server.listen_port,
+        "endpoint": server.endpoint,
+        "address_pool_ipv4": server.address_pool_ipv4,
+        "private_key": server.private_key,
+        "public_key": server.public_key,
+        "server_type": server.server_type,
+        # AmneziaWG obfuscation params — must also match on the new box.
+        "awg_params": ({
+            "jc": server.awg_jc, "jmin": server.awg_jmin, "jmax": server.awg_jmax,
+            "s1": server.awg_s1, "s2": server.awg_s2,
+            "h1": server.awg_h1, "h2": server.awg_h2,
+            "h3": server.awg_h3, "h4": server.awg_h4,
+            "mtu": server.awg_mtu,
+        } if server.server_type == "amneziawg" else None),
+    }
+
+
+class MigrateClientsRequest(BaseModel):
+    target_server_id: int = Field(..., description="ID of the server clients should be moved to")
+    sync_to_remote: bool = Field(True, description="Also push peer entries to the new server's running WireGuard")
+    remove_from_old: bool = Field(True, description="Remove peer entries from the old server's running WireGuard")
+    client_ids: Optional[List[int]] = Field(
+        None,
+        description=(
+            "Optional list of client IDs to migrate. If omitted, all clients on the source server "
+            "are moved. Useful for selective migrations or test runs."
+        ),
+    )
+
+
+@router.post("/{server_id}/migrate-clients")
+async def migrate_clients_between_servers(
+    server_id: int,
+    payload: MigrateClientsRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Move ALL clients from one server to another.
+
+    Typical use: the old box is dead/being replaced, the new server has
+    been provisioned (ideally with the same private_key — see
+    GET /servers/{id}/keypair). This re-points each client's `server_id`
+    in the database and, optionally, syncs the WireGuard peer table on
+    both old and new boxes so traffic actually routes.
+    """
+    core = ManagementCore(db)
+    src = core.get_server(server_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="Source server not found")
+
+    dst = core.get_server(payload.target_server_id)
+    if not dst:
+        raise HTTPException(status_code=404, detail="Target server not found")
+
+    if src.id == dst.id:
+        raise HTTPException(status_code=400, detail="Source and target are the same server")
+
+    # Compatibility check — moving WG clients to an AWG server (or vice versa)
+    # would silently break their .conf files because the protocols differ.
+    if (src.server_type or "wireguard") != (dst.server_type or "wireguard"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Protocol mismatch: source is {src.server_type}, target is {dst.server_type}. "
+                "Migration only supports same-protocol moves."
+            ),
+        )
+
+    q = db.query(Client).filter(Client.server_id == src.id)
+    if payload.client_ids:
+        # Selective migration — caller picked specific clients (e.g. for a
+        # canary/test run before doing a full bulk move).
+        q = q.filter(Client.id.in_(payload.client_ids))
+    clients = q.all()
+
+    if payload.client_ids:
+        # Surface a clear error if any requested ID isn't actually on the
+        # source server — silent partial moves are confusing.
+        found = {c.id for c in clients}
+        missing = [cid for cid in payload.client_ids if cid not in found]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Clients not found on source server: {missing}",
+            )
+
+    if not clients:
+        return {"moved": 0, "message": "No clients matched on source server"}
+
+    # ── Pre-flight: refuse if any moving client would collide with an existing
+    # client on the target server (uq_client_server_ip — UNIQUE on
+    # (server_id, ip_index)). Without this, the SQL UPDATE later raises
+    # IntegrityError → 500 with an opaque message. Better to fail clean.
+    moving_ips = {c.ip_index for c in clients if c.ip_index is not None}
+    if moving_ips:
+        from sqlalchemy import and_ as _sql_and
+        existing = (
+            db.query(Client.id, Client.ipv4, Client.ip_index, Client.name)
+            .filter(_sql_and(
+                Client.server_id == dst.id,
+                Client.ip_index.in_(moving_ips),
+            ))
+            .all()
+        )
+        if existing:
+            taken = [
+                {"client_id": e.id, "name": e.name, "ipv4": e.ipv4, "ip_index": e.ip_index}
+                for e in existing
+            ]
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "ip_conflict",
+                    "message": (
+                        f"Cannot migrate: {len(taken)} client(s) on the target server "
+                        f"already use the IPs you'd be moving. Either free those IPs first "
+                        f"or migrate to an empty server. The replace-broken-box scenario "
+                        f"(new server with same private_key, no clients yet) is conflict-free."
+                    ),
+                    "conflicting_clients_on_target": taken,
+                },
+            )
+
+    moved = 0
+    failed: List[Dict[str, Any]] = []
+
+    # Pre-build WG managers for each side so we don't open SSH on every iteration.
+    src_wg = core.clients._get_wg(src) if payload.remove_from_old else None
+    dst_wg = core.clients._get_wg(dst) if payload.sync_to_remote else None
+
+    try:
+        for c in clients:
+            try:
+                allowed_ips = [f"{c.ipv4}/32"]
+                if getattr(c, "ipv6", None):
+                    allowed_ips.append(f"{c.ipv6}/128")
+
+                # 1) Remove from OLD server's live WG (best-effort).
+                if src_wg is not None:
+                    try:
+                        src_wg.remove_peer(c.public_key)
+                    except Exception as _e_rm:
+                        logger.warning(
+                            "migrate_clients: remove peer %s from %s failed: %s",
+                            c.name, src.name, _e_rm,
+                        )
+
+                # 2) Re-point in DB.
+                c.server_id = dst.id
+
+                # 3) Add peer to NEW server's live WG (best-effort) — same client keys.
+                if dst_wg is not None:
+                    try:
+                        dst_wg.add_peer(
+                            public_key=c.public_key,
+                            allowed_ips=allowed_ips,
+                            preshared_key=getattr(c, "preshared_key", None),
+                        )
+                    except Exception as _e_add:
+                        logger.warning(
+                            "migrate_clients: add peer %s to %s failed: %s",
+                            c.name, dst.name, _e_add,
+                        )
+                moved += 1
+            except Exception as e:
+                failed.append({"client": c.name, "error": str(e)})
+    finally:
+        # Always close SSH/WG handles, even if an exception bubbles.
+        for w in (src_wg, dst_wg):
+            try:
+                if w is not None:
+                    w.close()
+            except Exception:
+                pass
+
+    db.commit()
+
+    actor = getattr(request.state, "admin_username", None) or "admin"
+    logger.warning(
+        f"[AUDIT] server.clients.migrate actor={actor} "
+        f"from={src.id}({src.name}) to={dst.id}({dst.name}) "
+        f"moved={moved} failed={len(failed)}"
+    )
+
+    return {
+        "moved": moved,
+        "failed": failed,
+        "from_server": {"id": src.id, "name": src.name},
+        "to_server": {"id": dst.id, "name": dst.name},
+        "message": (
+            f"Migrated {moved} client(s) from '{src.name}' to '{dst.name}'."
+            if not failed
+            else f"Migrated {moved} client(s); {len(failed)} failed (see 'failed' field)."
+        ),
+    }
 
 
 @router.put("/{server_id}", response_model=ServerResponse)

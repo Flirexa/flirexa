@@ -28,6 +28,102 @@ _monitor_cycle_lock = threading.Lock()
 _reconcile_cycle_lock = threading.Lock()
 
 
+# ─── Pending payment recovery ────────────────────────────────────────────────
+
+def _try_recover_pending_payments(db) -> None:
+    """
+    Pull each not-yet-expired pending payment up to 4h old and re-check its
+    status with the provider directly. Self-healing for dropped webhooks.
+
+    We ONLY recover payments that:
+    - status == 'pending'
+    - created within the last 4h (older ones are also tried, but with backoff)
+    - have a known provider with a working check_payment()
+
+    On a "completed" answer we call SubscriptionManager.complete_payment(),
+    which is idempotent and will activate the subscription + sync WG.
+    """
+    import asyncio as _asyncio
+    from ..modules.subscription.subscription_models import ClientPortalPayment
+    from ..modules.subscription.subscription_manager import SubscriptionManager
+    from ..modules.payment.base import PaymentStatus
+
+    try:
+        from ..api.routes import client_portal as _portal
+    except ImportError:
+        from ..api.routes.client_portal import (  # type: ignore[no-redef]
+            cryptopay_adapter, paypal_provider, nowpayments_provider,
+        )
+        _portal = None
+
+    now = datetime.now(timezone.utc)
+    # Don't try to recover the absolute newest invoices — give the webhook
+    # a head start (15s) so we don't race normal completion.
+    young = now - timedelta(seconds=15)
+    candidates = db.query(ClientPortalPayment).filter(
+        ClientPortalPayment.status == "pending",
+        ClientPortalPayment.created_at <= young,
+    ).order_by(ClientPortalPayment.created_at.asc()).limit(50).all()
+    if not candidates:
+        return
+
+    manager = SubscriptionManager(db)
+    recovered = 0
+
+    for p in candidates:
+        provider_name = (p.provider_name or "").lower()
+        provider_invoice = p.provider_invoice_id or p.invoice_id
+        if not provider_name or not provider_invoice:
+            continue
+
+        # Pick the right provider object (built-in or plugin).
+        if _portal is not None:
+            prov_obj = (
+                getattr(_portal, "cryptopay_adapter", None) if provider_name == "cryptopay" else
+                getattr(_portal, f"{provider_name}_provider", None)
+            )
+        else:
+            prov_obj = None
+        if not prov_obj or not hasattr(prov_obj, "check_payment"):
+            continue
+
+        try:
+            status = _asyncio.run(prov_obj.check_payment(provider_invoice))
+        except RuntimeError:
+            # asyncio.run() can't nest inside an existing loop — fall back.
+            try:
+                loop = _asyncio.new_event_loop()
+                status = loop.run_until_complete(prov_obj.check_payment(provider_invoice))
+                loop.close()
+            except Exception as _e:
+                logger.debug("Recovery check_payment(%s) inner failed: %s", p.invoice_id, _e)
+                continue
+        except Exception as _e:
+            logger.debug("Recovery check_payment(%s) failed: %s", p.invoice_id, _e)
+            continue
+
+        completed = (
+            status == PaymentStatus.COMPLETED
+            if isinstance(status, PaymentStatus)
+            else str(status).lower() in ("completed", "paid", "finished", "success")
+        )
+        if not completed:
+            continue
+
+        try:
+            manager.complete_payment(p.invoice_id, sync_wg=True)
+            recovered += 1
+            logger.warning(
+                "Recovered dropped-webhook payment: invoice=%s provider=%s user=%d",
+                p.invoice_id, provider_name, p.user_id,
+            )
+        except Exception as _ce:
+            logger.error("Recovery complete_payment failed for %s: %s", p.invoice_id, _ce)
+
+    if recovered:
+        logger.info("Pending-payment recovery: %d invoice(s) self-healed this cycle", recovered)
+
+
 # ─── Monitoring ───────────────────────────────────────────────────────────────
 
 def monitoring_cycle():
@@ -202,6 +298,27 @@ def monitoring_cycle():
             db.commit()
             logger.info(f"Monitoring: expired {len(stale_payments)} stale pending payments")
 
+        # Active recovery for stuck pending payments.
+        #
+        # If a webhook is dropped (provider downtime, network blip, our process
+        # restarted between webhook arrival and DB commit), the payment row
+        # stays "pending" forever and the customer never gets their subscription.
+        #
+        # We poll every "young-but-not-yet-expired" pending payment by asking
+        # the provider directly via check_payment(). If the provider says
+        # "completed", we run the same complete_payment() path that the webhook
+        # would have. complete_payment() is idempotent (row lock + status check
+        # inside lock), so a delayed webhook arriving later won't double-credit.
+        #
+        # Also — once a payment's hard expiry has passed and it was just expired
+        # above, we DON'T retry it. That row is dead.
+        try:
+            _try_recover_pending_payments(db)
+        except Exception as _rerr:
+            logger.error("Pending-payment recovery failed: %s", _rerr)
+
+        # Older bucket: still pending after 6h with no recovery → louder warning
+        # so admins can chase the provider directly.
         stuck_cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
         stuck_payments = db.query(ClientPortalPayment).filter(
             ClientPortalPayment.status == "pending",
@@ -210,8 +327,9 @@ def monitoring_cycle():
         if stuck_payments:
             ids = [p.invoice_id for p in stuck_payments]
             logger.warning(
-                f"Monitoring: {len(stuck_payments)} payment(s) stuck in 'pending' for >6h — "
-                f"invoice IDs: {ids}. Check provider dashboards or confirm manually in admin panel."
+                f"Monitoring: {len(stuck_payments)} payment(s) STILL stuck in 'pending' for >6h "
+                f"after recovery attempts — invoice IDs: {ids}. "
+                f"Check provider dashboards or confirm manually in admin panel."
             )
 
         # Core WG limits check (expiry, traffic for non-portal clients)

@@ -31,8 +31,8 @@ detect_install_dir() {
         echo "/opt/vpnmanager"
     elif [ -d "/opt/vpnmanager" ] && [ -f "/opt/vpnmanager/main.py" ]; then
         echo "/opt/vpnmanager"
-    elif [ -d "/opt/vpnmanager" ] && [ -f "/opt/vpnmanager/main.py" ]; then
-        echo "/opt/vpnmanager"
+    elif [ -d "/root/spongebot_new" ] && [ -f "/root/spongebot_new/main.py" ]; then
+        echo "/root/spongebot_new"
     else
         echo ""
     fi

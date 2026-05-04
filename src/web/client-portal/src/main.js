@@ -9,6 +9,7 @@ import 'bootstrap/dist/js/bootstrap.bundle.min.js'
 import '@mdi/font/css/materialdesignicons.min.css'
 import './assets/style.css'
 import './assets/themes.css'
+import './assets/design-tokens.css'
 
 import VueApexCharts from 'vue3-apexcharts'
 import HelpTooltip from './components/HelpTooltip.vue'

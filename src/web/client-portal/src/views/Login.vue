@@ -1,123 +1,211 @@
 <template>
-  <div class="auth-page">
-    <div class="auth-container">
-      <div class="auth-card">
-        <div class="auth-logo">
-          <div class="auth-logo-icon">🛡️</div>
-          <h2>{{ appName }}</h2>
-          <p class="text-muted">{{ showForgot ? $t('auth.resetPassword') : $t('auth.signInTitle') }}</p>
+  <div class="fx-login-shell" :class="theme === 'dark' ? 'theme-dark' : 'theme-light'">
+    <button class="fx-login-theme-toggle" :title="$t(theme === 'dark' ? 'nav.lightMode' : 'nav.darkMode')"
+            @click="toggleTheme">
+      <FxIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
+    </button>
+
+    <main class="fx-login-card">
+      <!-- Reset password (token in query) -->
+      <template v-if="showReset">
+        <div class="fx-login-brand">
+          <div class="fx-login-logo"><img :src="brandLogo" alt="" /></div>
+          <h1 class="fx-login-title">{{ $t('auth.resetPassword') }}</h1>
+          <p class="fx-login-sub">{{ $t('auth.resetPasswordSub') }}</p>
         </div>
 
-        <!-- Login Form -->
-        <form v-if="!showForgot && !showReset" @submit.prevent="handleLogin">
-          <div class="mb-3">
-            <label for="email" class="form-label">{{ $t('auth.email') }}</label>
-            <input type="email" class="form-control" id="email" v-model="form.email" required placeholder="your@email.com">
-          </div>
-
-          <div class="mb-3">
-            <label for="password" class="form-label">{{ $t('auth.password') }}</label>
-            <input type="password" class="form-control" id="password" v-model="form.password" required placeholder="••••••••">
-          </div>
-
-          <div class="mb-3 d-flex justify-content-between align-items-center">
-            <div class="form-check">
-              <input type="checkbox" class="form-check-input" id="remember" v-model="remember">
-              <label class="form-check-label" for="remember">{{ $t('auth.rememberMe') }}</label>
+        <form class="fx-login-form" @submit.prevent="handleResetPassword">
+          <div class="fx-field">
+            <label for="resetToken">{{ $t('auth.resetToken') }}</label>
+            <div class="fx-field-input no-icon">
+              <input id="resetToken" v-model="resetForm.token" type="text" required />
             </div>
-            <a href="#" class="small text-primary" @click.prevent="showForgot = true">{{ $t('auth.forgotPassword') }}</a>
+          </div>
+          <div class="fx-field">
+            <label for="newPassword">{{ $t('auth.newPassword') }}</label>
+            <div class="fx-field-input has-toggle">
+              <FxIcon name="lock" :size="16" />
+              <input id="newPassword" v-model="resetForm.new_password" :type="showNewPw ? 'text' : 'password'"
+                     minlength="8" required />
+              <button type="button" class="fx-pw-toggle" :aria-label="$t('auth.toggleVisibility')"
+                      @click="showNewPw = !showNewPw">
+                <FxIcon :name="showNewPw ? 'eye' : 'eye'" :size="16" />
+              </button>
+            </div>
           </div>
 
-          <div class="alert alert-danger" v-if="error">{{ error }}</div>
-          <div class="alert alert-success" v-if="success">{{ success }}</div>
+          <div v-if="error" class="fx-login-alert error">{{ error }}</div>
+          <div v-if="success" class="fx-login-alert success">{{ success }}</div>
 
-          <button type="submit" class="btn btn-primary w-100 mb-3" :disabled="loading">
-            <span v-if="loading">
-              <span class="spinner-border spinner-border-sm me-2"></span>
-              {{ $t('auth.signingIn') }}
-            </span>
-            <span v-else>{{ $t('auth.signIn') }}</span>
+          <button type="submit" class="fx-btn fx-btn-primary fx-login-submit" :disabled="loading">
+            <span v-if="loading">{{ $t('common.loading') }}</span>
+            <template v-else>
+              <span>{{ $t('auth.resetPassword') }}</span>
+              <FxIcon name="send" :size="14" />
+            </template>
           </button>
 
-          <div class="text-center">
-            <p class="text-muted">
-              {{ $t('auth.noAccount') }}
-              <router-link to="/register" class="text-primary">{{ $t('auth.signUpLink') }}</router-link>
-            </p>
+          <div class="fx-login-foot">
+            <a class="fx-login-link" href="#" @click.prevent="showReset = false">{{ $t('auth.backToLogin') }}</a>
           </div>
         </form>
+      </template>
 
-        <!-- Forgot Password Form -->
-        <form v-if="showForgot" @submit.prevent="handleForgotPassword">
-          <div class="mb-3">
-            <label for="resetEmail" class="form-label">{{ $t('auth.email') }}</label>
-            <input type="email" class="form-control" id="resetEmail" v-model="forgotEmail" required placeholder="your@email.com">
+      <!-- Forgot password -->
+      <template v-else-if="showForgot">
+        <div class="fx-login-brand">
+          <div class="fx-login-logo"><img :src="brandLogo" alt="" /></div>
+          <h1 class="fx-login-title">{{ $t('auth.resetPassword') }}</h1>
+          <p class="fx-login-sub">{{ $t('auth.forgotPasswordSub') }}</p>
+        </div>
+
+        <form class="fx-login-form" @submit.prevent="handleForgotPassword">
+          <div class="fx-field">
+            <label for="forgotEmail">{{ $t('auth.email') }}</label>
+            <div class="fx-field-input">
+              <FxIcon name="mail" :size="16" />
+              <input id="forgotEmail" v-model="forgotEmail" type="email" placeholder="your@email.com" required />
+            </div>
           </div>
 
-          <div class="alert alert-danger" v-if="error">{{ error }}</div>
-          <div class="alert alert-success" v-if="success">{{ success }}</div>
+          <div v-if="error" class="fx-login-alert error">{{ error }}</div>
+          <div v-if="success" class="fx-login-alert success">{{ success }}</div>
 
-          <button type="submit" class="btn btn-primary w-100 mb-3" :disabled="loading">
-            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
-            {{ $t('auth.sendResetLink') }}
+          <button type="submit" class="fx-btn fx-btn-primary fx-login-submit" :disabled="loading">
+            <span v-if="loading">{{ $t('common.loading') }}</span>
+            <template v-else>
+              <span>{{ $t('auth.sendResetLink') }}</span>
+              <FxIcon name="send" :size="14" />
+            </template>
           </button>
 
-          <div class="text-center">
-            <a href="#" class="text-primary" @click.prevent="showForgot = false; showReset = true">{{ $t('auth.haveResetToken') }}</a>
-            <span class="mx-2 text-muted">|</span>
-            <a href="#" class="text-muted" @click.prevent="showForgot = false">{{ $t('auth.backToLogin') }}</a>
+          <div class="fx-login-foot">
+            <a class="fx-login-link" href="#" @click.prevent="showForgot = false; showReset = true">
+              {{ $t('auth.haveResetToken') }}
+            </a>
+            <span class="sep">·</span>
+            <a class="fx-login-link" href="#" @click.prevent="showForgot = false">{{ $t('auth.backToLogin') }}</a>
           </div>
         </form>
+      </template>
 
-        <!-- Reset Password with Token Form -->
-        <form v-if="showReset" @submit.prevent="handleResetPassword">
-          <div class="mb-3">
-            <label for="resetToken" class="form-label">{{ $t('auth.resetToken') }}</label>
-            <input type="text" class="form-control" id="resetToken" v-model="resetForm.token" required>
+      <!-- Sign in -->
+      <template v-else>
+        <div class="fx-login-brand">
+          <div class="fx-login-logo"><img :src="brandLogo" alt="" /></div>
+          <h1 class="fx-login-title">{{ brandName }}</h1>
+          <p class="fx-login-sub">{{ $t('auth.signInSub') }}</p>
+        </div>
+
+        <form class="fx-login-form" @submit.prevent="handleLogin" novalidate>
+          <div class="fx-field">
+            <label for="email">{{ $t('auth.email') }}</label>
+            <div class="fx-field-input" :class="{ error: emailError }">
+              <FxIcon name="mail" :size="16" />
+              <input id="email" v-model="form.email" type="email" autocomplete="email"
+                     placeholder="your@email.com" required @input="emailError = false" />
+            </div>
+            <span v-if="emailError" class="fx-field-error">{{ $t('auth.invalidEmail') }}</span>
           </div>
-          <div class="mb-3">
-            <label for="newPassword" class="form-label">{{ $t('auth.newPassword') }}</label>
-            <input type="password" class="form-control" id="newPassword" v-model="resetForm.new_password" required minlength="8">
+
+          <div class="fx-field">
+            <label for="password">{{ $t('auth.password') }}</label>
+            <div class="fx-field-input has-toggle" :class="{ error: passwordError }">
+              <FxIcon name="lock" :size="16" />
+              <input id="password" v-model="form.password" :type="showPw ? 'text' : 'password'"
+                     autocomplete="current-password" placeholder="••••••••" minlength="6" required
+                     @input="passwordError = false" />
+              <button type="button" class="fx-pw-toggle" :aria-label="$t('auth.toggleVisibility')"
+                      @click="showPw = !showPw">
+                <FxIcon name="eye" :size="16" />
+              </button>
+            </div>
+            <span v-if="passwordError" class="fx-field-error">{{ $t('auth.passwordTooShort') }}</span>
           </div>
 
-          <div class="alert alert-danger" v-if="error">{{ error }}</div>
-          <div class="alert alert-success" v-if="success">{{ success }}</div>
+          <div class="fx-login-row">
+            <label class="fx-check">
+              <input type="checkbox" v-model="remember" />
+              <span class="fx-check-box"><FxIcon name="check" :size="11" :stroke-width="3" /></span>
+              <span>{{ $t('auth.rememberMe') }}</span>
+            </label>
+            <a class="fx-login-link" href="#" @click.prevent="showForgot = true">{{ $t('auth.forgotPassword') }}</a>
+          </div>
 
-          <button type="submit" class="btn btn-primary w-100 mb-3" :disabled="loading">
-            <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
-            {{ $t('auth.resetPassword') }}
+          <div v-if="error" class="fx-login-alert error">{{ error }}</div>
+          <div v-if="success" class="fx-login-alert success">{{ success }}</div>
+
+          <button type="submit" class="fx-btn fx-btn-primary fx-login-submit" :disabled="loading">
+            <span v-if="loading">{{ $t('auth.signingIn') }}</span>
+            <template v-else>
+              <span>{{ $t('auth.signIn') }}</span>
+              <FxIcon name="send" :size="14" />
+            </template>
           </button>
-
-          <div class="text-center">
-            <a href="#" class="text-muted" @click.prevent="showReset = false">{{ $t('auth.backToLogin') }}</a>
-          </div>
         </form>
 
-      </div>
+        <div class="fx-login-foot">
+          {{ $t('auth.noAccount') }}
+          <router-link to="/register" class="fx-login-link">{{ $t('auth.signUpLink') }}</router-link>
+        </div>
+      </template>
+    </main>
+
+    <div class="fx-login-meta">
+      <a href="#" @click.prevent>{{ $t('footer.privacy') }}</a>
+      <span class="sep">·</span>
+      <a href="#" @click.prevent>{{ $t('footer.terms') }}</a>
+      <span class="sep">·</span>
+      <router-link to="/support">{{ $t('nav.support') }}</router-link>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
+import FxIcon from '../components/FxIcon.vue'
+import bundledLogo from '../assets/flirexa-logo.png'
 
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 
-const appName = ref(window.__branding?.branding_app_name || 'VPN Manager')
+const brandName = computed(() => window.__branding?.branding_app_name || 'Flirexa VPN')
+const brandLogo = computed(() => {
+  const url = window.__branding?.branding_logo_url
+  if (!url) return bundledLogo
+  if (url.startsWith('/')) {
+    const adminPort = '10086'
+    return `${window.location.protocol}//${window.location.hostname}:${adminPort}${url}`
+  }
+  return url
+})
+
 const form = ref({ email: '', password: '' })
-const remember = ref(false)
+const remember = ref(true)
 const loading = ref(false)
 const error = ref(null)
 const success = ref(null)
+const emailError = ref(false)
+const passwordError = ref(false)
+const showPw = ref(false)
+const showNewPw = ref(false)
+
 const showForgot = ref(false)
 const showReset = ref(false)
 const forgotEmail = ref('')
 const resetForm = ref({ token: '', new_password: '' })
+
+// Theme — same store as the main shell.
+const theme = ref(localStorage.getItem('sb_theme') === 'dark' ? 'dark' : 'light')
+function toggleTheme() {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  localStorage.setItem('sb_theme', theme.value)
+  window.dispatchEvent(new CustomEvent('fx:theme', { detail: theme.value }))
+}
 
 onMounted(() => {
   const resetToken = route.query.reset_token
@@ -128,10 +216,15 @@ onMounted(() => {
   }
 })
 
+const validateEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '')
+
 const handleLogin = async () => {
+  emailError.value = !validateEmail(form.value.email)
+  passwordError.value = (form.value.password || '').length < 6
+  if (emailError.value || passwordError.value) return
+
   loading.value = true
   error.value = null
-
   try {
     const response = await portalApi.login(form.value)
     localStorage.setItem('client_access_token', response.data.access_token)
@@ -153,8 +246,7 @@ const handleLogin = async () => {
 
 const handleForgotPassword = async () => {
   loading.value = true
-  error.value = null
-  success.value = null
+  error.value = null; success.value = null
   try {
     await portalApi.forgotPassword({ email: forgotEmail.value })
     success.value = t('auth.resetEmailSent')
@@ -167,8 +259,7 @@ const handleForgotPassword = async () => {
 
 const handleResetPassword = async () => {
   loading.value = true
-  error.value = null
-  success.value = null
+  error.value = null; success.value = null
   try {
     await portalApi.resetPassword(resetForm.value)
     success.value = t('auth.passwordResetDone')
@@ -182,93 +273,6 @@ const handleResetPassword = async () => {
 </script>
 
 <style scoped>
-/* ── Vuexy Auth Layout ─────────────────────────────────────── */
-.auth-page {
-  min-height: 100vh;
-  display: flex;
-  background: #2C3152;
-  overflow: hidden;
-}
-
-.auth-page::before {
-  content: '';
-  position: fixed;
-  top: -200px; left: -200px;
-  width: 600px; height: 600px;
-  background: radial-gradient(circle, rgba(115,103,240,.4) 0%, transparent 70%);
-  border-radius: 50%;
-  pointer-events: none;
-}
-.auth-page::after {
-  content: '';
-  position: fixed;
-  bottom: -150px; right: 30%;
-  width: 400px; height: 400px;
-  background: radial-gradient(circle, rgba(0,207,232,.2) 0%, transparent 70%);
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-.auth-container {
-  position: relative; z-index: 1;
-  width: 100%; max-width: 420px;
-  margin: auto;
-  padding: 2rem;
-}
-
-.auth-card {
-  background: #fff;
-  border-radius: 1rem;
-  padding: 2.5rem;
-  box-shadow: 0 20px 60px rgba(0,0,0,.35);
-}
-
-.auth-logo { text-align: center; margin-bottom: 2rem; }
-.auth-logo-icon {
-  width: 56px; height: 56px; border-radius: 14px;
-  background: linear-gradient(135deg, #7367F0, #9e95f5);
-  display: inline-flex; align-items: center; justify-content: center;
-  font-size: 1.6rem; margin-bottom: .75rem;
-  box-shadow: 0 6px 20px rgba(115,103,240,.4);
-}
-.auth-logo h2 { font-size: 1.5rem; font-weight: 700; color: #5E5873; margin-bottom: .375rem; }
-.auth-logo p { color: #B9B9C3 !important; font-size: .9rem; }
-
-.form-label { color: #5E5873; font-size: .875rem; font-weight: 500; }
-.form-control {
-  border: 1px solid #D8D6DE; color: #6E6B7B;
-  border-radius: .375rem; padding: .6rem .875rem;
-  transition: border-color .15s, box-shadow .15s;
-}
-.form-control:focus {
-  border-color: #7367F0;
-  box-shadow: 0 3px 10px rgba(115,103,240,.2);
-  color: #6E6B7B;
-}
-.form-control::placeholder { color: #B9B9C3; }
-.form-check-label { font-size: .875rem; color: #6E6B7B; }
-
-.btn-primary {
-  padding: .7rem; border-radius: .375rem; font-weight: 600;
-  background: #7367F0; border-color: #7367F0;
-  box-shadow: 0 4px 16px rgba(115,103,240,.4);
-  transition: all .2s;
-}
-.btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(115,103,240,.55);
-  background: #5e50ee; border-color: #5e50ee;
-}
-
-.text-primary { color: #7367F0 !important; }
-a.text-primary:hover { color: #5e50ee !important; }
-.text-muted { color: #B9B9C3 !important; }
-
-.alert-danger { background: rgba(234,84,85,.12); border: none; color: #EA5455; border-radius: .5rem; font-size: .875rem; }
-.alert-success { background: rgba(40,199,111,.12); border: none; color: #28C76F; border-radius: .5rem; font-size: .875rem; }
-
-@media (max-width: 576px) {
-  .auth-container { padding: 1rem; }
-  .auth-card { padding: 1.75rem 1.25rem; }
-}
+/* All visual styles for the login shell live in design-tokens.css
+   so Login + Register can share the same atoms without duplication. */
 </style>

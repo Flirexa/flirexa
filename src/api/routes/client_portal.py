@@ -707,6 +707,161 @@ async def get_dashboard_stats(
     return manager.get_dashboard_stats(user_id)
 
 
+@router.get("/dashboard/traffic-series")
+async def get_dashboard_traffic_series(
+    range: str = Query("14d", pattern="^(7d|14d|30d|all)$"),
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Daily traffic series aggregated across all clients owned by this portal user.
+
+    Source: `traffic_daily` table (already populated by TrafficManager.sync_traffic_to_db).
+    Output is in GB so the chart can render directly without unit conversion.
+
+    Returns:
+        {
+          "range": "14d",
+          "from": "2026-04-19",
+          "to":   "2026-05-02",
+          "series": [{"date": "2026-04-19", "rx_gb": 0.42, "tx_gb": 0.18}, ...],
+          "active_devices_series": [{"date": "2026-04-19", "count": 2}, ...],
+          "summary": {
+            "total_rx_gb": 5.1, "total_tx_gb": 1.9, "total_gb": 7.0,
+            "trend_pct": 23.4    // current vs previous equal-length period; null if no prior data
+          }
+        }
+    """
+    from datetime import date as date_type
+    from sqlalchemy import func as sa_func
+    from src.database.models import TrafficDaily
+
+    client_ids = _get_user_client_ids(db, user_id)
+    today = date_type.today()
+
+    # Window length in days. "all" caps at 365 to keep payload sane.
+    days_map = {"7d": 7, "14d": 14, "30d": 30, "all": 365}
+    days = days_map[range]
+    start = today - timedelta(days=days - 1)
+
+    if not client_ids:
+        # No devices yet → empty zero-padded series so the chart still renders.
+        empty = [
+            {"date": (start + timedelta(days=i)).isoformat(), "rx_gb": 0.0, "tx_gb": 0.0}
+            for i in range_count_days(days)
+        ]
+        empty_dev = [
+            {"date": (start + timedelta(days=i)).isoformat(), "count": 0}
+            for i in range_count_days(days)
+        ]
+        return {
+            "range": range,
+            "from": start.isoformat(),
+            "to": today.isoformat(),
+            "series": empty,
+            "active_devices_series": empty_dev,
+            "summary": {"total_rx_gb": 0.0, "total_tx_gb": 0.0, "total_gb": 0.0, "trend_pct": None},
+        }
+
+    # ── Daily totals over the requested window ───────────────────────────────
+    rows = (
+        db.query(
+            TrafficDaily.date,
+            sa_func.sum(TrafficDaily.bytes_rx).label("rx"),
+            sa_func.sum(TrafficDaily.bytes_tx).label("tx"),
+        )
+        .filter(TrafficDaily.client_id.in_(client_ids))
+        .filter(TrafficDaily.date >= start)
+        .filter(TrafficDaily.date <= today)
+        .group_by(TrafficDaily.date)
+        .all()
+    )
+    # `TrafficDaily.date` is a DateTime column even though it stores just the date.
+    by_day = {}
+    for r in rows:
+        d = r.date.date() if hasattr(r.date, "date") else r.date
+        by_day[d] = (int(r.rx or 0), int(r.tx or 0))
+
+    series = []
+    total_rx = 0
+    total_tx = 0
+    for i in range_count_days(days):
+        d = start + timedelta(days=i)
+        rx, tx = by_day.get(d, (0, 0))
+        total_rx += rx
+        total_tx += tx
+        series.append({
+            "date": d.isoformat(),
+            "rx_gb": round(rx / (1024 ** 3), 3),
+            "tx_gb": round(tx / (1024 ** 3), 3),
+        })
+
+    # ── Active devices per day (distinct client_ids with traffic > 0) ────────
+    dev_rows = (
+        db.query(
+            TrafficDaily.date,
+            sa_func.count(sa_func.distinct(TrafficDaily.client_id)).label("active"),
+        )
+        .filter(TrafficDaily.client_id.in_(client_ids))
+        .filter(TrafficDaily.date >= start)
+        .filter(TrafficDaily.date <= today)
+        .filter((TrafficDaily.bytes_rx > 0) | (TrafficDaily.bytes_tx > 0))
+        .group_by(TrafficDaily.date)
+        .all()
+    )
+    dev_by_day = {}
+    for r in dev_rows:
+        d = r.date.date() if hasattr(r.date, "date") else r.date
+        dev_by_day[d] = int(r.active or 0)
+
+    active_devices_series = [
+        {"date": (start + timedelta(days=i)).isoformat(),
+         "count": dev_by_day.get(start + timedelta(days=i), 0)}
+        for i in range_count_days(days)
+    ]
+
+    # ── Trend % vs previous equal-length period ──────────────────────────────
+    prev_start = start - timedelta(days=days)
+    prev_end = start - timedelta(days=1)
+    prev_total_row = (
+        db.query(
+            sa_func.coalesce(sa_func.sum(TrafficDaily.bytes_rx + TrafficDaily.bytes_tx), 0)
+        )
+        .filter(TrafficDaily.client_id.in_(client_ids))
+        .filter(TrafficDaily.date >= prev_start)
+        .filter(TrafficDaily.date <= prev_end)
+        .scalar()
+    )
+    prev_bytes = int(prev_total_row or 0)
+    cur_bytes = total_rx + total_tx
+    trend_pct = None
+    if prev_bytes > 0:
+        trend_pct = round(((cur_bytes - prev_bytes) / prev_bytes) * 100, 1)
+    elif cur_bytes > 0:
+        # No previous data but we have current — express as +100 (new traffic).
+        trend_pct = 100.0
+
+    return {
+        "range": range,
+        "from": start.isoformat(),
+        "to": today.isoformat(),
+        "series": series,
+        "active_devices_series": active_devices_series,
+        "summary": {
+            "total_rx_gb": round(total_rx / (1024 ** 3), 3),
+            "total_tx_gb": round(total_tx / (1024 ** 3), 3),
+            "total_gb": round((total_rx + total_tx) / (1024 ** 3), 3),
+            "trend_pct": trend_pct,
+        },
+    }
+
+
+def range_count_days(n: int):
+    """Yield 0..n-1 — small helper to keep the route body readable."""
+    for i in range(n):
+        yield i
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # PAYMENT ROUTES
 # ═══════════════════════════════════════════════════════════════════════════
@@ -805,6 +960,21 @@ async def create_invoice(
     invoice_data = None
     provider_name = data.provider
 
+    # Hard backend gate: free-tier instances can only invoice via NowPayments.
+    # The /payments/providers endpoint hides everything else, but a forged
+    # request would otherwise still go through — so we re-check here.
+    try:
+        from src.modules.license.manager import get_license_manager, LicenseType
+        _info = get_license_manager().get_license_info()
+        _is_paid = _info.type not in (LicenseType.FREE, LicenseType.TRIAL)
+    except Exception:
+        _is_paid = False
+    if not _is_paid and data.provider != "nowpayments":
+        raise HTTPException(
+            status_code=403,
+            detail="This payment method requires a paid license. Free tier supports NOWPayments only.",
+        )
+
     # ── Route to selected provider ──
     if data.provider == "paypal":
         if not paypal_provider:
@@ -832,11 +1002,24 @@ async def create_invoice(
         if not nowpayments_provider:
             raise HTTPException(status_code=503, detail="NOWPayments not configured")
         try:
+            # Per-invoice IPN URL beats the global Store Settings one — important
+            # when the same NowPayments account is shared between several
+            # services (e.g. license sales on flirexa.biz + customer VPN on
+            # the operator's box). Without this, all webhooks land on whichever
+            # URL is currently registered globally.
+            cpd = (os.getenv("CLIENT_PORTAL_DOMAIN", "") or "").strip()
+            ipn_url = f"https://{cpd}/client-portal/webhooks/nowpayments" if cpd else ""
+
             invoice = await nowpayments_provider.create_invoice(
                 amount=int(amount_usd * 100),
                 currency=data.currency.upper(),
                 description=f"VPN - {plan.name} ({data.duration_days} days)",
-                metadata={"user_id": user_id, "plan": data.plan_tier},
+                metadata={
+                    "user_id": user_id,
+                    "plan": data.plan_tier,
+                    "ipn_callback_url": ipn_url,
+                    "order_id": None,  # let provider use generated invoice_id
+                },
             )
             invoice_data = {
                 "invoice_id": invoice.id,
@@ -905,6 +1088,16 @@ async def create_invoice(
                     "currency": _inv.currency,
                     "payment_url": _inv.metadata.get("payment_url") or _inv.metadata.get("approval_url", ""),
                     "expires_at": _inv.expires_at.isoformat() if _inv.expires_at else "",
+                    # Surface provider-side id so the recovery poller can
+                    # query check_payment() with the right argument.
+                    "provider_invoice_id": (
+                        _inv.metadata.get("stripe_session_id")
+                        or _inv.metadata.get("mollie_id")
+                        or _inv.metadata.get("razorpay_id")
+                        or _inv.metadata.get("payme_id")
+                        or _inv.id
+                    ),
+                    "stripe_session_id": _inv.metadata.get("stripe_session_id"),
                 }
                 payment_method = data.provider
                 provider_name = data.provider
@@ -931,10 +1124,21 @@ async def create_invoice(
         payment.discount_amount_usd = discount_amount
     if bonus_days:
         payment.duration_days = (payment.duration_days or data.duration_days) + bonus_days
-    # Store provider-specific order ID for webhook lookup
+    # Store provider-specific order ID for webhook lookup + status polling.
+    # Without this the recovery poller can't ask the provider "is invoice X paid?"
+    # and a dropped webhook will leave the customer stuck.
     if data.provider == "paypal" and invoice_data.get("paypal_order_id"):
         payment.provider_invoice_id = invoice_data["paypal_order_id"]
     elif data.provider == "nowpayments":
+        payment.provider_invoice_id = invoice_data["invoice_id"]
+    elif data.provider == "stripe" and invoice_data.get("stripe_session_id"):
+        payment.provider_invoice_id = invoice_data["stripe_session_id"]
+    elif data.provider in ("mollie", "razorpay", "payme") and invoice_data.get("provider_invoice_id"):
+        payment.provider_invoice_id = invoice_data["provider_invoice_id"]
+    else:
+        # Fallback for plugin providers: assume the invoice we sent matches.
+        # This is the same as our internal id, which providers usually echo
+        # back as `metadata.invoice_id` on their webhooks.
         payment.provider_invoice_id = invoice_data["invoice_id"]
     payment.set_provider_data(invoice_data)
     db.commit()
@@ -944,25 +1148,96 @@ async def create_invoice(
 
 @router.get("/payments/providers")
 async def get_available_providers():
-    """Get list of configured payment providers (built-in + plugins)"""
+    """
+    List of configured payment providers visible to the customer.
+
+    Tier gating (matches the open-core promise):
+    - FREE tier (or unlicensed instance) → only NowPayments. This is the open-core
+      payment rail, so self-hosters can accept crypto without a paid plan.
+    - Any paid tier → every provider the admin has configured: NowPayments,
+      PayPal, CryptoPay, plus all auto-loaded plugins (Stripe, Mollie,
+      Razorpay, Payme, …).
+
+    The check is a hard backend filter — frontend can't reveal a gated provider
+    by tweaking flags.
+    """
+    # Resolve current license tier without crashing the route if license
+    # subsystem is unavailable (e.g. dev environments) — assume free in that case.
+    is_paid_tier = False
+    try:
+        from src.modules.license.manager import get_license_manager, LicenseType
+        info = get_license_manager().get_license_info()
+        is_paid_tier = info.type not in (LicenseType.FREE, LicenseType.TRIAL)
+    except Exception as _lerr:
+        logger.debug("Provider gating: could not resolve license tier (%s) — defaulting to free.", _lerr)
+
     providers = []
-    if cryptopay_adapter:
-        providers.append({"id": "cryptopay", "name": "CryptoPay (Telegram)", "type": "crypto"})
-    if paypal_provider:
-        providers.append({"id": "paypal", "name": "PayPal", "type": "fiat"})
+
+    # NowPayments is the always-available rail (free + paid).
     if nowpayments_provider:
-        providers.append({"id": "nowpayments", "name": "NOWPayments (Crypto)", "type": "crypto"})
-    # Auto-detect plugin providers
-    import sys
-    _this = sys.modules[__name__]
-    _portal = sys.modules.get("src.api.routes.client_portal", _this)
-    for attr_name in dir(_portal):
-        if attr_name.endswith("_provider") and attr_name not in ("paypal_provider", "nowpayments_provider"):
+        providers.append({
+            "id": "nowpayments",
+            "name": "NOWPayments",
+            "display_name": "NOWPayments",
+            "type": "crypto",
+            "tier": "free",
+        })
+
+    if is_paid_tier:
+        # Built-in extras
+        if cryptopay_adapter:
+            providers.append({
+                "id": "cryptopay",
+                "name": "CryptoPay (Telegram)",
+                "display_name": "CryptoPay (Telegram)",
+                "type": "crypto",
+                "tier": "paid",
+            })
+        if paypal_provider:
+            providers.append({
+                "id": "paypal",
+                "name": "PayPal",
+                "display_name": "PayPal",
+                "type": "fiat",
+                "tier": "paid",
+            })
+
+        # Auto-detected plugins (Stripe, Mollie, Razorpay, Payme, …)
+        import sys
+        _this = sys.modules[__name__]
+        _portal = sys.modules.get("src.api.routes.client_portal", _this)
+        seen = {p["id"] for p in providers}
+        for attr_name in dir(_portal):
+            if not attr_name.endswith("_provider"):
+                continue
+            if attr_name in ("paypal_provider", "nowpayments_provider"):
+                continue
             prov = getattr(_portal, attr_name, None)
-            if prov and hasattr(prov, "name") and hasattr(prov, "display_name"):
-                providers.append({"id": prov.name, "name": prov.display_name, "type": "plugin"})
+            if not prov or not hasattr(prov, "name") or not hasattr(prov, "display_name"):
+                continue
+            if prov.name in seen:
+                continue
+            providers.append({
+                "id": prov.name,
+                "name": prov.display_name,
+                "display_name": prov.display_name,
+                "type": getattr(prov, "type", "plugin"),
+                "tier": "paid",
+            })
+            seen.add(prov.name)
+
     if not providers:
-        providers.append({"id": "cryptopay", "name": "CryptoPay (Test Mode)", "type": "crypto"})
+        # Last-resort fallback so the page renders something the customer can act on.
+        providers.append({
+            "id": "nowpayments",
+            "name": "NOWPayments",
+            "display_name": "NOWPayments",
+            "type": "crypto",
+            "tier": "free",
+            "configured": False,
+            "hint": "Admin has not configured a payment provider yet.",
+        })
+
     return providers
 
 
@@ -1073,8 +1348,18 @@ async def plugin_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Dynamic webhook handler for plugin payment providers."""
-    # Skip built-in providers (handled by specific routes below)
+    """
+    Dynamic webhook handler for plugin payment providers.
+
+    Security model:
+    - Each provider's `process_webhook` MUST verify the request signature
+      itself (using raw body + headers we pass through). The handler does
+      NOT trust an unsigned body — every provider implements its own
+      signature scheme (Stripe-Signature, X-Razorpay-Signature, etc.).
+    - We pass `body` (raw bytes) and `headers` (case-insensitive) so the
+      provider can both parse and verify in one place.
+    """
+    # Built-in providers have dedicated routes below.
     if provider_name in ("cryptopay", "paypal", "nowpayments"):
         raise HTTPException(status_code=404)
 
@@ -1085,35 +1370,81 @@ async def plugin_webhook(
         raise HTTPException(status_code=404, detail=f"Provider '{provider_name}' not found")
 
     body = await request.body()
+    headers = {k.lower(): v for k, v in request.headers.items()}
+
+    # Try the new signature: process_webhook(body, headers) → (verified, data, order_id).
+    # Fall back to the legacy signature for plugins that haven't been upgraded yet.
+    import inspect
     try:
-        data = json.loads(body)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+        sig = inspect.signature(_prov.process_webhook)
+        param_count = len(sig.parameters)
+    except (TypeError, ValueError):
+        param_count = 1
 
     try:
-        result = await _prov.process_webhook(data)
+        if param_count >= 2:
+            # New API — provider verifies signature internally.
+            result = await _prov.process_webhook(body, headers)
+        else:
+            # Legacy plugin — parse JSON ourselves and pass parsed dict.
+            # WARNING: this path is unsafe (no signature check). We log a hard
+            # warning so admins notice and upgrade the plugin.
+            logger.error(
+                "Plugin %s uses legacy unsigned webhook API — accept without verification. "
+                "Upgrade the plugin to use process_webhook(body, headers).",
+                provider_name,
+            )
+            try:
+                data = json.loads(body)
+            except Exception:
+                raise HTTPException(status_code=400, detail="Invalid JSON")
+            result = await _prov.process_webhook(data)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Plugin webhook {provider_name} error: {e}")
         raise HTTPException(status_code=400, detail="Webhook processing failed")
 
-    if result:
-        # Find and complete payment
+    # Provider returns either a bool (legacy) or a dict (new):
+    #   {"verified": True, "data": {...}, "order_id": "..."}.
+    verified = False
+    data = {}
+    order_id = None
+    if isinstance(result, dict):
+        verified = bool(result.get("verified"))
+        data = result.get("data") or {}
+        order_id = result.get("order_id")
+    elif isinstance(result, bool):
+        verified = result
+        try:
+            data = json.loads(body)
+        except Exception:
+            data = {}
+
+    if not verified:
+        # 401 makes intent clear: signature/processing rejected the event.
+        raise HTTPException(status_code=401, detail="Webhook signature invalid or event not actionable")
+
+    if not order_id:
+        # Best-effort fallback to extract invoice/order ID from common shapes.
         order_id = (
             data.get("metadata", {}).get("invoice_id")
             or data.get("data", {}).get("object", {}).get("metadata", {}).get("invoice_id")
             or data.get("order_id")
             or data.get("id")
         )
-        if order_id:
-            manager = SubscriptionManager(db)
-            payment = manager.get_payment_by_invoice(str(order_id))
-            if payment and payment.status != "completed":
-                manager.complete_payment(str(order_id), sync_wg=False)
-                try:
-                    await _sync_wg_after_payment(db, payment.user_id, manager)
-                except Exception as e:
-                    logger.error(f"Plugin {provider_name}: WG sync failed: {e}")
-                logger.info(f"Plugin {provider_name}: payment {order_id} completed")
+    if not order_id:
+        return {"status": "ok", "message": "no order_id in payload"}
+
+    manager = SubscriptionManager(db)
+    payment = manager.get_payment_by_invoice(str(order_id))
+    if payment and payment.status != "completed":
+        manager.complete_payment(str(order_id), sync_wg=False)
+        try:
+            await _sync_wg_after_payment(db, payment.user_id, manager)
+        except Exception as e:
+            logger.error(f"Plugin {provider_name}: WG sync failed: {e}")
+        logger.info(f"Plugin {provider_name}: payment {order_id} completed")
 
     return {"status": "ok"}
 
@@ -1243,7 +1574,7 @@ async def nowpayments_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Handle NOWPayments IPN webhook"""
+    """Handle NOWPayments IPN webhook (HMAC-SHA512 over sorted JSON)."""
     if not nowpayments_provider:
         raise HTTPException(status_code=503, detail="NOWPayments not configured")
 
@@ -1255,6 +1586,13 @@ async def nowpayments_webhook(
         raise HTTPException(status_code=400, detail="Invalid JSON body")
     signature = request.headers.get("x-nowpayments-sig", "")
 
+    # CRITICAL: verify signature *before* trusting any field in the body.
+    # Without this check, an attacker could POST a forged "finished" event
+    # for any order_id and credit a free subscription.
+    if not nowpayments_provider.verify_signature(body, signature):
+        logger.warning("NOWPayments: rejected webhook with bad signature (order_id=%s)", data.get("order_id"))
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
     try:
         result = await nowpayments_provider.process_webhook(data, signature)
     except Exception as e:
@@ -1262,7 +1600,8 @@ async def nowpayments_webhook(
         raise HTTPException(status_code=400, detail="Webhook processing failed")
 
     if not result:
-        raise HTTPException(status_code=400, detail="Invalid webhook")
+        # Status was valid but not a "completed" event — return 200 so NowPayments doesn't retry.
+        return {"status": "ok", "message": "event acknowledged"}
 
     # If payment finished, complete it
     if data.get("payment_status", "").lower() == "finished":

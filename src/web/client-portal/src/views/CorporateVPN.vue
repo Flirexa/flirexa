@@ -1,15 +1,21 @@
 <template>
-  <div>
-    <!-- Page header -->
-    <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-2 mb-4">
+  <div class="fx-page">
+    <!-- Page header (new design) -->
+    <div class="fx-page-head">
       <div>
-        <h4 class="mb-0 fw-bold d-flex align-items-center gap-2">🏢 {{ $t('corpvpn.title') }}<HelpTooltip :text="$t('help.corpvpn')" /></h4>
-        <p class="text-muted small mb-0">{{ $t('corpvpn.subtitle') }}</p>
+        <h1 class="fx-page-title" style="display:inline-flex; align-items:center; gap:10px">
+          <FxIcon name="building" :size="22" style="color:var(--accent)" />
+          {{ $t('corpvpn.title') }}
+          <FxIcon name="help" :size="15" style="color:var(--text-4); cursor:help" :title="$t('help.corpvpn')" />
+        </h1>
+        <p class="fx-page-sub">{{ $t('corpvpn.subtitle') }}</p>
       </div>
-      <button v-if="!planBlocked" class="btn btn-primary" @click="showCreateNetwork = true">
-        + {{ $t('corpvpn.createNetwork') }}
+      <button v-if="!planBlocked" class="fx-btn fx-btn-primary" @click="showCreateNetwork = true">
+        <FxIcon name="plus" :size="14" /> {{ $t('corpvpn.createNetwork') }}
       </button>
-      <a v-else href="/plans" class="btn btn-warning btn-sm">⬆ {{ $t('plans.upgrade') }}</a>
+      <router-link v-else to="/plans" class="fx-btn fx-btn-primary">
+        <FxIcon name="trafficUp" :size="14" /> {{ $t('plans.upgrade') }}
+      </router-link>
     </div>
 
     <!-- Plan upgrade notice -->
@@ -195,7 +201,7 @@
           </div>
 
           <!-- Canvas -->
-          <div class="map-canvas" ref="mapContainerRef"
+          <div class="map-canvas fx-corp-network-map" ref="mapContainerRef"
             @wheel.prevent="onMapWheel"
             @mousedown="onMapMouseDown"
             @mousemove="onMapMouseMove"
@@ -677,6 +683,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api/index.js'
+import FxIcon from '../components/FxIcon.vue'
 
 const { t } = useI18n()
 

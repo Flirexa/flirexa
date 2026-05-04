@@ -111,7 +111,7 @@ def _run_apply(tmp_path: Path, install_dir: Path, staging_dir: Path, package_pat
         }
     )
     return subprocess.run(
-        ["bash", str(Path(__file__).resolve().parent.parent / "update_apply.sh")],
+        ["bash", "/root/spongebot_new/update_apply.sh"],
         text=True,
         capture_output=True,
         env=env,

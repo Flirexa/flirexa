@@ -890,7 +890,7 @@ class ServerManager:
         server_config_content = self.generate_server_config(server.id)
 
         try:
-            success, agent_url, error_or_key = bootstrap.install_agent(
+            success, agent_url, error_or_key, service_name = bootstrap.install_agent(
                 agent_code_path=agent_code_path,
                 interface=server.interface,
                 port=port,
@@ -901,8 +901,15 @@ class ServerManager:
                 server.agent_mode = "agent"
                 server.agent_url = agent_url
                 server.agent_api_key = error_or_key  # api_key on success
+                # Persist the per-interface unit name so future
+                # uninstall/reinstall targets the right systemd service.
+                if hasattr(server, 'agent_service_name'):
+                    server.agent_service_name = service_name or None
                 self.db.commit()
-                logger.info(f"EVENT:BOOTSTRAP_SUCCESS agent installed on {server.name}: {agent_url}")
+                logger.info(
+                    f"EVENT:BOOTSTRAP_SUCCESS agent installed on {server.name}: "
+                    f"{agent_url} (service={service_name})"
+                )
                 return True, None
             else:
                 logger.error(f"EVENT:BOOTSTRAP_FAILURE agent install failed on {server.name}: {error_or_key}")
@@ -929,11 +936,26 @@ class ServerManager:
         )
 
         try:
-            if bootstrap.uninstall_agent():
+            # Pass the recorded systemd unit name so we only kill THIS agent.
+            # On legacy installs (no per-interface name yet) the field is
+            # NULL → uninstall_agent falls back to `vpnmanager-agent`.
+            # Also pass `interface_hint` so the uninstaller can bring down
+            # the WG/AWG interface and remove its config even if the unit
+            # file is missing/legacy. Without this, a subsequent reinstall
+            # on the same interface would inherit the previous keypair and
+            # clients couldn't handshake against the new identity.
+            unit_name = getattr(server, 'agent_service_name', None)
+            iface_hint = server.interface
+            if bootstrap.uninstall_agent(
+                service_name=unit_name,
+                interface_hint=iface_hint,
+            ):
                 # Switch back to SSH mode
                 server.agent_mode = "ssh"
                 server.agent_url = None
                 server.agent_api_key = None
+                if hasattr(server, 'agent_service_name'):
+                    server.agent_service_name = None
                 self.db.commit()
 
                 logger.info(f"✅ Agent uninstalled from {server.name}")
