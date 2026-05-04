@@ -4,6 +4,28 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.50 — 2026-05-05
+
+UI follow-up to v1.5.48's Migrate Clients action: the modal now lets you pick which clients to move, instead of only doing bulk all-or-nothing.
+
+### Added
+
+- **Client picker** inside the Migrate Clients modal: scrollable list with checkboxes, all checked by default. Uncheck any to do a canary move (e.g. 5 clients to validate the new server, then come back and move the rest).
+- **Filter box** (name / IPv4 / ID) for finding a specific client when the list is long.
+- **All / None** quick toggles next to the selection count, e.g. `Clients to migrate (5 / 47)`.
+- The Migrate button switches its label to **Migrate selected** when a subset is picked, and is disabled if zero clients are selected.
+
+### Behaviour
+
+- If every client stays checked, the API call is identical to the old bulk path — no regression for existing users.
+- If a subset is picked, the request includes `client_ids` and the backend's existing pre-flight (already there since v1.5.48) refuses the move cleanly with a structured error if any of the chosen clients would collide on the target server.
+
+### Translations
+
+`migrateClientsToPick`, `migrateSelectAll`, `migrateSelectNone`, `migrateLoadingClients`, `migrateNoClients`, `migrateFilterPlaceholder`, `migrateFilterNoMatch`, `migrateSubsetHint`, `migrateSelected` — EN / RU / DE / FR / ES.
+
+---
+
 ## v1.5.49 — 2026-05-04
 
 UI follow-up to v1.5.48's keypair-reuse workflow: the "Server private key" field is now reachable from the **Add Server** form, not just from the API.
