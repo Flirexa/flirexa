@@ -1,103 +1,596 @@
 # Changelog
 
-All notable changes to Flirexa are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project follows [Semantic Versioning](https://semver.org/).
+All notable changes to VPN Manager are documented here.
 
 ---
 
-## [1.5.49] — 2026-05-04
+## v1.5.49 — 2026-05-04
 
-Consolidates everything since the first public release. Major user-facing changes:
+UI follow-up to v1.5.48's keypair-reuse workflow: the "Server private key" field is now reachable from the **Add Server** form, not just from the API.
 
 ### Added
 
-- **Client portal redesign** — design-token system with light/dark themes (auto-picks system preference), traffic chart, sparklines, login redesign with branded background, mobile UX pass.
-- **"Replacing a broken server? Reuse its private key" toggle** in the Add Server form. Lets you stand up a new WireGuard box with the dead one's identity, so existing client configs keep working without re-issuing.
-- **Export keypair** action in the server menu (`Servers → ⋯`). Reveals the server's private key, public key, listen port, endpoint, and subnet — the seed for the reuse-key workflow above.
-- **Migrate clients** action in the server menu. Bulk-moves clients between servers in one transaction with IP-conflict pre-flight; supports selective migration via a `client_ids` list on the API.
-- **WireGuard private key field** is now exposed in the API for `POST /servers` (44-char base64), so a server's identity can be reused via API as well as UI.
-- **AmneziaWG** protocol fixes: was incorrectly gated behind a license check on FREE tier (regression in 1.4.x). Now works without activation, as designed.
-- Auto-update reliability: traffic-series API, multi-agent support, recovery after a partial apply.
+- **"Replacing a broken server? Reuse its private key" toggle** in the Add Server modal, directly under the SSH password input. Collapsed by default so the form stays simple for normal installs; clicking it expands a single 44-character WireGuard private-key field.
+- The hint inside the toggle links back to v1.5.48's `Servers → ⋯ → Export keypair`, so the operator can paste the dead box's key straight in.
+- Empty-input handling: if the field is left blank, the form drops it from the payload (the API requires exactly 44 chars when present, so an empty value would otherwise fail validation).
 
-### Changed
+### Translations
 
-- Updates pipeline hardened: better progress reporting, automatic rollback on failure, navbar badge polling.
-- Server form polish: auto-detected public IP pre-fills the endpoint when adding a local server.
-
-### Fixed
-
-- WireGuard interfaces no longer get nuked on upgrade.
-- Subscription expiry now suspends correctly across timezone boundaries.
-- Logging — `updates/*` and `license/*` modules switched to loguru for consistent output.
+`reuseKeyToggle`, `privateKeyLabel`, `privateKeyPlaceholder`, `privateKeyHint` localized in EN / RU / DE / FR / ES.
 
 ---
 
-## [1.5.0] — 2026-04-27 — First public open-core release 🎉
+## v1.5.48 — 2026-05-04
 
-This is the first release of Flirexa as an open-core project. Everything before 1.5.0 was a closed product; 1.5.0 is the cut where the codebase moved to a public MIT-licensed repository with paid plugins distributed separately.
-
-### Why this release matters
-
-The previous closed-source product had no public users — anonymous vendor + crypto-only payments + closed source = invisible product. Marzban, Hiddify, and 3X-UI (all open) demonstrated that operators in this niche pick open code. Flirexa is the rebuild on that foundation.
-
-The FREE tier in 1.5.0 is a **complete, useful product on its own**:
-
-- WireGuard + AmneziaWG protocol management
-- Up to 80 clients on 1 server
-- Web admin panel (Vue 3) on port 10086
-- Client portal with NOWPayments crypto integration on port 10090
-- Admin Telegram bot
-- 6 languages (EN, RU, UK, DE, FR, ES)
-- Manual backup / restore
-- Auto-updates from GitHub Releases
-- Generic plugin loader for license-gated premium features
-
-A small operator running a personal VPN service for friends or a small commercial deployment never has to talk to the license server.
+Operations toolkit for server-replacement scenarios. When a WireGuard box dies or has to be rebuilt, you can now keep customers' configs working without re-issuing them.
 
 ### Added
 
-- **`LicenseType.FREE`** — open-core tier with 80 client / 1 server limits, never expires, makes zero network calls. New `is_free()` / `is_paid()` helpers on `LicenseManager`. Empty `LICENSE_KEY` → FREE; invalid key → graceful fallback to FREE (rather than the previous "force-trial" behaviour).
-- **Generic plugin loader** (`src/modules/plugin_loader/`) with manifest validation, license-feature gating, and FastAPI router auto-mounting. Plugins live in `plugins/<name>/` with a `manifest.json` declaring `requires_license_feature`. The loader skips plugins on FREE installs without leaving traces.
-- **Reusable license-gate dependency** (`src.api.middleware.license_gate.require_license_feature`). Routes that paywall a feature use it as a FastAPI `Depends(...)` — fails-closed (503) if `LicenseManager` itself errors.
-- **Nine paid-plugin shells** declaring features: `extra-protocols`, `multi-server`, `corporate-vpn`, `client-tg-bot`, `traffic-rules`, `promo-codes`, `auto-backup`, `white-label-basic`, `manager-rbac`. Each carries a `manifest.json` and a status route under `/api/v1/plugins/<name>/status` for introspection.
-- **Per-protocol gating** in `POST /api/v1/servers` — Hysteria2/TUIC require the `proxy_protocols` feature; FREE rejects with `403` and a clear upgrade hint.
-- **Repository scaffolding for community contribution** — MIT `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, GitHub issue templates (`bug.yml`, `feature.yml`), PR template, CI workflow with pytest + `detect-secrets`, branch protection on `main`.
-- **Documentation rewrite** — all `docs/*.md` rewritten for the open-core era. New: `docs/free-vs-paid.md`, `docs/licensing.md`, `docs/plugins.md`.
-- **`ROADMAP.md`** — public 3-quarter forward plan.
+- **Export keypair button** in the server menu (`Servers → ⋯ → Export keypair`). Reveals the server's private key + public key + listen port + endpoint + subnet (and AmneziaWG obfuscation parameters when applicable). Use the private key as the seed for a new server's `Private key` field — the new box accepts every existing client config without re-issuing.
+- **Migrate clients** action in the server menu. Bulk-moves all clients (or a selected subset) from one server to another. Three operations in one transaction: re-points `server_id` in the database, removes peer entries from the old server's WireGuard, adds them to the new one. Idempotent and safe.
+- **Selective migration** via the API: `POST /api/v1/servers/{id}/migrate-clients` accepts a `client_ids` list for canary moves before a full bulk migration.
+- **Pre-flight IP conflict check** — if any moving client's IP is already taken on the target server, the API returns `HTTP 409` with a structured `conflicting_clients_on_target` payload, instead of crashing with `IntegrityError`. The replace-broken-box workflow (new server starts with 0 clients) is conflict-free by construction.
+- Audit log lines for both operations: `[AUDIT] server.keypair.reveal actor=…` and `[AUDIT] server.clients.migrate actor=… from=…(…) to=…(…) moved=… failed=…`.
 
-### Removed
+### Translations
 
-- **`src/modules/integrity/sentinel.py`** and its callers (`api/main.py` startup full check + per-request spot check, `license/manager.py` cross-check beacon, `license/online_validator.py` periodic check, `build_release.sh` integrity hash injection).
-  *Why?* The sentinel was an anti-piracy SHA-256 file beacon designed for the closed-source product. In open-source code anyone can recompute hashes and bypass the check, so it provided theatre rather than security. Removing it cuts ~200 lines of dead code and removes a hard dependency on the (now also removed) PyArmor obfuscation step.
-- **PyArmor obfuscation** from the build pipeline. Open-source code being obfuscated is a contradiction; the protection that mattered (paid plugin source) lives in the private `flirexa-pro` repo instead.
-- **License kill switch** for FREE installs. Previously the codebase could refuse to start if the license server didn't respond within 72 hours. FREE never contacts the license server now, so the failure mode is gone.
-- **`src/core/{hysteria2,tuic,proxy_base}.py`** real implementations (~1700 lines) — moved to the private `flirexa-pro/extra-protocols/` repo. The public repo keeps minimal stubs that preserve import paths and raise `NotImplementedError` with an upgrade hint when instantiated.
-- **`src/modules/corporate/`** real implementation — moved to `flirexa-pro/corporate-vpn/`. Same stub treatment.
-- **Stub payment providers** (`btc.py`, `usdt.py`, `ton.py`) that never actually worked. Real providers live in `plugins/payments/` and ship working: NOWPayments, CryptoPay, Stripe, Mollie, Razorpay, Payme.
-- **Vendor-only directories** from the public distribution: `license_server/` (vendor infrastructure), `landing/` (marketing site), `tools/make_demo_*` (vendor screen recorder), `deploy.sh` / `build_release.sh` / `package.sh` (vendor build scripts), all internal handoff docs (`PROD_SERVER.md`, `AI_ENTRYPOINT.md`, `ARCH_MAP.md`, `CHILD_NODES.md`, etc.). They live in the private repo and never get pushed to public.
-- **`NEW_MODULES_CLIENT_PORTAL/`** — stale February 2026 draft superseded by `src/modules/subscription/` and `src/web/client-portal/` long ago.
-- **`android-app/`** — abandoned WireGuard Android fork. Not part of the open-core product; if it returns it'll be a separate dedicated repo.
-- **`VPN Management Studio/`** docs directory — duplicate of older `docs/`, no longer kept in sync.
-
-### Changed
-
-- **License tiers reorganised** to match the published pricing. `STARTER` / `STANDARD` get 500 clients / 1 server with the protocol + portal features that operators of that scale need. `BUSINESS` / `PRO` get 2000 clients / 10 servers with multi-server, white-label, traffic rules, auto-backup. `ENTERPRISE` keeps unlimited and adds corporate VPN, full white-label, and manager RBAC.
-- **`derive_license_mode()`** now returns `"normal"` for FREE installs (previously could return `license_grace` / `license_expired_readonly` if a stale `LICENSE_KEY` env var triggered the online validator).
-- **`FailSafeManager.refresh()`** stops trying to validate licenses on FREE installs. The previous code did so via a broken function call (`get_license_manager(db)` with an unsupported argument) that silently always raised, so it was effectively dead — now it's intentionally a no-op for FREE and a real check for paid.
-- **All hardcoded production credentials removed** from defaults. Web panel admin credentials, deploy host, demo recorder login — all require explicit env vars now. RFC 5737 placeholder IPs (`203.0.113.x`) replaced previous hardcoded private IPs in tests.
-- All references to the previous personal-account docs repo updated to point at the new `Flirexa/` organisation in landing / install scripts.
+All new admin strings (`exportKeypair`, `migrateClients`, `keypairWarning`, `revealKeys`, `keypairUseHint`, `migrateNow`, `migrateSyncRemote`, `migrateRemoveOld`, etc. — 13 keys) localized in EN / RU / DE / FR / ES.
 
 ### Fixed
 
-- Generic plugin loader middleware path mismatches: `/api/v1/promo` → `/api/v1/promo-codes` (actual route prefix), feature `payments` → `promo_codes` (actual feature flag). The old wrong values were dead-coded gates that did nothing.
-- `/api/v1/bots` is no longer URL-prefix-gated by `telegram_admin_bot` — admin bot is a FREE feature; only client bot endpoints (`/bots/client/*`) are now per-route gated by `telegram_client_bot`.
-
-### Tests
-
-- 36 new unit + integration tests for FREE-tier behaviour, the plugin loader, and individual paid-plugin gating (`test_license_free_tier.py`, `test_free_mode_integration.py`, `test_plugin_loader.py`, `test_extra_protocols_plugin.py`, `test_multi_server_plugin.py`, `test_phase5_plugins.py`).
-- Total: 580 passing tests in the development tree, 570 in the published copy (10 paid-plugin tests moved to `flirexa-pro` alongside their implementations). 26 pre-existing failures in `test_payment_flow.py` documented; unchanged by this release.
+- **Hot-reload after admin "Save & Connect" for NOWPayments**: panel was instantiating the legacy `CryptoPaymentProvider` (without `verify_signature()`), so the next IPN crashed the webhook handler. Now uses the same `NOWPaymentsProvider` class as the boot path.
+- **Audit log %-formatting** — `loguru.logger.warning("…actor=%s", x)` printed literal `%s` placeholders. Switched to f-strings.
 
 ---
 
-## Pre-1.5.0
+## v1.5.42 — 2026-05-04
 
-Earlier internal versions (1.4.x and below) were the closed-source product. They are not included in this changelog because none of them shipped publicly.
+Comprehensive audit + hardening of the entire payment pipeline. Closes a row of silent vulnerabilities and makes "customer paid but subscription didn't activate" essentially impossible.
+
+### Security
+
+- **Signature verification for every webhook**, with no exceptions:
+  - NOWPayments: HMAC-SHA512 over sorted JSON (`x-nowpayments-sig`).
+  - Stripe: official `stripe.Webhook.construct_event(body, sig_header, secret)` with timestamp tolerance.
+  - Razorpay: HMAC-SHA256 over raw body (`X-Razorpay-Signature`).
+  - Payme: HTTP Basic auth with constant-time secret compare.
+  - CryptoPay: HMAC-SHA256, key = SHA256(api_token).
+  - PayPal: production verification via PayPal's `/v1/notifications/verify-webhook-signature` API.
+  - Mollie: validation by API call-back (per Mollie's design).
+- Bad signature now returns `HTTP 401 Webhook signature invalid`. Previously several providers accepted unsigned bodies and credited free subscriptions.
+- New PayPal **Webhook ID** field in `Settings → Payment Providers`. Without it, production PayPal webhooks couldn't be verified at all.
+
+### Reliability
+
+- **Dropped-webhook recovery poller**: every 60 seconds the monitoring loop walks pending payments older than 15 seconds and asks each provider's `check_payment()` directly. Self-heals lost or delayed webhooks. Idempotent (`SELECT … FOR UPDATE` plus a status re-check inside the row lock), so a delayed webhook arriving later cannot double-credit.
+- **Per-invoice `ipn_callback_url` for NOWPayments**: lets one API key serve multiple front-ends safely (e.g. license sales + customer VPN on different boxes).
+- Stuck-status handling: `partially_paid`, `expired`, `refunded` now explicitly mapped to `FAILED` instead of silently sitting in `PENDING` forever.
+
+### Admin UX
+
+- **`Test` button per provider** runs an offline self-check: provider loaded, API ping (where supported), valid signature accepted, forged signature rejected, order ID extracted from test payload. Inline green/red checklist under each card.
+- **Webhook URL surface** — every provider card now shows the exact URL to register on the provider's dashboard (auto-built from `CLIENT_PORTAL_DOMAIN`) plus a one-click Copy button and a hint listing the required events to subscribe to.
+- New `RAZORPAY_WEBHOOK_SECRET` field in admin (was previously settable via `.env` only).
+
+### Documentation
+
+- New `payment-setup.md` covering all 7 providers (NOWPayments, CryptoPay, PayPal, Stripe, Mollie, Razorpay, Payme) — required fields, dashboard URLs, sandbox vs production, troubleshooting.
+- New `webhook-security.md` — full pipeline diagram, signature schemes per provider, idempotency story, recovery loop.
+
+### Free-tier gating
+
+- The list of payment providers visible to customers is hard-filtered on the API: a free-tier instance shows **only NOWPayments**. Stripe / PayPal / Mollie / Razorpay / Payme / CryptoPay become visible only on paid licenses. Backend rejects forged provider IDs with `HTTP 403`.
+- The Billing page on free tier no longer shows a misleading "Add another method" button; instead an explicit upsell card with a link to the upgrade flow.
+
+---
+
+## v1.5.34 — 2026-05-04
+
+Complete redesign of the **Client Portal** — what your end-users see when they log in.
+
+### Added
+
+- **New design system** — indigo accent ramp, light + dark themes (saved per user, picked up from system preference on first visit), tokens for radius, density, typography. Inter Tight + JetBrains Mono webfonts.
+- **New shell**: 60 px header with brand logo, 5-item nav (Dashboard / Plans / Billing / Corp VPN / Support), theme toggle, notifications, language pill (EN/RU/DE/FR/ES), avatar, sign-out. Footer with auth-gated GitHub promo.
+- **Real traffic chart** on the dashboard, served by a new `GET /client-portal/dashboard/traffic-series?range=7d|14d|30d|all` endpoint that aggregates the existing `traffic_daily` snapshots. Dual area chart (download = accent, upload = info-cyan), trend % vs the previous period, summary number, segmented tabs.
+- **Sparklines** on stat cards: green decreasing line on "Days remaining" (synthesised client-side), indigo line on "Active devices" (real `active_devices_series` from the API).
+- **Connection status banner** with pulsing orb (success / warn / off), real device data only — server name, protocol, IPv4. No fabricated metrics.
+- **Working Billing page**: real provider list, mobile-friendly grid history, "Add another method" opens the same chooser used at signup. Empty state when no payment methods.
+- **Corporate VPN map** with relay topology, animated dashed peer links, per-site stats, network issues banner, full diagnostics.
+- **New Login + Register pages**: gradient + grid + radial blooms background, branded card with bundled `flirexa-logo.png`, password eye-toggle, remember-me check, theme toggle floating top-right, meta links below the card.
+- **Mobile UX**: burger drawer with scrim instead of bottom-bar, sticky header (worked around an iOS-Safari `overflow-x: hidden` quirk), 16-px input font on auth pages to prevent iOS focus-zoom, 4 → 2 → 1 grid breakpoints for stats, table → stacked card layout for payment history on phones.
+- Full localisation: EN / RU / DE / FR / ES.
+
+### Fixed
+
+- Sticky header was breaking on mobile because legacy `html { overflow-x: hidden }` and `body { overflow-x: hidden }` created a scrolling-context that ate `position: sticky`. Replaced with `overflow-x: clip` (modern browsers) — sticky restored.
+- Logout, notifications, language pill restored on the mobile header (the `≤860px` nav rule was hiding too much). Avatar dropped instead since it's decorative.
+- `TrafficChart` and `Sparkline` use only CSS variables — palette switches with theme without re-render.
+
+---
+
+## v1.5.10 — 2026-05-03
+
+Foundational pieces that the new client portal needed.
+
+### Added
+
+- New `traffic_daily` aggregation endpoint (`GET /client-portal/dashboard/traffic-series`) — returns per-day rx/tx aggregated across the user's clients, plus an `active_devices_series` (distinct clients with non-zero traffic per day) and a `summary` with totals + trend % vs previous period. Used by the new dashboard chart and sparklines.
+- Auto-apply updates feature: instances on the test or stable channel can opt in to automatically apply new versions via the monitoring loop. 24-hour cooldown after any failure. Toggle in `Settings → Updates`.
+- Multi-agent support — a single host can now run several VPN agent processes side-by-side (e.g. WireGuard + AmneziaWG on the same box), each on a unique systemd unit and HTTP port.
+- "Install AmneziaWG" button alongside "Install Proxy" on the server detail page, with auto-pick of free `awgN` interface name, listen port and `/24` address pool, plus a two-tier install path (official PPA first, fallback to our `flirexa.biz/mirror/amnezia/<series>/` mirror if the PPA is unreachable from the host).
+- Cancel button (AbortController) for long-running install flows — Install Proxy / Install AmneziaWG.
+
+### Fixed
+
+- Updates page: the "Update failed" flash that briefly appeared on every successful update — replaced the loose status filter with an explicit `ACTIVE_STATUSES` / `TERMINAL_STATUSES` allowlist, plus polling re-arms unconditionally on every loadStatus tick.
+- Updates page: "Current Version" pill stayed empty until the user clicked "Check for updates" — added unconditional `/updates/check` fallback on mount, retry-with-backoff (1 s → 2 s → 4 s → 8 s), periodic 60 s refresh, and `visibilitychange` re-fetch.
+- Updates page: "Update in progress" sometimes hung forever after the actual update finished — drain stuck progress whenever `loadStatus` reports no `active_update_id`.
+- ROLLBACK_REQUIRED stuck flag: if an earlier update transitioned to `ROLLBACK_REQUIRED` and a later update succeeded, the old flag was leaving the system in `update_in_progress` mode forever (and 423-blocking writes). Reconcile pass now auto-clears.
+- Subscription's `traffic_used_total_gb` was crashing with `TypeError: NoneType + NoneType` when `rx`/`tx` were nullable on the row. Made None-safe and added migration `029_backfill_subscription_traffic.py`.
+- AmneziaWG installs failed in several distinct ways across different environments. Reworked `agent_bootstrap.py`:
+  - Per-interface service name `vpnmanager-agent-{interface}.service`.
+  - Auto-pick free port 8001-8099 (scans listening ports + sibling agent unit ports).
+  - `bash -c '...'` wrapping so word-splitting works under zsh too.
+  - `Acquire::ForceIPv4=true` apt flags for hosts with broken IPv6.
+  - Three retries on `apt-get update` with 5 s backoff.
+  - Multi-firewall S7 step (ufw + iptables + nftables — important on hosts with default-deny chains).
+  - S4.6 step opens the WG/AWG listen UDP port in all three firewalls.
+  - External `/health` probe in S8 catches the firewall-blocked-but-running case.
+  - Uninstall accepts `service_name` + `interface_hint` so it removes the right unit + config.
+- Plus auto-pick free `/24` address pool when default `10.66.66/24` is taken on the remote (probes via `ip -o -4 addr` over SSH).
+
+---
+
+## v1.5.4 — 2026-05-02
+
+A short follow-up bundling Herbert-driven UX requests and one update-bookkeeping fix.
+
+### Added
+
+- **Logout button in the user menu.** Top-right user-circle icon opens a menu with a clear Logout action that clears tokens and returns you to `/login`. Localized in 5 languages.
+- **Calendar date picker for client expiry.** The Clients form now lets you pick an exact expiry date alongside the existing day-count buttons (7 / 30 / 90). Useful when you need to align expiry with a specific calendar date.
+- **IPv4-only toggle per VPN server.** New checkbox in the server create form: when enabled, generated client configs strip the IPv6 `Address` line. Useful where IPv6 isn't fully tunneled and could leak DNS, or where the upstream provider doesn't route IPv6.
+
+### Fixed
+
+- **Mobile: AmneziaWG client config no longer overlaps two QR codes.** On narrow screens the WireGuard QR and the AmneziaVPN share-link QR now stack instead of squeezing into the same row.
+- **Landing page mobile overflow.** The hero section's grid items lacked `min-width:0`, so the `nowrap` install command inside expanded the column past the viewport on small phones, pushing the hero off-screen until the "Why us" section. Fixed by setting `min-width:0` on grid/flex children that contain potentially long unbreakable text.
+- **No more spurious "business_mutation blocked in update_in_progress" errors.** If an earlier update transitioned to `ROLLBACK_REQUIRED` because the post-update health check timed out, and a later update then succeeded, the system was leaving the old `ROLLBACK_REQUIRED` flag behind. The operational-mode middleware kept treating the box as "update in progress" and 423-blocked every write — including creating new clients. The reconcile pass now auto-clears stale `ROLLBACK_REQUIRED` rows once a later `SUCCESS` row exists for the same instance.
+- **Update badge now flashes promptly without manual "Check for updates".** `_CACHE_TTL` reduced from 1 hour to 60 seconds so the navbar's per-minute poll actually picks up newly published manifests.
+- **Top-level `navbar.logout` translation key.** Was previously only defined inside `cp.nav.logout` (client portal namespace), so the admin Navbar showed the literal `navbar.logout` string. Added in en/ru/es/fr/de.
+
+---
+
+## v1.5.0 — 2026-05-01
+
+A UX milestone bundling everything from 1.4.96 → 1.5.0 stable:
+
+### Added
+
+- **Online / Offline filter for clients.** The status dropdown on the Clients page now has explicit Online and Offline options (handshake within last 3 minutes counts as online). Localized in 5 languages.
+
+### Fixed
+
+- **Update progress no longer shows a brief "✗ Update failed" before "✓ Update completed successfully".** The reconcile pass that runs at API startup used to prematurely flip the in-flight record to FAILED with `Server restarted during update — outcome unknown` if it ran before the detached `update_apply.sh` had time to write its `apply.exitcode`. With a 120-second grace window the record now stays APPLYING during the typical restart, and the panel renders a clean in-progress card all the way to success.
+- **Heartbeat / online-validator / auto-update-check / update-checker logs now actually show up in `journalctl`.** They were running correctly but their startup banners and runtime messages were silently dropped under uvicorn's logging override. Switched these modules to use `loguru` directly. Side benefit: the noisy "Loaded cached license status: ok" line is now DEBUG instead of INFO.
+- **Navbar's "update available" badge refreshes promptly.** Was polling every 30 minutes; now polls every 60 seconds, plus on tab focus, plus on every admin-panel route change. `/updates/status` is server-side cached so the cadence is cheap.
+
+### Changed
+
+- **License server stays dormant on un-activated FREE installs.** No heartbeat, no validation calls, no telemetry whatsoever — the entire license-server interaction surface is opt-in. Activation (via `install.sh` with a code, or Settings → License → Activate / Re-fetch) wakes everything up automatically on the next iteration.
+- **Admin-panel UI polished end-to-end.** The cheap inline emoji icons (💾 🤖 👥 ✓ ✗ 🔍 ⚠️ 🔄 ⭐ 🗑 ✏️ 🔒 🚀 ⚙️ 💎 🌐 …) across Updates, Servers, Clients, Settings, SystemHealth, Backup, Applications, SupportMessages, AppLogs, PortalUsers, Bots, ServerMonitoring, FeatureLockedCard, plus payment-provider cards in Settings — replaced with Material Design Icons rendered as `<i class="mdi mdi-…">` SVG, matching the sidebar style. HTML-entity icons (`&#x267E;`, `&#x23F8;`, `&#x25B6;`, …) cleaned up too.
+
+---
+
+## v1.4.95 — 2026-05-01
+
+### Fixed
+
+- **Heartbeat / license validator / auto-update-check loops now actually log to journalctl.** They were all running correctly under the hood, but their startup banners and runtime messages were silently dropped because the `logging` → `loguru` bridge gets overridden by uvicorn after API startup. Switched these modules to use `loguru` directly. You'll now see lines like `Auto update-check started (interval=21600s)`, `Instance heartbeat started (interval: 300s)`, and `Online license check via https://flirexa.biz: status=ok tier=enterprise` in `journalctl -u vpnmanager-api`.
+- **Reduced log noise.** "Loaded cached license status: ok" was emitting at INFO level on every status-collector tick (every panel poll). Demoted to DEBUG.
+
+---
+
+## v1.4.92 — 2026-05-01
+
+### Changed
+
+- **License server stays dormant on un-activated FREE installs.** The instance heartbeat now skips its iteration when `LICENSE_KEY` is empty — no calls to the license server, no telemetry of any kind for boxes that never went through activation. Pairs with the existing online-validator behavior, so the entire license-server interaction surface is now strictly opt-in. The validator + heartbeat wake up automatically the moment an activation code is entered (via `install.sh` or Settings → License).
+
+### Why
+
+Previous behavior was "validator + heartbeat always run, but skip if no key". That still leaked a `LICENSE_KEY=""`-flagged heartbeat on every interval. Now the heartbeat doesn't fire at all unless there's a key to send. FREE-tier installs are now genuinely silent.
+
+---
+
+## v1.4.91 — 2026-05-01
+
+### Added
+
+- **Auto-poll for new versions in the background.** A periodic check (default every 6 hours, controlled by `UPDATE_CHECK_INTERVAL`) refreshes the manifest cache. The admin panel's navbar now shows a small package-up icon with a red dot when a newer version is available — click it to jump to Updates. No auto-apply: you stay in control of when to install.
+- **`publish_update.py --to-both` flag** for vendors operating primary + backup license servers. One command publishes / promotes / lists / deletes across both, surfacing per-server failures at the end without aborting halfway. Defaults: `flirexa.biz` (primary) + `global-connection.site` (backup).
+
+### Fixed
+
+- **VPN interfaces no longer dropped during update.** `update_apply.sh` now snapshots active `wg` and `awg` interfaces before stopping services and restores any that didn't come back up. Previously, manually-started or orphan interfaces (e.g. an `awg-quick@awg1` that was never `systemctl enabled`) could disappear after a service restart cycle. Real customers' connections survive untouched now.
+- **`vpnmanager license status` now reads the right `.env`.** In release-layout installs (`/opt/vpnmanager/releases/<ver>/`) the CLI was looking for `.env` next to the source, but the persistent `.env` lives at the install root one level up. Symptom: CLI reported `not_activated` while the API correctly showed an active enterprise license. CLI now walks up the directory tree to find `.env`.
+
+---
+
+## v1.4.89-1.4.90 — 2026-05-01
+
+### Added
+
+- **"Re-fetch License" button in Settings → License.** Pairs with the activation replay endpoint (1.4.88). If your license key was lost during the original activation (network blip, lost terminal, parsing error) you can now re-enter your activation code from the panel and recover the same key. Hardware-bound — only works from the original install. No support ticket needed.
+- **Translations** for the Re-fetch UI in English, Russian, Spanish, French, German.
+
+---
+
+## v1.4.88 — 2026-05-01
+
+### Added
+
+- **Activation replay endpoint** (`POST /api/activate/replay`) on the license server. Re-issues the original signed license payload (same plan, expiry, hardware binding) with a fresh signature, for the recovery case where `/api/activate` succeeded but the key didn't land in `.env`. Per-code rate limit: 3 attempts per 24 hours. Hardware mismatch returns 403.
+
+### Fixed
+
+- **`install.sh` activation prompt now works under `curl … | bash`.** The headline install command (`curl -fsSL https://flirexa.biz/install.sh | bash`) silently skipped the prompt because bash's stdin was the curl pipe. Paid customers couldn't enter their activation code that way unless they pre-set `SB_ACTIVATION_CODE`. The prompt now reads from `/dev/tty` explicitly. Empty input, `n`, `no`, `free`, or `skip` selects FREE; anything else is treated as an activation code.
+
+---
+
+## v1.4.87 — 2026-04-30
+
+### Fixed
+
+- **`vpnmanager` CLI wrapper finds the venv in release-layout installs.** After resolving the symlink chain to `/opt/vpnmanager/releases/<ver>/vpnmanager`, the wrapper expected `venv/` next to the script, but venv lives at `/opt/vpnmanager/venv` (parallel to `releases/`). Falling back to system `python3` produced `ModuleNotFoundError: No module named 'dotenv'`. The wrapper now walks up from script dir up to 3 levels looking for `venv/bin/python3`.
+
+---
+
+## v1.4.86 — 2026-04-30
+
+### Fixed
+
+- **Bot services stop looping when the token is missing or `*_BOT_ENABLED=false`.** Previously, `vpnmanager-admin-bot` and `vpnmanager-client-bot` would crash-loop several hundred times per hour — admin-bot exited with status=1 on missing token, client-bot exited cleanly but the unit had `Restart=always` so systemd restarted it anyway. The bots now `sys.exit(0)` cleanly on missing/disabled config, and the units use `Restart=on-failure` — no restart cycle, no CPU waste, no journal spam.
+
+---
+
+## v1.4.85 — 2026-04-30
+
+### Added
+
+- **Dual-format QR code for AmneziaWG clients.** The client view now shows two QRs side by side: a plain `.conf` for the AmneziaWG simple app, and a `vpn://` share URL for the AmneziaVPN mobile app. Same peer, different formats — pick whichever matches your client.
+- **Trial vs paid grace period.** Short licenses (≤14 days, e.g. trials) now have no grace period — when they expire, the system goes degraded immediately. Paid licenses keep the standard 72-hour grace window for offline clock skew.
+
+### Fixed
+
+- **License server URL defaults to `https://flirexa.biz`** in fresh builds (was `example.com` placeholder). Operators running self-hosted license servers still override via `.env`.
+
+---
+
+## v1.4.70 — 2026-04-29
+
+### Fixed
+
+- **AmneziaWG server wouldn't start ("Failed to start server" / 500)** — four stacked issues, all hit on a fresh FREE install once you actually try to bring an AmneziaWG interface up alongside the auto-provisioned WireGuard:
+  1. **Wrong config path.** apt-installed `awg-quick` from `ppa:amnezia/ppa` looks for the config at `/etc/amnezia/amneziawg/<iface>.conf` (note the extra `amnezia/` segment), not `/etc/amneziawg/<iface>.conf`. The codebase wrote everywhere to the latter so awg-quick reported "config does not exist". Replaced `/etc/amneziawg` → `/etc/amnezia/amneziawg` across `servers.py`, `server_manager.py`, `agent_bootstrap.py`, `backup_manager.py`, and the `AmneziaWGManager` constructor default.
+  2. **Config file was never written.** `start_server()` called `wg.start_interface()` directly without writing the config to disk. WireGuard got away with it because `install.sh` writes `/etc/wireguard/wg0.conf` eagerly, but the user-created AmneziaWG only had a DB record. `start_server()` now calls `save_server_config()` first; cheap, idempotent, and picks up new peers since last start.
+  3. **Parent dir missing.** `write_config_file()` opened the file directly, which fails on a fresh install where `/etc/amnezia/amneziawg/` doesn't exist yet. Added an `os.makedirs(parent, exist_ok=True)` before write.
+  4. **PostUp/PostDown was malformed for dual-stack address.** AmneziaWG's `generate_server_config()` derived the IPv4 subnet by splitting the full address on `/`, but the address comes in as `10.66.66.1/24,fd42:42:42::1/64` (combined IPv4+IPv6). The naive split produced `10.66.66.1/24,fd42:42:42:.0/64`, which both `iptables` and `ip route` rejected, so `awg-quick` rolled back the interface. Now we extract the IPv4 half before parsing.
+  5. **Port collision.** AmneziaWG defaulted to listen_port 51820 — same as the auto-provisioned WireGuard — so the kernel rejected the second bind with `RTNETLINK answers: Address already in use`. Local server creation now scans existing ports and walks up from the requested one until it finds a free slot. The drift is logged.
+
+End-to-end verified on a clean VM: install → activate FREE → keep auto-WireGuard → create AmneziaWG → click Start → `awg show` lists the interface with all obfuscation parameters and traffic flows.
+
+### Earlier 1.4.68 / 1.4.69 commits land in this release together; bumping straight to 1.4.70 since none of the intermediates were promoted to stable individually.
+
+---
+
+## v1.4.67 — 2026-04-29
+
+### Fixed
+
+- **Update + license server URL defaults pointed at `https://example.com`.** Fresh installs that didn't explicitly set `UPDATE_SERVER_URL` / `LICENSE_SERVER_URL` in `.env` got `404 No manifest found for channel 'stable'` on update checks and trial registration silently failed. Default to `https://flirexa.biz` (operators running their own license server still override via `.env`).
+
+---
+
+## v1.4.66 — 2026-04-29
+
+### Changed
+
+- **FREE tier server limit is now per-protocol, not total.** Previously the cap was "one server" — with the auto-provisioned WireGuard taking that slot, FREE users couldn't add AmneziaWG without first deleting their working WireGuard. The intent has always been *both* protocols on FREE (DPI-resistance is core value), so the cap moves to "one of each protocol type":
+  - FREE: up to 1 WireGuard + 1 AmneziaWG = 2 servers total.
+  - Starter (`$19/mo`): adds Hysteria2 + TUIC = up to 4 servers (one of each).
+  - Business+ keeps the existing `multi_server` feature, which lifts the cap fully (10 / unlimited).
+- Server-create endpoint now counts servers of the same `server_type` instead of all servers. The pg advisory lock is preserved so concurrent requests can't both win.
+- License-server `plans` table: `standard.max_servers` 1 → 2.
+- Local `LICENSE_TIERS` fallback: `FREE` 1 → 2, `STANDARD` 1 → 4.
+
+---
+
+## v1.4.65 — 2026-04-29
+
+### Fixed
+
+- **Fresh installs were missing AmneziaWG userspace tools.** 1.4.64 unblocked AmneziaWG creation at the license layer, but `install.sh` only ever installed `wireguard-tools` — so on a fresh VPS, creating an AmneziaWG server failed with a `500 Internal Server Error` (`FileNotFoundError: 'awg'`). Existing installs that had been hand-configured (e.g. the maintainer's own production box) worked fine, which masked the bug for everyone but new users.
+- Installer now adds the `amnezia/ppa` apt repository and installs `amneziawg`, `amneziawg-tools`, and `amneziawg-dkms` (with the running kernel headers) right after the core package step. The whole AmneziaWG block is best-effort — if the DKMS module fails to compile on a stripped VPS image with no headers, the install still completes and the panel still works in WireGuard-only mode, with a clear log warning.
+- Runtime: `core/amneziawg.py` wraps the `awg` subprocess calls; a missing binary now raises a `RuntimeError` carrying the exact apt command to fix it, and the create-server endpoint surfaces that as `400 Bad Request` instead of leaking a generic 500.
+
+---
+
+## v1.4.64 — 2026-04-29
+
+### Fixed
+
+- **AmneziaWG was incorrectly gated as a paid feature.** The server-create endpoint mapped `amneziawg` → license-feature `amneziawg`, which doesn't exist on FREE-tier signed licenses, so any FREE user trying to provision an AmneziaWG server got `403 "AMNEZIAWG protocol requires the 'amneziawg' feature. Upgrade your plan to enable it."` This contradicts both the README and `docs/free-vs-paid.md`, which list AmneziaWG as a core FREE feature — it's the DPI-resistant protocol that makes the product useful on hostile networks.
+  - Real impact for FREE users: a fresh install auto-provisions a WireGuard server. Anyone who wanted AmneziaWG instead had to delete the auto-server and create a new one — and the second create was blocked. They were stuck on WireGuard. Now AmneziaWG creation just works.
+  - Hysteria2 / TUIC still require the `proxy_protocols` feature (Starter+), unchanged.
+- **License-server plans seed**: added `amneziawg` to the standard / pro plan feature lists too, so future-issued paid licenses also include it (was previously absent — paid users were *also* affected, just less visibly because they could pay their way to enterprise which already had it).
+
+---
+
+## v1.4.63 — 2026-04-28
+
+### Security / Fixed
+
+- **License feature gate for traffic-rules was a no-op on FREE installs.** The middleware checked `/api/v1/traffic-rules` but the router is registered at `/api/v1/traffic`, so the `startswith` match never fired and FREE-tier users could call `GET /api/v1/traffic/top`, `/api/v1/traffic/rules`, `/api/v1/traffic/clients` without paying. POST/PUT had inline checks, but DELETE was also open. Confirmed on a FREE VM (license features = wireguard/client_portal/telegram_bots only) — all three endpoints returned 200 before, 403 after. The two prefixes (router and middleware) must match exactly; we added a comment so it doesn't drift again.
+- **`LICENSE_CHECK_ENABLED=false` used to silently short-circuit the entire license middleware** — no log, no warning. A typo or a leaked .env could disable activation, expiry, online-validation, *and* feature gating without any signal. Now logs `EVENT:LICENSE_BYPASS` (rate-limited to once per 5 minutes per process) every time the bypass is hit, with an explicit "fix the env file IMMEDIATELY" hint for production.
+
+### Fixed
+
+- **`update_apply.sh` left `$INSTALL_DIR/VERSION` stale in release-layout mode.** Only `$CURRENT_LINK/VERSION` moved when the symlink switched. External monitoring / scripts that read `/opt/vpnmanager/VERSION` (or `/opt/spongebot/VERSION`) saw the previous version forever after the upgrade. Now we write `$TARGET_VERSION` to the install-root file too. Existing installs catch up on the next upgrade.
+
+### Public mirror (`Flirexa/flirexa`) cleanup
+
+- CI workflow was failing on every push: pytest job didn't install runtime requirements (psutil / python-dotenv / aiocryptopay → `ModuleNotFoundError`) and secrets-scan used an invalid `--base-path` flag. Both fixed; CI green again.
+- Replaced remaining `spongebot` / `VPN Management Studio` strings with `Flirexa` in the public mirror: `alembic/env.py` default DSN, `.env.example` header, `backup_manager.py` docstring + version stamp.
+
+---
+
+## v1.4.62 — 2026-04-28
+
+### Fixed
+- **Plugin URLs returned 404** — generic plugin loader ran in lifespan, which appended plugin routers to `app.routes` *after* the SPA catch-all `GET /{full_path:path}` registered in `create_app()`. FastAPI matches routes in order, so the catch-all swallowed every plugin URL with 404. Loader now runs in `create_app()` right before the SPA mount, so plugin routes win the match. End-to-end verified on a fresh VM install with the `monthly-revenue` demo plugin: install-by-URL → restart → `GET /api/v1/plugins/monthly-revenue/current` returns 200.
+- **Loader did not honor `community` feature flag** — manifests declaring `requires_license_feature: "community"` were skipped on FREE installs because the loader required *every* declared feature to be granted by the license. The reserved name `community` is now treated as always-granted, matching what the docs already describe and letting third-party community plugins load on every tier.
+- **`curl https://flirexa.biz/install.sh | sudo bash` aborted on non-TTY shells** — the installer started with a bare `clear` under `set -e`, which exits non-zero when `TERM` is unset/unknown (common when piping through SSH or CI). Made `clear` best-effort (`clear 2>/dev/null || true`) so the banner step never kills the install.
+
+---
+
+## v1.4.61 — 2026-04-28
+
+### Added
+- **Plugin marketplace (variant 1) — install-by-URL** in admin panel. New endpoints: `GET /api/v1/plugins/installed`, `POST /api/v1/plugins/install` (URL + SHA-256), `DELETE /api/v1/plugins/{name}`. Tarball must contain a single top-level dir matching `manifest.json.name`; max 25 MB; SHA-256 verified before extraction. Restart required to pick up newly-installed routes. Vue admin page lists installed plugins (core vs user-installed) and provides the install / uninstall UI.
+
+### Changed
+- **Donate button** moved to leftmost slot of the right-side toolbar group, redesigned as a text+heart pill instead of an icon-only button.
+- **Docs**: removed Russia-specific brand examples (Yandex etc.) from `free-vs-paid.md` and adjacent pages; replaced with international equivalents.
+
+---
+
+## v1.4.60 — 2026-04-27
+
+### Added
+- **Donate button + reminder modal in admin panel** — heart-icon button always visible in topbar; opens a modal with a "Support on GitHub" CTA linking to the project's crypto donation addresses (BTC / ETH / USDT TRC-20 / USDT ERC-20). The modal auto-shows on first install, then re-shows only after a 7-day cooldown after the user dismisses it. The free tier stays free; donations fund the work, they do not unlock features. Localised across EN / RU / DE / FR / ES.
+
+### Changed
+- **Starter tier client cap 500 → 300** in the offline LICENSE_TIERS fallback. Aligns with the new pricing copy on flirexa.biz. Existing customers are unaffected — the cap they get is whatever was in their signed payload, refreshed via /api/validate.
+
+### Notes
+- v1.4.59 was published to the test channel, then superseded by v1.4.60 (same changes, plus a contrast fix for the donate modal text). Only v1.4.60 reached stable.
+
+---
+
+
+## v1.4.43 — 2026-04-17
+
+### Added
+- **NOWPayments purchase flow** — full end-to-end payment pipeline: invoice creation, IPN webhook processing, activation code generation, signed download token delivery
+- **Post-payment thank-you modal** on landing — auto-detects `?NP_id=` redirect from NOWPayments, polls purchase API, displays activation code (with copy button) and one-time download link
+- **Email collection in payment modal** — buyer enters email before redirect to NOWPayments; email stored server-side and resolved by webhook when IPN arrives (no dependency on NOWPayments email collection)
+- **Buyer email delivery** — HTML email with activation code, green "Download" button (signed URL, 72h TTL, 5 download attempts), and step-by-step install instructions
+- **Vendor sale notification** — always fires on successful payment (independent of buyer email), includes plan, amount, code, NOWPayments ID, and download URL
+- **Download token system** — `download_tokens` DB table with signed URL-safe tokens, expiry, use limit, IP tracking; `GET /download/{token}` serves package with counter enforcement
+- **Invoice creation proxy** — `POST /api/create-invoice` creates NOWPayments invoice server-side with canonical pricing (prevents client-side price tampering), stores buyer email in `buyer_emails.json`
+- **Auto-cleanup of unpaid buyer emails** — entries without payment are automatically purged after 7 days; paid entries marked `paid: true` and kept permanently
+- **Multi-currency payment support** — landing page payment modal with 11+ cryptocurrency options (BTC, ETH, USDT-TRC20/ERC20, USDC, LTC, XMR, TON, SOL, BNB, TRX)
+- Landing: 6 languages for all new payment/thank-you UI strings (EN, RU, UK, DE, FR, ES)
+
+### Fixed
+- **QR code crash on Cyrillic client names** — `_safe_filename()` used `\w` which matches Unicode; replaced with explicit `[a-zA-Z0-9_\-.]` to ensure ASCII-only Content-Disposition headers
+- **Vendor notification not firing** — was nested inside `_send_license_email()` which was skipped when buyer email was empty; split into independent `_send_vendor_notification()`
+
+### Changed
+- Landing: pricing buttons changed from direct NOWPayments links to dynamic invoice creation via server-side proxy
+- Landing: payment modal now collects email, shows loading spinner during invoice creation, validates email format client-side
+- License server: refactored SMTP into reusable `_send_mail()` helper; vendor and buyer emails use separate functions
+- License server: migrated to flirexa.biz as primary host
+
+---
+
+## v1.4.42 — 2026-04-12
+
+### Added
+- **Server display names** — admins can rename servers so clients see friendly names instead of real IPs in the client portal
+- **Sortable columns** in Clients table — click any header (name, server, IP, status, traffic, bandwidth, expiry) to sort asc/desc with arrow indicator
+- **System Health mode indicator** — banner shows "7/7 OK (Quick)" vs "10/10 OK (Full)" with clickable hint to switch modes
+- **Concurrent instance detection** — real-time clone detection within 10-minute window (no IP requirement — catches clones behind same NAT)
+- **Clone rejection at validation** — `/api/validate` blocks concurrent instances immediately instead of waiting 7 days
+- **Hardware fingerprint hardening** — added DMI UUID, disk serial, RAM size to hardware binding (7 entropy sources total)
+- `INTERNAL_LICENSE_MODE` now requires `.dev-mode` marker file (not just env var)
+- `install.sh`: license server URL configurable via `SB_LICENSE_SERVER_URL` env var
+- `install.sh`: improved network interface detection with multiple fallback methods
+
+### Fixed
+- **Backup page white screen** — `$t()` used in `<script setup>` without `useI18n()` import, causing ReferenceError crash
+- **Settings page crash** — missing i18n keys (`systemTools`, `limitCheck`, etc.) caused partial render failure
+- **Proxy client creation failure** — `CreateClientResponse.ipv4` was non-Optional, proxy clients with `ipv4=None` crashed Pydantic validation
+- **Proxy config rollback** — `_apply_proxy_config()` result was silently ignored; client saved to DB even when SSH config application failed
+- **Unicode crash on QR/config download** — Cyrillic client names caused `UnicodeEncodeError` in Content-Disposition headers
+- **Hysteria2/TUIC configs use domain** — client configs now use domain as connection host when TLS cert exists (not IP), fixing TLS handshake failures
+- **License server `/panel/api/sales`** — `NameError: PRICES` undefined variable fixed
+- **`portalUsers.never`** i18n key added — was showing raw key string instead of "Никогда"
+- `datetime.utcnow()` deprecated calls replaced with `datetime.now(timezone.utc)`
+- Rate limit cleanup threshold lowered from 10000 to 1000 IPs
+- Bare `except Exception` narrowed to specific types in `_deserialize_permissions()`
+- Cross-worker proxy config lock via `pg_advisory_xact_lock`
+
+### Changed
+- **Client Portal Dashboard** — UI polish: hero KPI card, subscription details in 2 groups, device list restructured, referral inline copy, mobile responsive
+- **Server Monitoring** — complete visual overhaul: 3-level hierarchy (name+status → message → metrics), prominent colored status badges, metrics in CSS grid, actions as fixed-size buttons
+- **System Health** — compact banner, quiet status badges when healthy, metrics as plain text (not pills), progress bars thicker (6px)
+- **Portal Users table** — zebra rows, username/email hierarchy, tier color badges, filters unified bar with search icon, "Never" for empty last login
+- **Subscriptions table** — tier color badges (not red `<code>`), ∞→"Unlim." text, delete button hidden until hover, modal restructured into 5 grouped sections
+- **Settings page** — 12 new i18n keys, ~25 hardcoded strings replaced with `$t()`, branding section fully localized
+- **Admin panel** — complete i18n for Settings, missing keys added to all 5 locales (en/ru/de/es/fr)
+- Removed 109 unnecessary `|| 'fallback'` i18n patterns from client portal
+- Removed "spongebot" from client-facing error messages
+- License server web panel: dynamic tier filters, license count indicator
+
+---
+
+## v1.4.11 — 2026-04-07
+
+### Added
+- `hostname` and `version` fields in every JSON log entry — makes multi-instance log aggregation and version-correlated debugging straightforward
+- `GET /api/v1/system/app-logs/errors` — dedicated errors-only endpoint (shortcut for `?errors_only=true`)
+- `errors_only` query parameter on `GET /api/v1/system/app-logs`
+- **App Logs** admin UI page (`/app-logs`): component tabs (API / Worker / Agent), All / Errors filter, table with time / level / req\_id / method / path / status / ms / message columns, click-to-expand error rows
+- `systemApi.getAppLogs()` and `getAppLogsErrors()` added to frontend API client
+- Operational event markers for grep-friendly monitoring: `EVENT:API_START/STOP`, `EVENT:WORKER_START/STOP`, `EVENT:BOOTSTRAP_SUCCESS/FAILURE`, `EVENT:UPDATE_START/SUCCESS/FAILURE`, `EVENT:ROLLBACK_START/SUCCESS/FAILURE`, `EVENT:BACKUP_SUCCESS`, `EVENT:RESTORE_SUCCESS/PARTIAL`, `EVENT:LICENSE_BLOCKED`, `EVENT:AGENT_HEALTH_FAILURE`
+- `RequestLoggerMiddleware` — single access log entry per request with method / path / status_code / duration_ms bound into loguru context so all log lines for a request share the same fields
+- 26 automated tests: request_id propagation, JSON structure validity, hostname/version fields, truncation, empty/broken log file, errors_only filter, secrets protection
+
+### Changed
+- `X-Request-ID` header now generated by dedicated middleware (replaces inline lambda); custom header value from caller is honoured and echoed back
+- `nav.logs` label changed to "Audit Logs" to distinguish from the new App Logs page
+
+---
+
+## v1.4.6 — 2026-04-05
+
+### Added
+- Structured JSON logging across API, worker and agent components: every log line is a JSON object with `timestamp`, `level`, `component`, `message`
+- `request_id` propagation — `X-Request-ID` header is assigned per request and bound into every log entry produced during that request via loguru `contextualize()`
+- HTTP access log fields in each entry: `method`, `path`, `status_code`, `duration_ms`
+- Log size protection: message body capped at 10 KB, error strings capped at 2 KB (both truncated with `[truncated]` marker)
+- `GET /api/v1/system/app-logs?component=api|worker|agent&lines=N&errors_only=bool` — tail of structured application logs
+- `GET /api/v1/system/app-logs/errors?component=...&lines=N` — errors-only shortcut
+- Operational event markers (`EVENT:*`) in log messages for grep-friendly monitoring: `EVENT:API_START`, `EVENT:API_STOP`, `EVENT:WORKER_START`, `EVENT:WORKER_STOP`, `EVENT:BOOTSTRAP_SUCCESS`, `EVENT:BOOTSTRAP_FAILURE`, `EVENT:UPDATE_START`, `EVENT:UPDATE_SUCCESS`, `EVENT:UPDATE_FAILURE`, `EVENT:ROLLBACK_START`, `EVENT:ROLLBACK_SUCCESS`, `EVENT:ROLLBACK_FAILURE`, `EVENT:BACKUP_SUCCESS`, `EVENT:RESTORE_SUCCESS`, `EVENT:RESTORE_PARTIAL`, `EVENT:AGENT_HEALTH_FAILURE`, `EVENT:LICENSE_BLOCKED`
+- **App Logs** page in admin panel (`/app-logs`) — component tabs (API / Worker / Agent), All / Errors filter, table with all JSON fields, expandable error rows
+- 26 automated tests covering request_id propagation, log endpoints, JSON structure, truncation, secrets protection
+
+### Changed
+- Logrotate config at `/etc/logrotate.d/vpnmanager` — daily rotation, 30-day retention, `copytruncate` (no process restart needed)
+
+---
+
+## v1.2.72 — 2026-03-26
+
+### Added
+- Business invariant validator: 7 automated checks run every 30 minutes — detects expired clients with active access, completed payments without subscriptions, proxy clients with fake bandwidth limits, and more; auto-fixes violations
+- Self-healing state reconciler: ghost peer detection — if a client is disabled in DB but the WireGuard peer still exists on the server, it is automatically removed (access leak prevention)
+- Payment pipeline tracing: every payment now has a `trace_id` and a `pipeline_log` recording each step (create → webhook → activate → sync_wg); inconsistent payments are flagged for admin review
+- Fail-safe mode: when the system detects critical conditions (invalid license, all WG servers unreachable), new payments are blocked with a clear error message instead of creating broken state
+- Worker heartbeat: background worker writes a heartbeat to DB every cycle; health endpoint detects stale/dead worker
+- `GET /api/v1/health/full` — comprehensive real-state health check: database, WG servers, license, worker, business invariants → returns OK / DEGRADED / FAIL with problem list
+- `GET /api/v1/system/metrics` — operational counters: active clients, expired+enabled (critical flag), payment stats, subscription counts, server drift count
+- `GET/POST /api/v1/system/failsafe` — view and manually control fail-safe mode
+- Daily health report at 08:00 UTC via Telegram admin notification
+
+### Fixed
+- Silent failures in payment and subscription pipeline replaced with structured logging (trace_id, user_id, step name)
+- `state_reconciler`: previously only re-added missing peers; now also removes peers that are disabled in DB but still live on the WireGuard interface
+
+### Changed
+- `client_portal_payments` table: added `trace_id`, `pipeline_log`, `pipeline_status` columns (migration 016)
+
+---
+
+## v1.2.71 — 2026-03-25
+
+### Fixed
+- Proxy clients: traffic and bandwidth columns in Clients table now show `—` instead of fake values
+- TC bandwidth limits now enforced immediately after subscription change (not only at next worker cycle)
+- `_sync_wg_after_payment` fallback when admin API is not configured — now applies limits directly via DB
+- `check_expired_clients`: added SELECT FOR UPDATE (skip locked) to prevent duplicate processing under concurrent worker runs
+- Client disabling: DB always updated even if WireGuard peer removal fails
+- Duplicate pending payments: old pending payments for the same user/tier are cancelled before creating a new one
+- Thread-safe traffic cache reads and writes via `_TRAFFIC_CACHE_LOCK`
+- Per-client try/except in `_disable_user_clients` — one failed client no longer blocks the rest
+- `is_proxy_client` criterion strengthened: based solely on `public_key is None`
+
+---
+
+## v1.2.46 — 2026-03-24
+
+### Fixed
+- White screen when clicking WebAccess radio buttons in Settings — caused by unescaped `@` symbols in vue-i18n locale strings (`admin@example.com`, `@CryptoTestnetBot`) triggering "Invalid linked format" compile error at runtime
+
+---
+
+## v1.2.37 — 2026-03-20
+
+### Fixed
+- Missing i18n translation keys for navigation, dashboard charts, server bandwidth, and settings across all 5 locales (EN/RU/DE/ES/FR)
+
+---
+
+## v1.2.36 — 2026-03-20
+
+### Added
+- Corporate VPN module: site-to-site WireGuard mesh networks with visual topology map
+- Relay/gateway node support for NAT traversal between offices
+- Per-peer diagnostics and connection status in corporate networks
+- System health monitoring dashboard (10 components: DB, API, worker, license server, WG, bots, payments, disk/mem/cpu)
+- Server drift detection: auto-reconcile of DB state vs live WireGuard interface
+
+### Improved
+- AmneziaWG full support with obfuscation parameters (Jc/Jmin/Jmax/S1/S2/H1-H4)
+- Vuexy UI design system across admin panel and client portal
+- Payment module hardening: SELECT FOR UPDATE, atomic promo usage, IPN secret enforcement
+- Multi-language support: 6 languages (EN, RU, UK, DE, FR, ES)
+
+---
+
+## v1.2.35 — 2026-03-10
+
+### Added
+- White-label branding: name, logo, colors configurable from admin panel
+- Update mechanism with rollback support
+- Backup and restore: scheduled database + config backups
+
+### Fixed
+- License validation grace period (72h offline tolerance)
+- Client portal dashboard layout fixes
+
+---
+
+## v1.2.0 — 2026-02-15
+
+### Added
+- Plan-based licensing model (Standard / Pro / Enterprise)
+- RSA-signed license keys with hardware binding
+- Online license validator with heartbeat
+- Client portal: user self-registration, subscription plans, crypto payments
+- Telegram client bot for end-user self-service
+
+---
+
+## v1.1.0 — 2026-01-20
+
+### Added
+- Multi-server management via SSH and lightweight HTTP agent
+- Per-client traffic counters and bandwidth limits (`tc`-based shaping)
+- Promo codes, referral system, revenue analytics
+- CryptoPay (NOWPayments) payment integration
+
+---
+
+## v1.0.0 — 2025-12-01
+
+### Initial release
+- Web admin panel (Vue 3 + Bootstrap 5)
+- WireGuard server management
+- Client CRUD with QR code and config export
+- Telegram admin bot
+- PostgreSQL backend with Alembic migrations
+- Automated install script for Ubuntu/Debian
