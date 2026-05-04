@@ -3,29 +3,31 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 /* ── Tokens ─────────────────────────────────────────────── */
+/* Remapped to align with new Flirexa indigo design system.
+   Old --vxy-* vars stay so legacy components keep working. */
 :root {
-  --vxy-primary:       #7367F0;
-  --vxy-primary-dark:  #5e50ee;
-  --vxy-primary-light: rgba(115,103,240,.12);
-  --vxy-success:       #28C76F;
-  --vxy-success-light: rgba(40,199,111,.12);
-  --vxy-danger:        #EA5455;
-  --vxy-danger-light:  rgba(234,84,85,.12);
-  --vxy-warning:       #FF9F43;
-  --vxy-warning-light: rgba(255,159,67,.12);
-  --vxy-info:          #00CFE8;
-  --vxy-info-light:    rgba(0,207,232,.12);
+  --vxy-primary:       #4451f0;
+  --vxy-primary-dark:  #3640c8;
+  --vxy-primary-light: rgba(68,81,240,.12);
+  --vxy-success:       #10b981;
+  --vxy-success-light: rgba(16,185,129,.14);
+  --vxy-danger:        #ef4444;
+  --vxy-danger-light:  rgba(239,68,68,.14);
+  --vxy-warning:       #f59e0b;
+  --vxy-warning-light: rgba(245,158,11,.14);
+  --vxy-info:          #06b6d4;
+  --vxy-info-light:    rgba(6,182,212,.14);
 
-  --vxy-body-bg:   #F8F7FA;
+  --vxy-body-bg:   #f6f7fb;
   --vxy-card-bg:   #ffffff;
-  --vxy-header-bg: #2C3152;
-  --vxy-card-shadow: 0 4px 24px 0 rgba(34,41,47,.1);
-  --vxy-card-radius: .5rem;
+  --vxy-header-bg: #11131f;
+  --vxy-card-shadow: 0 1px 0 rgba(16,18,40,.04), 0 6px 16px -8px rgba(16,18,40,.10);
+  --vxy-card-radius: 14px;
 
-  --vxy-text:    #6E6B7B;
-  --vxy-heading: #5E5873;
-  --vxy-muted:   #B9B9C3;
-  --vxy-border:  #EBE9F1;
+  --vxy-text:    #4b5066;
+  --vxy-heading: #0e1226;
+  --vxy-muted:   #757a90;
+  --vxy-border:  #e5e7ee;
 
   --vxy-input-bg:     #ffffff;
   --vxy-input-border: #D8D6DE;
@@ -44,26 +46,29 @@
 }
 
 [data-theme="dark"] {
-  --vxy-body-bg:   #161D31;
-  --vxy-card-bg:   #283046;
-  --vxy-card-shadow: 0 4px 24px rgba(0,0,0,.24);
-  --vxy-text:    #B4B7BD;
-  --vxy-heading: #D0D2D6;
-  --vxy-muted:   #676D7D;
-  --vxy-border:  rgba(255,255,255,.07);
-  --vxy-input-bg:     #1e2a40;
-  --vxy-input-border: rgba(255,255,255,.1);
-  --vxy-input-text:   #B4B7BD;
-  --vxy-modal-bg:     #283046;
+  --vxy-body-bg:   #0a0b14;
+  --vxy-card-bg:   #11131f;
+  --vxy-card-shadow: 0 6px 16px -8px rgba(0,0,0,.6);
+  --vxy-text:    #b9bccd;
+  --vxy-heading: #f3f4ff;
+  --vxy-muted:   #8388a0;
+  --vxy-border:  #1f2233;
+  --vxy-input-bg:     #161826;
+  --vxy-input-border: #2a2e44;
+  --vxy-input-text:   #f3f4ff;
+  --vxy-modal-bg:     #11131f;
   --vxy-progress-bg:  rgba(255,255,255,.08);
-  --vxy-hover-bg:     rgba(115,103,240,.08);
-  --bs-body-bg:     #161D31;
-  --bs-body-color:  #B4B7BD;
-  --bs-border-color: rgba(255,255,255,.07);
+  --vxy-hover-bg:     rgba(68,81,240,.12);
+  --bs-body-bg:     #0a0b14;
+  --bs-body-color:  #b9bccd;
+  --bs-border-color: #1f2233;
 }
 
 /* ── Base ─────────────────────────────────────────────────── */
-html { overflow-x: hidden; }
+/* `overflow-x: clip` prevents horizontal-scroll without making the element
+   a scrolling ancestor — that means position: sticky on the header still
+   works. (Older `overflow-x: hidden` here was breaking sticky on mobile.) */
+html { overflow-x: clip; }
 *,*::before,*::after { box-sizing: border-box; min-width: 0; }
 body {
   font-family: 'Inter', system-ui, sans-serif;
@@ -72,7 +77,7 @@ body {
   color: var(--vxy-text);
   -webkit-font-smoothing: antialiased;
   transition: background .15s, color .15s;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 h1,h2,h3,h4,h5,h6 { color: var(--vxy-heading); font-weight: 600; }
 a { color: var(--vxy-primary); text-decoration: none; }

@@ -31,8 +31,8 @@ detect_install_dir() {
         echo "/opt/vpnmanager"
     elif [ -d "/opt/vpnmanager" ] && [ -f "/opt/vpnmanager/main.py" ]; then
         echo "/opt/vpnmanager"
-    elif [ -d "/opt/vpnmanager" ] && [ -f "/opt/vpnmanager/main.py" ]; then
-        echo "/opt/vpnmanager"
+    elif [ -d "/root/vpnmanager_new" ] && [ -f "/root/vpnmanager_new/main.py" ]; then
+        echo "/root/vpnmanager_new"
     else
         echo ""
     fi

@@ -500,6 +500,47 @@ async def set_update_channel(req: ChannelRequest, db: Session = Depends(get_db))
     return {"channel": req.channel}
 
 
+# ── GET / POST /updates/auto-apply ─────────────────────────────────────────────
+
+def _read_auto_apply(db: Session) -> bool:
+    from src.database.models import SystemConfig
+    cfg = db.query(SystemConfig).filter_by(key="updates_auto_apply").first()
+    if cfg is None:
+        # Default on for installs that never had the row written — keeps
+        # parity with auto_check._auto_apply_enabled.
+        return True
+    return (cfg.value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+@router.get("/auto-apply")
+async def get_auto_apply(db: Session = Depends(get_db)):
+    """Whether updates are auto-applied as soon as the auto-check loop sees one."""
+    return {"auto_apply": _read_auto_apply(db)}
+
+
+class AutoApplyRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/auto-apply")
+async def set_auto_apply(req: AutoApplyRequest, db: Session = Depends(get_db)):
+    from src.database.models import SystemConfig
+    cfg = db.query(SystemConfig).filter_by(key="updates_auto_apply").first()
+    val = "true" if req.enabled else "false"
+    if cfg:
+        cfg.value = val
+    else:
+        db.add(SystemConfig(
+            key="updates_auto_apply",
+            value=val,
+            value_type="bool",
+            description="Auto-apply updates from the configured channel",
+        ))
+    db.commit()
+    logger.info("Updates auto-apply set to: %s", val)
+    return {"auto_apply": req.enabled}
+
+
 # ── POST /updates/restart ──────────────────────────────────────────────────────
 
 def _detect_service_prefix() -> str:

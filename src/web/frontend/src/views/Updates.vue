@@ -57,6 +57,19 @@
               </span>
               <HelpTooltip :text="$t('help.updateChannel')" />
             </div>
+            <div class="mt-2 small d-flex align-items-center gap-2 flex-wrap">
+              <div class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox"
+                       id="autoApplySwitch"
+                       :checked="autoApply"
+                       :disabled="autoApplySaving"
+                       @change="onAutoApplyToggle($event.target.checked)" />
+                <label class="form-check-label small" for="autoApplySwitch">
+                  {{ $t('updates.autoApplyLabel') || 'Auto-apply updates' }}
+                </label>
+              </div>
+              <HelpTooltip :text="$t('updates.autoApplyHelp') || 'When enabled, the panel installs updates from the current channel as soon as they appear. Turn off to apply manually.'" />
+            </div>
           </div>
         </div>
       </div>
@@ -110,7 +123,11 @@
       </div>
     </div>
 
-    <!-- Update in progress -->
+    <!-- Update in progress.
+         Shown ONLY while there's both a progress record AND its status is
+         in the explicit ACTIVE_STATUSES allow-list. We never show this
+         card for unknown/null status — that would lie about the panel's
+         state and hold the user hostage with a never-ending spinner. -->
     <div v-if="progress && isActiveStatus(progress.status)" class="card mb-4 border-primary">
       <div class="card-header bg-primary text-white d-flex align-items-center gap-2">
         <span class="spinner-border spinner-border-sm"></span>
@@ -130,13 +147,19 @@
       </div>
     </div>
 
-    <!-- Completed update result -->
-    <div v-if="progress && !isActiveStatus(progress.status)" class="card mb-4"
+    <!-- Completed update result.
+         Shown ONLY when the backend says the update reached one of the
+         explicit terminal states. Unknown / null / mid-flight statuses
+         render NOTHING here — those are handled by the in-progress card
+         above. This prevents the historic "false fail flash" + the
+         current "stuck on Update in progress" issue. -->
+    <div v-if="progress && isTerminalStatus(progress.status)" class="card mb-4"
          :class="terminalCardClass(progress.status)">
       <div class="card-header" :class="terminalHeaderClass(progress.status)">
         <span v-if="progress.status === 'success'"><i class="mdi mdi-check-circle me-1"></i>{{ $t('updates.success') }}</span>
         <span v-else-if="progress.status === 'rolled_back'"><i class="mdi mdi-undo-variant me-1"></i>{{ $t('updates.rolledBack') }}</span>
-        <span v-else><i class="mdi mdi-close-circle me-1"></i>{{ $t('updates.failed') }}<span v-if="progress.error">: {{ progress.error }}</span></span>
+        <span v-else-if="progress.status === 'failed'"><i class="mdi mdi-close-circle me-1"></i>{{ $t('updates.failed') }}<span v-if="progress.error">: {{ progress.error }}</span></span>
+        <span v-else><i class="mdi mdi-help-circle me-1"></i>{{ progress.status }}<span v-if="progress.error">: {{ progress.error }}</span></span>
       </div>
       <div v-if="progress.log && progress.log.length" class="card-body">
         <div class="update-log bg-dark text-light p-3 rounded"
@@ -403,6 +426,8 @@ import api from '../api'
 const { t } = useI18n()
 
 const status         = ref({})
+const autoApply      = ref(true)
+const autoApplySaving = ref(false)
 const history        = ref([])
 const checking       = ref(false)
 const applying       = ref(false)   // prevents double-submit on "Install Now"
@@ -423,17 +448,58 @@ let countdownTimer  = null
 
 // ── Terminal states ────────────────────────────────────────────────────────────
 
-const TERMINAL_STATUSES = new Set(['success', 'failed', 'rolled_back'])
-const ACTIVE_STATUSES   = new Set(['in_progress', 'pending', 'downloading', 'applying', 'rolling_back'])
+// Final state machine for update status. Both sets are EXPLICIT —
+// anything not in either is treated as "we don't know" and renders
+// nothing rather than guessing.
+//
+// Why two explicit lists instead of "everything not terminal = active":
+// the previous tries leaned on negation, which kept biting us — once
+// `null/undefined → active` (1.5.23), once `null → terminal-fallback-fail`
+// (1.5.17). Both are wrong. The fix is to render NOTHING for unknown
+// states. Idle pages stay clean, and adding a brand-new backend status
+// won't silently render either an in-progress card or a fail card.
+const ACTIVE_STATUSES = new Set([
+  'pending',
+  'downloading',
+  'downloaded',
+  'verified',
+  'ready_to_apply',
+  'applying',
+  'rolling_back',
+  'rollback_required',
+  'in_progress',
+])
+const TERMINAL_STATUSES = new Set([
+  'success',
+  'failed',
+  'rolled_back',
+  'unknown',  // backend's sentinel when it can't determine outcome
+])
 
 function isActiveStatus(s) {
   return ACTIVE_STATUSES.has(s)
 }
 
+function isTerminalStatus(s) {
+  return TERMINAL_STATUSES.has(s)
+}
+
+function isFailedStatus(s) {
+  return s === 'failed'
+}
+
 // ── Computed ──────────────────────────────────────────────────────────────────
 
+// "Update in progress" iff the backend tells us so OR we have a progress
+// object whose status is in the explicit active list. The progress check
+// uses BOTH `progress.value` truthiness AND `isActiveStatus(...)` — the
+// 1.5.23 version dropped the truthiness check, which made undefined
+// status (no progress at all) look active because of how isActiveStatus
+// handled null. The new isActiveStatus only returns true for known
+// active strings, so this expression is now correct in all cases.
 const updateInProgress = computed(() =>
-  status.value.update_in_progress || isActiveStatus(progress.value?.status)
+  !!status.value.update_in_progress
+  || (!!progress.value && isActiveStatus(progress.value.status))
 )
 
 const progressPercent = computed(() => {
@@ -475,12 +541,16 @@ function statusBadge(s) {
 
 function terminalCardClass(s) {
   if (s === 'success' || s === 'rolled_back') return 'border-success'
-  return 'border-danger'
+  if (s === 'failed') return 'border-danger'
+  // Unknown / not-yet-resolved — neutral colour, so a transient null
+  // status doesn't paint the whole card red.
+  return 'border-info'
 }
 
 function terminalHeaderClass(s) {
   if (s === 'success' || s === 'rolled_back') return 'bg-success text-white'
-  return 'bg-danger text-white'
+  if (s === 'failed') return 'bg-danger text-white'
+  return 'bg-info text-white'
 }
 
 function formatDate(iso) {
@@ -496,17 +566,77 @@ function formatDuration(s) {
 
 // ── Data loading ──────────────────────────────────────────────────────────────
 
-async function loadStatus() {
-  try {
-    const res = await api.get('/updates/status')
-    status.value = res.data
-    // Reload progress if there's an active update
-    if (res.data.active_update_id && !progress.value) {
-      await loadProgress(res.data.active_update_id)
+// Retry-with-backoff for status. If the call fails (e.g. nginx 502 during
+// API restart, or the worker is rescheduling itself mid-update), we used
+// to leave `status.value = {}` and the UI would render an empty
+// "Current Version: —" pill. Now we retry up to 4 times with growing
+// backoff (1s, 2s, 4s, 8s) so transient blips don't stick. Past attempts
+// don't block the whole UI — they happen in the background.
+async function loadStatus({ retries = 4, _delay = 1000 } = {}) {
+  let lastErr
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await api.get('/updates/status', { timeout: 10000 })
+      status.value = res.data
+      // Resync progress with whatever the backend says is current.
+      //
+      // Case A — status says there IS an active update. ALWAYS make sure
+      // we have fresh progress AND a running poll loop. The previous
+      // version only acted when progress was null, which missed the
+      // important case: the panel restarted mid-apply, the browser's
+      // pollTimer interval got dropped (browsers can purge intervals
+      // when the network stalls long enough or the tab is backgrounded
+      // during a 502 storm), and progress is left frozen on
+      // "applying" forever. Re-arm both unconditionally — startPolling
+      // is idempotent (calls stopPolling first), and re-fetching
+      // progress is cheap.
+      if (res.data.active_update_id) {
+        await loadProgress(res.data.active_update_id)
+        if (progress.value && isActiveStatus(progress.value.status) && !pollTimer) {
+          startPolling(res.data.active_update_id)
+        }
+      }
+      // Case B — status says NO active update, but our local progress
+      // still shows an active state. The polling loop missed the
+      // success/failure frame and we're stuck rendering an in-progress
+      // card. Pull the latest progress for the update we WERE tracking
+      // so the terminal "Update completed" card renders, then stop
+      // polling. If even the final fetch can't resolve the state, drop
+      // progress so the UI doesn't hang.
+      if (!res.data.active_update_id && progress.value && isActiveStatus(progress.value.status)) {
+        const stuck_id = progress.value.update_id
+        if (stuck_id) {
+          await loadProgress(stuck_id)
+        }
+        stopPolling()
+        if (progress.value && isActiveStatus(progress.value.status)) {
+          progress.value = null
+        }
+      }
+      return
+    } catch (e) {
+      lastErr = e
+      if (attempt + 1 < retries) {
+        await new Promise(r => setTimeout(r, _delay))
+        _delay = Math.min(_delay * 2, 8000)
+      }
     }
-  } catch (e) {
-    // Network errors during status refresh are silent — don't disrupt UI
-    console.warn('Updates status refresh failed:', e?.message)
+  }
+  console.warn('Updates status refresh failed after retries:', lastErr?.message)
+  // Belt-and-suspenders: if every retry failed, try the alternate endpoint
+  // (/updates/check is a force-refresh path that returns current_version
+  // and available_update). It hits the upstream license server even when
+  // the manifest cache is empty, so it's strictly more authoritative
+  // than /status when /status was unreachable. We only do this once,
+  // and only if status is still empty — otherwise we'd hammer the lic
+  // server every page load.
+  if (!status.value || !status.value.current_version) {
+    try {
+      const res = await api.post('/updates/check', {}, { timeout: 15000 })
+      status.value = { ...status.value, ...res.data }
+    } catch (e) {
+      console.warn('Fallback /updates/check also failed:', e?.message)
+    }
   }
 }
 
@@ -517,6 +647,32 @@ async function loadHistory() {
   } catch {}
 }
 
+async function loadAutoApply() {
+  try {
+    const res = await api.get('/updates/auto-apply')
+    autoApply.value = !!res.data.auto_apply
+  } catch (e) {
+    // Quiet on failure — Updates page is functional without it.
+    console.warn('auto-apply load failed:', e?.message)
+  }
+}
+
+async function onAutoApplyToggle(checked) {
+  // Optimistically reflect the change so the toggle feels snappy; on
+  // failure we revert and surface the message.
+  const prev = autoApply.value
+  autoApply.value = checked
+  autoApplySaving.value = true
+  try {
+    await api.post('/updates/auto-apply', { enabled: checked })
+  } catch (e) {
+    autoApply.value = prev
+    alert(`Failed to update setting: ${e?.response?.data?.detail || e?.message}`)
+  } finally {
+    autoApplySaving.value = false
+  }
+}
+
 async function loadProgress(update_id) {
   try {
     const res = await api.get(`/updates/progress/${update_id}`)
@@ -525,8 +681,11 @@ async function loadProgress(update_id) {
     if (logContainer.value) logContainer.value.scrollTop = logContainer.value.scrollHeight
   } catch (e) {
     // If progress endpoint returns 404 (e.g. orphaned ID), clear progress
+    // AND stop polling so the loop doesn't keep hammering a missing record
+    // until the 30-min wall-clock cap.
     if (e?.response?.status === 404) {
       progress.value = null
+      stopPolling()
     }
   }
 }
@@ -649,43 +808,108 @@ async function restartServices() {
       if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
       restartCountdown.value = 0
       waitingRestart.value = false
-      await Promise.all([loadStatus(), loadHistory()])
+      await Promise.all([loadStatus(), loadHistory(), loadAutoApply()])
     } catch { /* still restarting */ }
   }, 2000)
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────
 
+// Polling has TWO termination paths:
+//   1. Status reaches a terminal value (success/failed/rolled_back/unknown).
+//   2. Wall-clock cap — 30 minutes — so a hung apply script can't leave
+//      the page polling forever. After the cap we stop and drop progress;
+//      the user can refresh or wait for the auto-update-check to settle
+//      the record via reconcile_inflight_updates.
+const POLL_MAX_MS = 30 * 60 * 1000
+let pollStartedAt = 0
+
 function startPolling(update_id) {
   stopPolling()
+  pollStartedAt = Date.now()
   pollTimer = setInterval(async () => {
     await loadProgress(update_id)
     const s = progress.value?.status
-    // Stop polling when we reach any terminal or unknown state
-    if (s && !isActiveStatus(s)) {
+    // 1. Real terminal state — stop and refresh sidebar data.
+    if (s && isTerminalStatus(s)) {
       stopPolling()
-      await Promise.all([loadStatus(), loadHistory()])
+      await Promise.all([loadStatus(), loadHistory(), loadAutoApply()])
+      return
+    }
+    // 2. Wall-clock cap — give up rather than spin forever.
+    if (Date.now() - pollStartedAt > POLL_MAX_MS) {
+      console.warn(`Update progress poll exceeded ${POLL_MAX_MS / 60000}m; giving up.`)
+      stopPolling()
+      progress.value = null
+      await Promise.all([loadStatus(), loadHistory(), loadAutoApply()])
     }
   }, 2000)
 }
 
 function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  pollStartedAt = 0
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
+// Periodic background refresh + on-focus refresh. The page can land on a
+// 502 from nginx if it was opened during the panel restart that follows
+// an update. The retry-with-backoff in loadStatus only spans ~15s; if the
+// API isn't back by then, the page used to stay empty until the user
+// clicked Check-for-updates manually. This timer + visibilitychange hook
+// makes the page heal itself on its own once the API comes back.
+let refreshTimer = null
+
+function _periodicRefresh() {
+  // Don't pile work on top of an in-flight update poll cycle
+  if (pollTimer) return
+  // Don't bother while the tab is in the background — saves API calls
+  if (typeof document !== 'undefined' && document.hidden) return
+  loadStatus()
+}
+
+function _onVisibility() {
+  if (typeof document === 'undefined' || document.hidden) return
+  // Tab just became visible: pull fresh state immediately, the user is
+  // looking at it.
+  loadStatus()
+}
+
 onMounted(async () => {
-  await Promise.all([loadStatus(), loadHistory()])
+  await Promise.all([loadStatus(), loadHistory(), loadAutoApply()])
+  // Belt-and-suspenders for "Current Version stays empty until I click
+  // Check for updates" — if loadStatus came back without populating
+  // current_version (or didn't run at all due to a long-tail axios bug
+  // we couldn't reproduce), fire the same code path the manual button
+  // uses. /updates/check returns current_version too and is what the
+  // user has confirmed always works.
+  if (!status.value || !status.value.current_version) {
+    try {
+      const res = await api.post('/updates/check', {}, { timeout: 15000 })
+      status.value = { ...status.value, ...res.data }
+    } catch (e) {
+      console.warn('Mount-time /updates/check fallback failed:', e?.message)
+    }
+  }
   // Resume polling if an update is in progress
   if (status.value.active_update_id) {
     startPolling(status.value.active_update_id)
+  }
+  // Self-healing background refresh, lighter cadence than progress poll.
+  refreshTimer = setInterval(_periodicRefresh, 60_000)
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', _onVisibility)
   }
 })
 
 onUnmounted(() => {
   stopPolling()
   if (restartTimer) clearInterval(restartTimer)
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', _onVisibility)
+  }
 })
 </script>
 

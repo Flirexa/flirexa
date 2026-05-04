@@ -13,7 +13,7 @@ import os
 import struct
 import subprocess
 import zlib
-from typing import Optional, Tuple, Dict, List
+from typing import Any, Optional, Tuple, Dict, List
 
 from loguru import logger
 
@@ -682,3 +682,238 @@ class AmneziaWGManager(WireGuardManager):
         except Exception as e:
             logger.error(f"[AWG] discover_remote failed: {e}")
             return None
+
+    # ── Remote bootstrap (SSH-only, no agent) ─────────────────────────────────
+
+    def bootstrap_remote(
+        self,
+        address_pool_ipv4: str = "10.66.66.0/24",
+        address_pool_ipv6: Optional[str] = None,
+        listen_port: int = 51821,
+        dns: str = "1.1.1.1",
+        log_callback=None,
+    ) -> Dict[str, Any]:
+        """
+        Provision AmneziaWG on an existing SSH-accessible server WITHOUT
+        installing the agent. Suitable for adding AWG alongside an
+        already-configured WG interface that's managed by the agent: the
+        AWG side is then managed via SSH commands.
+
+        Steps:
+          1. Install amneziawg + amneziawg-tools (PPA / apt)
+          2. Generate keypair + obfuscation params on remote
+          3. Write awg config to /etc/amnezia/amneziawg/<iface>.conf
+          4. Enable IP forwarding
+          5. Bring up the interface (awg-quick @ iface)
+          6. Open the listen port in UFW (best-effort)
+
+        Returns:
+          {
+            "success": bool,
+            "message": str,
+            "public_key": str | None,
+            "private_key": str | None,
+            "listen_port": int,
+            "awg_params": dict | None,
+            "details": dict,
+          }
+        """
+        def _log(msg: str):
+            logger.info(msg)
+            if log_callback:
+                log_callback(msg)
+
+        details: Dict[str, Any] = {}
+        if not self.is_remote:
+            return {"success": False, "message": "bootstrap_remote requires ssh_host", "details": details}
+
+        # ── 1. Install amneziawg package ──────────────────────────────────────
+        _log("📦 Checking AmneziaWG installation…")
+        rc_check = self._run_cmd(["which", "awg"], check=False).returncode
+        if rc_check != 0:
+            _log("⬇ Installing AmneziaWG (apt + PPA, may take 1-2 min)…")
+            # Two-tier strategy mirrored from agent_bootstrap._awg_install_cmd:
+            #   1. Try the official ppa:amnezia/ppa.
+            #   2. If launchpadcontent.net is unreachable, fall back to
+            #      flirexa.biz/mirror/amnezia/<series>/.deb files.
+            # See agent_bootstrap.py for the full rationale.
+            install_cmd = r'''bash -c '
+set -e
+APT_FLAGS=(-o Acquire::ForceIPv4=true -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+MIRROR_BASE="https://flirexa.biz/mirror/amnezia"
+
+retry_apt_update() {
+    local attempt=1
+    while [ "$attempt" -le 3 ]; do
+        if apt-get "${APT_FLAGS[@]}" update 2>&1; then return 0; fi
+        attempt=$((attempt + 1)); sleep 5
+    done
+    return 1
+}
+
+amnezia_index_ok() { apt-cache policy amneziawg-tools 2>/dev/null | grep -q "amnezia"; }
+
+install_from_mirror() {
+    local series="${VERSION_CODENAME:-noble}"
+    case "$series" in noble|jammy|focal) ;; *) series=noble ;; esac
+    local tmp; tmp=$(mktemp -d); cd "$tmp"
+    for pkg in amneziawg-dkms amneziawg-tools amneziawg; do
+        curl -4 -fsSL --max-time 60 -o "${pkg}.deb" "${MIRROR_BASE}/${series}/${pkg}.deb" || return 1
+    done
+    apt-get "${APT_FLAGS[@]}" install -y dkms "linux-headers-$(uname -r)" 2>&1 || \
+        apt-get "${APT_FLAGS[@]}" install -y dkms linux-headers-generic 2>&1 || true
+    dpkg -i amneziawg-dkms.deb amneziawg-tools.deb amneziawg.deb 2>&1 || \
+        apt-get "${APT_FLAGS[@]}" install -y -f 2>&1
+}
+
+. /etc/os-release 2>/dev/null || true
+case "${ID:-}" in
+  ubuntu|debian)
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get "${APT_FLAGS[@]}" install -y software-properties-common curl gnupg ca-certificates 2>&1
+    if [ "${ID:-}" = "ubuntu" ]; then
+        add-apt-repository -y ppa:amnezia/ppa 2>&1 || true
+    else
+        echo "deb http://ppa.launchpad.net/amnezia/ppa/ubuntu focal main" > /etc/apt/sources.list.d/amnezia-awg.list
+        apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 57290828 2>&1 || \
+            curl -4 -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x57290828" | apt-key add - 2>&1 || true
+    fi
+    retry_apt_update || true
+    if amnezia_index_ok && apt-get "${APT_FLAGS[@]}" install -y amneziawg amneziawg-tools 2>&1; then
+        echo "[ok] amneziawg installed via PPA"; exit 0
+    fi
+    echo "[ppa] unreachable, switching to mirror"
+    install_from_mirror
+    ;;
+  *) echo "Unsupported distro" >&2; exit 1 ;;
+esac
+' '''
+            r = self._run_cmd(["bash", "-c", install_cmd], check=False)
+            if r.returncode != 0:
+                err_tail = (r.stderr or r.stdout or "")[-400:].strip()
+                return {
+                    "success": False,
+                    "message": (
+                        "Failed to install AmneziaWG via PPA. The remote server may be "
+                        "in a region that blocks launchpad.net (e.g. China/HK). "
+                        f"Error tail: {err_tail}"
+                    ),
+                    "details": details,
+                }
+            details["installed"] = True
+            _log("✓ AmneziaWG installed")
+        else:
+            details["installed"] = "already_present"
+            _log("✓ AmneziaWG already installed")
+
+        # ── 2. Generate keypair + obfuscation params on remote ────────────────
+        _log("🔐 Generating server keypair…")
+        priv_r = self._run_cmd(["awg", "genkey"], check=False)
+        if priv_r.returncode != 0 or not priv_r.stdout.strip():
+            return {"success": False, "message": "Failed to generate AWG private key on remote", "details": details}
+        private_key = priv_r.stdout.strip()
+        pub_r = self._run_cmd(["bash", "-c", f"echo '{private_key}' | awg pubkey"], check=False)
+        if pub_r.returncode != 0 or not pub_r.stdout.strip():
+            return {"success": False, "message": "Failed to derive AWG public key on remote", "details": details}
+        public_key = pub_r.stdout.strip()
+        details["public_key"] = public_key
+
+        params = self.generate_obfuscation_params()
+        # Sync into instance so generate_server_config picks them up
+        self.jc, self.jmin, self.jmax = params["jc"], params["jmin"], params["jmax"]
+        self.s1, self.s2 = params["s1"], params["s2"]
+        self.h1, self.h2, self.h3, self.h4 = params["h1"], params["h2"], params["h3"], params["h4"]
+
+        # ── 3. Build + write server config ────────────────────────────────────
+        # Convert the network CIDR into the .1 host address for the interface.
+        ipv4_net = address_pool_ipv4 or "10.66.66.0/24"
+        net_part, _, prefix = ipv4_net.partition("/")
+        prefix = prefix or "24"
+        octets = net_part.split(".")
+        if len(octets) != 4:
+            return {"success": False, "message": f"Bad address_pool_ipv4 '{ipv4_net}'", "details": details}
+        host_addr = ".".join(octets[:3] + ["1"]) + f"/{prefix}"
+        if address_pool_ipv6:
+            v6_net, _, v6_prefix = address_pool_ipv6.partition("/")
+            v6_prefix = v6_prefix or "64"
+            host_addr = f"{host_addr},{v6_net.rstrip(':')}::1/{v6_prefix}" if not v6_net.endswith("::") else f"{host_addr},{v6_net}1/{v6_prefix}"
+
+        config_content = self.generate_server_config(
+            private_key=private_key,
+            address=host_addr,
+            listen_port=listen_port,
+            peers=[],
+        )
+
+        config_dir = "/etc/amnezia/amneziawg"
+        config_file = f"{config_dir}/{self.interface}.conf"
+        _log(f"📝 Writing config: {config_file}")
+        self._run_cmd(["mkdir", "-p", config_dir], check=False)
+        self._run_cmd(["chmod", "700", config_dir], check=False)
+        # Use base64-via-stdin pattern to avoid shell-quoting hazards
+        import base64 as _b64
+        b64 = _b64.b64encode(config_content.encode()).decode()
+        self._run_cmd(
+            ["bash", "-c", f"echo '{b64}' | base64 -d > {config_file} && chmod 600 {config_file}"],
+            check=False,
+        )
+        details["config_path"] = config_file
+
+        # ── 4. Enable IP forwarding ───────────────────────────────────────────
+        self._run_cmd(["sysctl", "-w", "net.ipv4.ip_forward=1"], check=False)
+        self._run_cmd(["sysctl", "-w", "net.ipv6.conf.all.forwarding=1"], check=False)
+        self._run_cmd(
+            ["bash", "-c",
+             "grep -qxF 'net.ipv4.ip_forward=1' /etc/sysctl.conf || "
+             "echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf"],
+            check=False,
+        )
+
+        # ── 5. Bring up the interface ─────────────────────────────────────────
+        _log(f"🚀 Bringing up {self.interface}…")
+        # If a stale unit is up from a previous attempt, restart instead of up
+        is_up = self._run_cmd(["awg", "show", self.interface], check=False).returncode == 0
+        if is_up:
+            self._run_cmd(["awg-quick", "down", self.interface], check=False)
+        up_r = self._run_cmd(["awg-quick", "up", self.interface], check=False)
+        if up_r.returncode != 0:
+            err_tail = (up_r.stderr or up_r.stdout or "")[-400:].strip()
+            return {
+                "success": False,
+                "message": f"awg-quick up {self.interface} failed: {err_tail}",
+                "details": details,
+            }
+        # Persist via systemd (so it survives reboot)
+        self._run_cmd(
+            ["systemctl", "enable", f"awg-quick@{self.interface}"],
+            check=False,
+        )
+        details["interface_up"] = True
+
+        # ── 6. Open UFW (best-effort) ─────────────────────────────────────────
+        try:
+            ufw_rc = self._run_cmd(["which", "ufw"], check=False).returncode
+            if ufw_rc == 0:
+                status = self._run_cmd(["ufw", "status"], check=False)
+                if "Status: active" in (status.stdout or ""):
+                    rule = f"{listen_port}/udp"
+                    if rule not in (status.stdout or ""):
+                        _log(f"🛡  UFW active — opening {rule}")
+                        self._run_cmd(
+                            ["bash", "-c", f"ufw allow {rule} comment 'amneziawg ({self.interface})'"],
+                            check=False,
+                        )
+                        details["firewall_opened"] = rule
+        except Exception as e:
+            logger.warning(f"UFW best-effort for AWG failed: {e}")
+
+        _log(f"✅ AmneziaWG running on UDP:{listen_port} (interface {self.interface})")
+        return {
+            "success": True,
+            "message": "AmneziaWG provisioned",
+            "public_key": public_key,
+            "private_key": private_key,
+            "listen_port": listen_port,
+            "awg_params": params,
+            "details": details,
+        }

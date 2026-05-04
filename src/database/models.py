@@ -211,6 +211,10 @@ class Server(Base):
     )  # "ssh" or "agent"
     agent_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     agent_api_key: Mapped[Optional[str]] = mapped_column(EncryptedText(), nullable=True)
+    # systemd unit name on the remote box ("vpnmanager-agent-wg0", etc.).
+    # NULL = legacy single-instance install (`vpnmanager-agent`). Used at
+    # uninstall time so we don't accidentally take down a sibling agent.
+    agent_service_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # Server type: "wireguard" | "amneziawg" | "hysteria2" | "tuic"
     server_type: Mapped[str] = mapped_column(String(20), default="wireguard", nullable=False, server_default="wireguard")

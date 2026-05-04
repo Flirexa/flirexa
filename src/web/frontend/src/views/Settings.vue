@@ -264,7 +264,9 @@
             <div v-if="pmOpen === 'cryptopay'" class="pm-card-body">
               <div class="mb-2"><label class="form-label small fw-bold">API Token</label><div class="input-group input-group-sm"><input :type="showToken ? 'text' : 'password'" class="form-control" v-model="tokenInput" :placeholder="payMasked || 'CryptoPay API token'" /><button class="btn btn-outline-secondary" type="button" @click="showToken = !showToken"><i :class="showToken ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button></div></div>
               <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="testnet2" v-model="testnetMode" /><label class="form-check-label small" for="testnet2">Testnet</label></div>
-              <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="saveCryptoPay" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="payConfigured" class="btn btn-outline-danger btn-sm" @click="disconnectCryptoPay" :disabled="saving">Disconnect</button></div>
+              <div class="webhook-url-row"><label class="form-label small fw-bold mb-1">Webhook URL <small class="text-muted fw-normal">(register in @CryptoBot → My Apps → Webhooks)</small></label><div class="input-group input-group-sm"><input type="text" class="form-control" :value="webhookUrls.cryptopay" readonly /><button class="btn btn-outline-secondary" type="button" @click="copyWebhookUrl('cryptopay')"><i class="mdi" :class="copiedUrl === 'cryptopay' ? 'mdi-check text-success' : 'mdi-content-copy'"></i></button></div></div>
+              <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm" @click="saveCryptoPay" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="payConfigured" class="btn btn-outline-info btn-sm" @click="runTest('cryptopay')" :disabled="testing === 'cryptopay'">{{ testing === 'cryptopay' ? 'Testing…' : 'Test' }}</button><button v-if="payConfigured" class="btn btn-outline-danger btn-sm" @click="disconnectCryptoPay" :disabled="saving">Disconnect</button></div>
+              <PaymentTestResult v-if="testResults.cryptopay" :result="testResults.cryptopay" />
               <div v-if="alertMsg" class="alert mt-2 py-1 small" :class="alertType">{{ alertMsg }}</div>
             </div>
           </div>
@@ -280,8 +282,11 @@
             <div v-if="pmOpen === 'paypal'" class="pm-card-body">
               <div class="mb-2"><label class="form-label small fw-bold">Client ID</label><input type="text" class="form-control form-control-sm" v-model="paypal.clientId" :placeholder="paypal.clientIdMasked || 'PayPal Client ID'" /></div>
               <div class="mb-2"><label class="form-label small fw-bold">Client Secret</label><div class="input-group input-group-sm"><input :type="paypal.showSecret ? 'text' : 'password'" class="form-control" v-model="paypal.clientSecret" placeholder="PayPal Client Secret" /><button class="btn btn-outline-secondary" type="button" @click="paypal.showSecret = !paypal.showSecret"><i :class="paypal.showSecret ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button></div></div>
+              <div class="mb-2"><label class="form-label small fw-bold">Webhook ID</label><input type="text" class="form-control form-control-sm" v-model="paypal.webhookId" :placeholder="paypal.webhookIdMasked || '12A3456BC7890123D'" /><small class="text-muted">Required in production. Create a webhook in <a href="https://developer.paypal.com/dashboard/webhooks" target="_blank">PayPal Dashboard</a> for the URL below, then paste its ID here.</small></div>
               <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="ppSandbox2" v-model="paypal.sandbox" /><label class="form-check-label small" for="ppSandbox2">Sandbox</label></div>
-              <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="savePayPal" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="paypal.configured" class="btn btn-outline-danger btn-sm" @click="disconnectPayPal" :disabled="saving">Disconnect</button></div>
+              <div class="webhook-url-row"><label class="form-label small fw-bold mb-1">Webhook URL <small class="text-muted fw-normal">(register in PayPal Developer Dashboard → Webhooks)</small></label><div class="input-group input-group-sm"><input type="text" class="form-control" :value="webhookUrls.paypal" readonly /><button class="btn btn-outline-secondary" type="button" @click="copyWebhookUrl('paypal')"><i class="mdi" :class="copiedUrl === 'paypal' ? 'mdi-check text-success' : 'mdi-content-copy'"></i></button></div><small class="text-muted">Subscribe to events: <code>CHECKOUT.ORDER.APPROVED</code>, <code>PAYMENT.CAPTURE.COMPLETED</code></small></div>
+              <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm" @click="savePayPal" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="paypal.configured" class="btn btn-outline-info btn-sm" @click="runTest('paypal')" :disabled="testing === 'paypal'">{{ testing === 'paypal' ? 'Testing…' : 'Test' }}</button><button v-if="paypal.configured" class="btn btn-outline-danger btn-sm" @click="disconnectPayPal" :disabled="saving">Disconnect</button></div>
+              <PaymentTestResult v-if="testResults.paypal" :result="testResults.paypal" />
               <div v-if="paypal.alert" class="alert mt-2 py-1 small" :class="paypal.alertType">{{ paypal.alert }}</div>
             </div>
           </div>
@@ -298,7 +303,9 @@
               <div class="mb-2"><label class="form-label small fw-bold">API Key</label><div class="input-group input-group-sm"><input :type="nowpay.showKey ? 'text' : 'password'" class="form-control" v-model="nowpay.apiKey" :placeholder="nowpay.apiKeyMasked || 'NOWPayments API Key'" /><button class="btn btn-outline-secondary" type="button" @click="nowpay.showKey = !nowpay.showKey"><i :class="nowpay.showKey ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button></div></div>
               <div class="mb-2"><label class="form-label small fw-bold">IPN Secret</label><div class="input-group input-group-sm"><input :type="nowpay.showSecret ? 'text' : 'password'" class="form-control" v-model="nowpay.ipnSecret" placeholder="IPN Callback Secret" /><button class="btn btn-outline-secondary" type="button" @click="nowpay.showSecret = !nowpay.showSecret"><i :class="nowpay.showSecret ? 'mdi mdi-eye-off-outline' : 'mdi mdi-eye-outline'"></i></button></div></div>
               <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="npSandbox2" v-model="nowpay.sandbox" /><label class="form-check-label small" for="npSandbox2">Sandbox</label></div>
-              <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="saveNowPayments" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="nowpay.configured" class="btn btn-outline-danger btn-sm" @click="disconnectNowPayments" :disabled="saving">Disconnect</button></div>
+              <div class="webhook-url-row"><label class="form-label small fw-bold mb-1">IPN Callback URL <small class="text-muted fw-normal">(register in NOWPayments Dashboard → Store Settings → IPN)</small></label><div class="input-group input-group-sm"><input type="text" class="form-control" :value="webhookUrls.nowpayments" readonly /><button class="btn btn-outline-secondary" type="button" @click="copyWebhookUrl('nowpayments')"><i class="mdi" :class="copiedUrl === 'nowpayments' ? 'mdi-check text-success' : 'mdi-content-copy'"></i></button></div></div>
+              <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm" @click="saveNowPayments" :disabled="saving">{{ saving ? '...' : 'Save & Connect' }}</button><button v-if="nowpay.configured" class="btn btn-outline-info btn-sm" @click="runTest('nowpayments')" :disabled="testing === 'nowpayments'">{{ testing === 'nowpayments' ? 'Testing…' : 'Test' }}</button><button v-if="nowpay.configured" class="btn btn-outline-danger btn-sm" @click="disconnectNowPayments" :disabled="saving">Disconnect</button></div>
+              <PaymentTestResult v-if="testResults.nowpayments" :result="testResults.nowpayments" />
               <div v-if="nowpay.alert" class="alert mt-2 py-1 small" :class="nowpay.alertType">{{ nowpay.alert }}</div>
             </div>
           </div>
@@ -315,7 +322,9 @@
               <div class="mb-2"><label class="form-label small fw-bold">Secret Key</label><div class="input-group input-group-sm"><input type="password" class="form-control" v-model="pluginKeys.stripe_secret_key" :placeholder="pluginMasked.stripe || 'sk_live_...'" /><button class="btn btn-outline-secondary" type="button" @click="togglePluginShow('stripe')"><i class="mdi mdi-eye-outline"></i></button></div></div>
               <div class="mb-2"><label class="form-label small fw-bold">Webhook Secret <small class="text-muted">(optional)</small></label><input type="password" class="form-control form-control-sm" v-model="pluginKeys.stripe_webhook_secret" placeholder="whsec_..." /></div>
               <small class="text-muted d-block mb-2">Get keys at <a href="https://dashboard.stripe.com/apikeys" target="_blank">dashboard.stripe.com/apikeys</a></small>
-              <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="savePlugin('stripe')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.stripe" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('stripe')" :disabled="saving">Disconnect</button></div>
+              <div class="webhook-url-row"><label class="form-label small fw-bold mb-1">Webhook endpoint URL <small class="text-muted fw-normal">(register in Stripe Dashboard → Developers → Webhooks)</small></label><div class="input-group input-group-sm"><input type="text" class="form-control" :value="webhookUrls.stripe" readonly /><button class="btn btn-outline-secondary" type="button" @click="copyWebhookUrl('stripe')"><i class="mdi" :class="copiedUrl === 'stripe' ? 'mdi-check text-success' : 'mdi-content-copy'"></i></button></div><small class="text-muted">Listen to event: <code>checkout.session.completed</code></small></div>
+              <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm" @click="savePlugin('stripe')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.stripe" class="btn btn-outline-info btn-sm" @click="runTest('stripe')" :disabled="testing === 'stripe'">{{ testing === 'stripe' ? 'Testing…' : 'Test' }}</button><button v-if="pluginProviders.stripe" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('stripe')" :disabled="saving">Disconnect</button></div>
+              <PaymentTestResult v-if="testResults.stripe" :result="testResults.stripe" />
               <div v-if="pluginAlert.stripe" class="alert mt-2 py-1 small" :class="pluginAlert.stripe.type">{{ pluginAlert.stripe.msg }}</div>
             </div>
           </div>
@@ -332,7 +341,9 @@
               <div class="mb-2"><label class="form-label small fw-bold">Merchant ID</label><input type="text" class="form-control form-control-sm" v-model="pluginKeys.payme_merchant_id" :placeholder="pluginMasked.payme || 'Merchant ID'" /></div>
               <div class="mb-2"><label class="form-label small fw-bold">Secret Key</label><input type="password" class="form-control form-control-sm" v-model="pluginKeys.payme_secret_key" placeholder="Secret Key" /></div>
               <small class="text-muted d-block mb-2">Get credentials at <a href="https://payme.uz" target="_blank">payme.uz</a> merchant dashboard</small>
-              <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="savePlugin('payme')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.payme" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('payme')" :disabled="saving">Disconnect</button></div>
+              <div class="webhook-url-row"><label class="form-label small fw-bold mb-1">Notification URL <small class="text-muted fw-normal">(register in Payme cabinet → Settings → Notifications)</small></label><div class="input-group input-group-sm"><input type="text" class="form-control" :value="webhookUrls.payme" readonly /><button class="btn btn-outline-secondary" type="button" @click="copyWebhookUrl('payme')"><i class="mdi" :class="copiedUrl === 'payme' ? 'mdi-check text-success' : 'mdi-content-copy'"></i></button></div></div>
+              <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm" @click="savePlugin('payme')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.payme" class="btn btn-outline-info btn-sm" @click="runTest('payme')" :disabled="testing === 'payme'">{{ testing === 'payme' ? 'Testing…' : 'Test' }}</button><button v-if="pluginProviders.payme" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('payme')" :disabled="saving">Disconnect</button></div>
+              <PaymentTestResult v-if="testResults.payme" :result="testResults.payme" />
               <div v-if="pluginAlert.payme" class="alert mt-2 py-1 small" :class="pluginAlert.payme.type">{{ pluginAlert.payme.msg }}</div>
             </div>
           </div>
@@ -348,7 +359,9 @@
             <div v-if="pmOpen === 'mollie'" class="pm-card-body">
               <div class="mb-2"><label class="form-label small fw-bold">API Key</label><div class="input-group input-group-sm"><input type="password" class="form-control" v-model="pluginKeys.mollie_api_key" :placeholder="pluginMasked.mollie || 'live_...'" /><button class="btn btn-outline-secondary" type="button" @click="togglePluginShow('mollie')"><i class="mdi mdi-eye-outline"></i></button></div></div>
               <small class="text-muted d-block mb-2">Get keys at <a href="https://www.mollie.com/dashboard" target="_blank">mollie.com/dashboard</a></small>
-              <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="savePlugin('mollie')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.mollie" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('mollie')" :disabled="saving">Disconnect</button></div>
+              <div class="webhook-url-row"><label class="form-label small fw-bold mb-1">Webhook URL <small class="text-muted fw-normal">(set per-payment automatically — no dashboard config needed)</small></label><div class="input-group input-group-sm"><input type="text" class="form-control" :value="webhookUrls.mollie" readonly /><button class="btn btn-outline-secondary" type="button" @click="copyWebhookUrl('mollie')"><i class="mdi" :class="copiedUrl === 'mollie' ? 'mdi-check text-success' : 'mdi-content-copy'"></i></button></div></div>
+              <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm" @click="savePlugin('mollie')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.mollie" class="btn btn-outline-info btn-sm" @click="runTest('mollie')" :disabled="testing === 'mollie'">{{ testing === 'mollie' ? 'Testing…' : 'Test' }}</button><button v-if="pluginProviders.mollie" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('mollie')" :disabled="saving">Disconnect</button></div>
+              <PaymentTestResult v-if="testResults.mollie" :result="testResults.mollie" />
               <div v-if="pluginAlert.mollie" class="alert mt-2 py-1 small" :class="pluginAlert.mollie.type">{{ pluginAlert.mollie.msg }}</div>
             </div>
           </div>
@@ -364,8 +377,11 @@
             <div v-if="pmOpen === 'razorpay'" class="pm-card-body">
               <div class="mb-2"><label class="form-label small fw-bold">Key ID</label><input type="text" class="form-control form-control-sm" v-model="pluginKeys.razorpay_key_id" :placeholder="pluginMasked.razorpay || 'rzp_live_...'" /></div>
               <div class="mb-2"><label class="form-label small fw-bold">Key Secret</label><input type="password" class="form-control form-control-sm" v-model="pluginKeys.razorpay_key_secret" placeholder="Key Secret" /></div>
+              <div class="mb-2"><label class="form-label small fw-bold">Webhook Secret</label><input type="password" class="form-control form-control-sm" v-model="pluginKeys.razorpay_webhook_secret" placeholder="whsec_..." /><small class="text-muted">Required to verify webhooks. Set in Razorpay Dashboard → Webhooks → Active Events.</small></div>
               <small class="text-muted d-block mb-2">Get keys at <a href="https://razorpay.com/docs/" target="_blank">razorpay.com</a></small>
-              <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" @click="savePlugin('razorpay')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.razorpay" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('razorpay')" :disabled="saving">Disconnect</button></div>
+              <div class="webhook-url-row"><label class="form-label small fw-bold mb-1">Webhook URL <small class="text-muted fw-normal">(register in Razorpay Dashboard → Settings → Webhooks)</small></label><div class="input-group input-group-sm"><input type="text" class="form-control" :value="webhookUrls.razorpay" readonly /><button class="btn btn-outline-secondary" type="button" @click="copyWebhookUrl('razorpay')"><i class="mdi" :class="copiedUrl === 'razorpay' ? 'mdi-check text-success' : 'mdi-content-copy'"></i></button></div><small class="text-muted">Active events: <code>payment.captured</code>, <code>payment_link.paid</code></small></div>
+              <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm" @click="savePlugin('razorpay')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.razorpay" class="btn btn-outline-info btn-sm" @click="runTest('razorpay')" :disabled="testing === 'razorpay'">{{ testing === 'razorpay' ? 'Testing…' : 'Test' }}</button><button v-if="pluginProviders.razorpay" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('razorpay')" :disabled="saving">Disconnect</button></div>
+              <PaymentTestResult v-if="testResults.razorpay" :result="testResults.razorpay" />
               <div v-if="pluginAlert.razorpay" class="alert mt-2 py-1 small" :class="pluginAlert.razorpay.type">{{ pluginAlert.razorpay.msg }}</div>
             </div>
           </div>
@@ -915,8 +931,10 @@
 <script>
 import { systemApi, authApi, backupApi } from '../api'
 import { useSystemStore } from '../stores/system'
+import PaymentTestResult from '../components/PaymentTestResult.vue'
 
 export default {
+  components: { PaymentTestResult },
   data() {
     return {
       // License
@@ -968,6 +986,8 @@ export default {
         clientIdMasked: '',
         clientSecret: '',
         sandbox: true,
+        webhookId: '',
+        webhookIdMasked: '',
         showSecret: false,
         alert: '',
         alertType: 'alert-info',
@@ -988,9 +1008,15 @@ export default {
       showPaymentModules: false,
       pmOpen: '',
       pluginProviders: {},
-      pluginKeys: { stripe_secret_key: '', stripe_webhook_secret: '', payme_merchant_id: '', payme_secret_key: '', mollie_api_key: '', razorpay_key_id: '', razorpay_key_secret: '' },
+      pluginKeys: { stripe_secret_key: '', stripe_webhook_secret: '', payme_merchant_id: '', payme_secret_key: '', mollie_api_key: '', razorpay_key_id: '', razorpay_key_secret: '', razorpay_webhook_secret: '' },
       pluginMasked: {},
       pluginAlert: {},
+      // Per-provider test results: { provider_name → result_dict | null }
+      testResults: {},
+      testing: '',  // currently running provider name (drives spinner state)
+      // Public client-portal URL (set after loadPaymentSettings reads CLIENT_PORTAL_DOMAIN)
+      publicHost: '',
+      copiedUrl: '',  // shows "Copied!" feedback under provider cards
       // SMTP
       smtp: {
         configured: false,
@@ -1101,6 +1127,33 @@ export default {
   },
   computed: {
     curTheme() { return useSystemStore().theme },
+    /**
+     * Public-facing webhook host. The admin panel runs on port 10086,
+     * client portal on 10443 — providers POST to the latter, so we rewrite
+     * the port. If the admin already configured CLIENT_PORTAL_DOMAIN this
+     * gets overridden later by `webhookHost` once payment-settings loads.
+     */
+    webhookHost() {
+      try {
+        if (this.publicHost) return this.publicHost
+        const proto = window.location.protocol
+        const host = window.location.host.replace(/:10086$/, ':10443')
+        return `${proto}//${host}`
+      } catch { return '' }
+    },
+    webhookUrls() {
+      const base = this.webhookHost
+      return {
+        cryptopay:   base ? `${base}/client-portal/webhooks/cryptopay`   : '/client-portal/webhooks/cryptopay',
+        paypal:      base ? `${base}/client-portal/webhooks/paypal`      : '/client-portal/webhooks/paypal',
+        nowpayments: base ? `${base}/client-portal/webhooks/nowpayments` : '/client-portal/webhooks/nowpayments',
+        stripe:      base ? `${base}/client-portal/webhooks/stripe`      : '/client-portal/webhooks/stripe',
+        mollie:      base ? `${base}/client-portal/webhooks/mollie`      : '/client-portal/webhooks/mollie',
+        razorpay:    base ? `${base}/client-portal/webhooks/razorpay`    : '/client-portal/webhooks/razorpay',
+        payme:       base ? `${base}/client-portal/webhooks/payme`       : '/client-portal/webhooks/payme',
+      }
+    },
+    paypalWebhookUrl() { return this.webhookUrls.paypal },
     graceEndDate() {
       if (!this.license.expires_at) return ''
       const d = new Date(this.license.expires_at)
@@ -1220,6 +1273,7 @@ export default {
         this.paypal.configured = r.data.paypal_configured
         this.paypal.clientIdMasked = r.data.paypal_client_id_masked
         this.paypal.sandbox = r.data.paypal_sandbox
+        this.paypal.webhookIdMasked = r.data.paypal_webhook_id_masked || ''
         this.nowpay.configured = r.data.nowpayments_configured
         this.nowpay.apiKeyMasked = r.data.nowpayments_api_key_masked
         this.nowpay.sandbox = r.data.nowpayments_sandbox
@@ -1243,7 +1297,7 @@ export default {
         if (name === 'stripe') { payload.stripe_secret_key = this.pluginKeys.stripe_secret_key; payload.stripe_webhook_secret = this.pluginKeys.stripe_webhook_secret }
         else if (name === 'payme') { payload.payme_merchant_id = this.pluginKeys.payme_merchant_id; payload.payme_secret_key = this.pluginKeys.payme_secret_key }
         else if (name === 'mollie') { payload.mollie_api_key = this.pluginKeys.mollie_api_key }
-        else if (name === 'razorpay') { payload.razorpay_key_id = this.pluginKeys.razorpay_key_id; payload.razorpay_key_secret = this.pluginKeys.razorpay_key_secret }
+        else if (name === 'razorpay') { payload.razorpay_key_id = this.pluginKeys.razorpay_key_id; payload.razorpay_key_secret = this.pluginKeys.razorpay_key_secret; payload.razorpay_webhook_secret = this.pluginKeys.razorpay_webhook_secret }
         await systemApi.updatePaymentSettings(payload)
         this.pluginAlert[name] = { type: 'alert-success', msg: 'Saved & connected!' }
         await this.loadPaymentSettings()
@@ -1259,7 +1313,7 @@ export default {
         if (name === 'stripe') { payload.stripe_secret_key = '' }
         else if (name === 'payme') { payload.payme_merchant_id = ''; payload.payme_secret_key = '' }
         else if (name === 'mollie') { payload.mollie_api_key = '' }
-        else if (name === 'razorpay') { payload.razorpay_key_id = ''; payload.razorpay_key_secret = '' }
+        else if (name === 'razorpay') { payload.razorpay_key_id = ''; payload.razorpay_key_secret = ''; payload.razorpay_webhook_secret = '' }
         await systemApi.updatePaymentSettings(payload)
         this.pluginAlert[name] = { type: 'alert-info', msg: 'Disconnected.' }
         await this.loadPaymentSettings()
@@ -1271,6 +1325,33 @@ export default {
     togglePluginShow(name) {
       const el = event.target.closest('.input-group')?.querySelector('input')
       if (el) el.type = el.type === 'password' ? 'text' : 'password'
+    },
+
+    /**
+     * Click handler for the "Test" button under each provider card.
+     * Calls POST /system/payment-test/{name} which runs offline signature
+     * verification + API ping in-process and returns a check-list.
+     */
+    async runTest(name) {
+      this.testing = name
+      // Reactivity: replace the per-provider entry so Vue picks up the change.
+      this.testResults = { ...this.testResults, [name]: null }
+      try {
+        const r = await systemApi.runPaymentTest(name)
+        this.testResults = { ...this.testResults, [name]: r.data }
+      } catch (e) {
+        const detail = e?.response?.data?.detail || e?.message || 'Unknown error'
+        this.testResults = {
+          ...this.testResults,
+          [name]: {
+            provider: name, configured: false,
+            checks: [{ name: 'Test request failed', ok: false, detail }],
+            passed: 0, failed: 1,
+          },
+        }
+      } finally {
+        this.testing = ''
+      }
     },
 
     async loadSmtpSettings() {
@@ -1318,6 +1399,7 @@ export default {
       try {
         var p = { paypal_sandbox: this.paypal.sandbox }
         if (this.paypal.clientId.trim()) p.paypal_client_id = this.paypal.clientId.trim()
+        if ((this.paypal.webhookId || '').trim()) p.paypal_webhook_id = this.paypal.webhookId.trim()
         if (this.paypal.clientSecret.trim()) p.paypal_client_secret = this.paypal.clientSecret.trim()
         var r = await systemApi.updatePaymentSettings(p)
         var pp = r.data.providers?.paypal || {}
@@ -1439,10 +1521,24 @@ export default {
       try {
         var r = await systemApi.getWebAccessSettings()
         Object.assign(this.web, r.data)
+        // Source-of-truth public host for webhook URLs.
+        // If the admin set CLIENT_PORTAL_DOMAIN we use that — providers must
+        // POST to a public domain, not localhost / IP / admin-port host.
+        const cpd = (r.data?.client_portal_domain || '').trim()
+        if (cpd) this.publicHost = `https://${cpd}`
       } catch(e) {
         this.web.alertType = 'alert-danger'
         this.web.alert = e.response?.data?.detail || String(e.message || e)
       }
+    },
+    async copyWebhookUrl(provider) {
+      const url = this.webhookUrls[provider] || ''
+      if (!url) return
+      try {
+        await navigator.clipboard.writeText(url)
+        this.copiedUrl = provider
+        setTimeout(() => { if (this.copiedUrl === provider) this.copiedUrl = '' }, 1500)
+      } catch (_e) { /* clipboard refused — admin can select manually */ }
     },
     async applyWebAccess() {
       this.web.applying = true
@@ -1769,6 +1865,14 @@ export default {
 .pm-info strong { display: block; font-size: .9rem; }
 .pm-info small { display: block; color: var(--vxy-muted); font-size: .75rem; }
 .pm-card-body { padding: .75rem 1rem; border-top: 1px solid var(--vxy-border); background: var(--vxy-hover-bg, rgba(255,255,255,.02)); }
+.webhook-url-row {
+  margin: .5rem 0;
+  padding: .55rem .65rem;
+  background: rgba(13,110,253,.05);
+  border: 1px solid rgba(13,110,253,.18);
+  border-radius: .375rem;
+}
+.webhook-url-row input { font-family: var(--mono, monospace); font-size: .78rem; background: var(--vxy-card-bg) !important; }
 .pm-card-body pre { margin-bottom: .5rem; font-size: .78rem; }
 
 /* Theme-aware active radio card highlight */

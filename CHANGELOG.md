@@ -4,6 +4,33 @@ All notable changes to Flirexa are documented here. The format is based on [Keep
 
 ---
 
+## [1.5.49] — 2026-05-04
+
+Consolidates everything since the first public release. Major user-facing changes:
+
+### Added
+
+- **Client portal redesign** — design-token system with light/dark themes (auto-picks system preference), traffic chart, sparklines, login redesign with branded background, mobile UX pass.
+- **"Replacing a broken server? Reuse its private key" toggle** in the Add Server form. Lets you stand up a new WireGuard box with the dead one's identity, so existing client configs keep working without re-issuing.
+- **Export keypair** action in the server menu (`Servers → ⋯`). Reveals the server's private key, public key, listen port, endpoint, and subnet — the seed for the reuse-key workflow above.
+- **Migrate clients** action in the server menu. Bulk-moves clients between servers in one transaction with IP-conflict pre-flight; supports selective migration via a `client_ids` list on the API.
+- **WireGuard private key field** is now exposed in the API for `POST /servers` (44-char base64), so a server's identity can be reused via API as well as UI.
+- **AmneziaWG** protocol fixes: was incorrectly gated behind a license check on FREE tier (regression in 1.4.x). Now works without activation, as designed.
+- Auto-update reliability: traffic-series API, multi-agent support, recovery after a partial apply.
+
+### Changed
+
+- Updates pipeline hardened: better progress reporting, automatic rollback on failure, navbar badge polling.
+- Server form polish: auto-detected public IP pre-fills the endpoint when adding a local server.
+
+### Fixed
+
+- WireGuard interfaces no longer get nuked on upgrade.
+- Subscription expiry now suspends correctly across timezone boundaries.
+- Logging — `updates/*` and `license/*` modules switched to loguru for consistent output.
+
+---
+
 ## [1.5.0] — 2026-04-27 — First public open-core release 🎉
 
 This is the first release of Flirexa as an open-core project. Everything before 1.5.0 was a closed product; 1.5.0 is the cut where the codebase moved to a public MIT-licensed repository with paid plugins distributed separately.

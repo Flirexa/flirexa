@@ -1,58 +1,84 @@
 <template>
-  <div class="plans-page">
-    <div class="text-center mb-4">
-      <h3 class="fw-bold">{{ $t('plans.title') }}</h3>
-      <p class="text-muted">{{ $t('plans.subtitle') }}</p>
-    </div>
-
-    <!-- Loading -->
-    <div v-if="loading" class="text-center py-5">
-      <div class="spinner-border text-primary mb-3"></div>
-      <div class="text-muted small">{{ $t('common.loading') }}</div>
-    </div>
-
-    <!-- Error -->
-    <div v-else-if="loadError" class="text-center py-5">
-      <div class="mb-3" style="font-size:2.5rem">⚠️</div>
-      <p class="text-muted">{{ $t('common.loadError') }}</p>
-      <button class="btn btn-outline-primary btn-sm" @click="loadPlans">{{ $t('common.retry') }}</button>
-    </div>
-
-    <!-- Plans grid -->
-    <div v-else class="row g-3 g-md-4 justify-content-center plans-row">
-      <div class="col-12 col-sm-6 col-lg-3" v-for="plan in plans" :key="plan.tier">
-        <div class="plan-card" :class="{ 'plan-popular': plan.tier.toLowerCase() === 'standard', 'plan-current': currentTier.toLowerCase() === plan.tier.toLowerCase() }">
-          <div class="plan-badge" v-if="plan.tier.toLowerCase() === 'standard' && currentTier.toLowerCase() !== plan.tier.toLowerCase()">{{ $t('plans.popular') }}</div>
-          <div class="plan-badge plan-badge-current" v-if="currentTier.toLowerCase() === plan.tier.toLowerCase()">{{ $t('plans.current') }}</div>
-
-          <div class="plan-header">
-            <h5 class="plan-name">{{ plan.name }}</h5>
-            <p class="plan-description">{{ plan.description }}</p>
-          </div>
-
-          <div class="plan-price">
-            <span class="price-amount">${{ plan.price_monthly_usd }}</span>
-            <span class="price-period">{{ $t('pay.perMonth') }}</span>
-          </div>
-
-          <ul class="plan-features">
-            <li>{{ plan.max_devices }} {{ $t('pay.dev') }}</li>
-            <li>{{ plan.traffic_limit_gb ? $t('plans.gbTraffic', { amount: plan.traffic_limit_gb }) : $t('plans.unlimitedTraffic') }}</li>
-            <li>{{ plan.bandwidth_limit_mbps ? plan.bandwidth_limit_mbps + ' Mbps' : $t('plans.maxSpeed') }}</li>
-            <li v-if="plan.price_quarterly_usd">{{ $t('plans.quarterly', { amount: plan.price_quarterly_usd }) }}</li>
-            <li v-if="plan.price_yearly_usd">{{ $t('plans.yearly', { amount: plan.price_yearly_usd }) }}</li>
-          </ul>
-
-          <button v-if="plan.tier.toLowerCase() !== 'free'" class="btn w-100"
-            :class="currentTier.toLowerCase() === plan.tier.toLowerCase() ? 'btn-outline-primary' : 'btn-primary'"
-            :disabled="currentTier.toLowerCase() === plan.tier.toLowerCase()" @click="selectPlan(plan)">
-            {{ currentTier.toLowerCase() === plan.tier.toLowerCase() ? $t('plans.currentPlan') : (plan.price_monthly_usd === 0 ? $t('plans.freePlan') : $t('plans.subscribe')) }}
-          </button>
-          <button v-else class="btn btn-outline-secondary w-100" disabled>
-            {{ currentTier.toLowerCase() === 'free' ? $t('plans.currentPlan') : $t('plans.freeTier') }}
+  <div class="fx-page">
+    <div style="text-align:center; margin-bottom:28px">
+      <h1 class="fx-page-title" style="font-size:32px">{{ $t('plans.title') }}</h1>
+      <p class="fx-page-sub" style="font-size:15px">{{ $t('plans.subtitle') }}</p>
+      <div style="display:flex; justify-content:center; margin-top:22px">
+        <div class="fx-billing-toggle">
+          <button v-for="(label, key) in periodLabels" :key="key"
+                  :class="{ active: billing === key }"
+                  @click="billing = key">
+            {{ label }}<span v-if="key === 'yearly'" class="save">−{{ yearlyDiscountPct }}%</span>
           </button>
         </div>
       </div>
+    </div>
+
+    <div v-if="loading" class="fx-empty">
+      <div class="fx-empty-icon"><FxIcon name="refresh" :size="22" /></div>
+      <p class="fx-empty-sub">{{ $t('common.loading') }}</p>
+    </div>
+
+    <div v-else-if="loadError" class="fx-empty">
+      <div class="fx-empty-icon"><FxIcon name="warning" :size="22" /></div>
+      <h3 class="fx-empty-title">{{ $t('common.loadError') }}</h3>
+      <button class="fx-btn fx-btn-secondary fx-btn-sm" @click="loadPlans">{{ $t('common.retry') }}</button>
+    </div>
+
+    <div v-else class="fx-tariffs-grid">
+      <div
+        v-for="plan in plans"
+        :key="plan.tier"
+        class="fx-tariff"
+        :class="{
+          popular: plan.tier.toLowerCase() === 'standard' && currentTier.toLowerCase() !== plan.tier.toLowerCase(),
+          current: currentTier.toLowerCase() === plan.tier.toLowerCase(),
+        }"
+      >
+        <div v-if="plan.tier.toLowerCase() === 'standard' && currentTier.toLowerCase() !== plan.tier.toLowerCase()"
+             class="fx-tariff-ribbon">{{ $t('plans.popular') }}</div>
+        <div v-if="currentTier.toLowerCase() === plan.tier.toLowerCase()"
+             class="fx-tariff-ribbon">{{ $t('plans.current') }}</div>
+
+        <h3 class="fx-tariff-name">{{ plan.name }}</h3>
+        <p class="fx-tariff-tagline">{{ plan.description || planTagline(plan) }}</p>
+
+        <div class="fx-tariff-price">
+          <span class="num">${{ priceFor(plan) }}</span>
+          <span class="per">{{ priceLabel }}</span>
+        </div>
+
+        <ul class="fx-tariff-features">
+          <li><FxIcon name="check" :size="15" /> {{ $t('plans.featureDevices', { count: plan.max_devices }) }}</li>
+          <li><FxIcon name="check" :size="15" /> {{ plan.traffic_limit_gb ? $t('plans.gbTraffic', { amount: plan.traffic_limit_gb }) : $t('plans.unlimitedTraffic') }}</li>
+          <li><FxIcon name="check" :size="15" /> {{ plan.bandwidth_limit_mbps ? plan.bandwidth_limit_mbps + ' Mbps' : $t('plans.maxSpeed') }}</li>
+          <li v-if="plan.tier.toLowerCase() === 'free'"><FxIcon name="check" :size="15" /> {{ $t('plans.featureBasicSupport') }}</li>
+          <li v-else-if="plan.tier.toLowerCase() === 'premium' || plan.tier.toLowerCase() === 'corporate'">
+            <FxIcon name="check" :size="15" /> {{ $t('plans.featurePrioritySupport') }}
+          </li>
+          <li v-else><FxIcon name="check" :size="15" /> {{ $t('plans.featureEmailSupport') }}</li>
+        </ul>
+
+        <button v-if="currentTier.toLowerCase() === plan.tier.toLowerCase()"
+                class="fx-btn fx-btn-secondary fx-btn-block fx-btn-lg" disabled>
+          {{ $t('plans.currentPlan') }}
+        </button>
+        <button v-else-if="plan.tier.toLowerCase() === 'free'"
+                class="fx-btn fx-btn-secondary fx-btn-block fx-btn-lg" disabled>
+          {{ $t('plans.freeTier') }}
+        </button>
+        <button v-else
+                class="fx-btn fx-btn-block fx-btn-lg"
+                :class="plan.tier.toLowerCase() === 'standard' ? 'fx-btn-primary' : 'fx-btn-secondary'"
+                @click="selectPlan(plan)">
+          {{ plan.price_monthly_usd === 0 ? $t('plans.freePlan') : $t('plans.subscribe') }}
+        </button>
+      </div>
+    </div>
+
+    <div style="text-align:center; margin-top:40px; font-size:13px; color:var(--text-3)">
+      {{ $t('plans.contactSalesHint') }}
+      <a href="#" @click.prevent="openContact" style="color:var(--accent)">{{ $t('plans.contactSales') }} →</a>
     </div>
 
     <PaymentModal v-if="showPayment" :plan="selectedPlan" @close="showPayment = false" @success="onPaymentSuccess" />
@@ -60,9 +86,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { portalApi } from '../api/index.js'
 import PaymentModal from './PaymentModal.vue'
+import FxIcon from '../components/FxIcon.vue'
+
+const { t } = useI18n()
+const router = useRouter()
 
 const plans = ref([])
 const currentTier = ref('free')
@@ -70,6 +102,41 @@ const selectedPlan = ref(null)
 const showPayment = ref(false)
 const loading = ref(false)
 const loadError = ref(false)
+const billing = ref('monthly')
+
+const periodLabels = computed(() => ({
+  monthly: t('plans.billingMonthly'),
+  quarterly: t('plans.billingQuarterly'),
+  yearly: t('plans.billingYearly'),
+}))
+const priceLabel = computed(() => billing.value === 'monthly'
+  ? t('plans.perMo')
+  : billing.value === 'quarterly' ? t('plans.perQuarter') : t('plans.perYear'))
+
+const yearlyDiscountPct = computed(() => {
+  // Pick the first paid plan to compute the discount
+  const p = plans.value.find(x => x.price_monthly_usd > 0)
+  if (!p || !p.price_yearly_usd) return 20
+  const naive = p.price_monthly_usd * 12
+  if (!naive) return 20
+  const pct = Math.max(0, Math.round((naive - p.price_yearly_usd) / naive * 100))
+  return pct || 20
+})
+
+function priceFor(plan) {
+  if (billing.value === 'monthly') return Number(plan.price_monthly_usd || 0).toFixed(0)
+  if (billing.value === 'quarterly') return Number(plan.price_quarterly_usd ?? plan.price_monthly_usd * 3).toFixed(0)
+  return Number(plan.price_yearly_usd ?? plan.price_monthly_usd * 12).toFixed(0)
+}
+
+function planTagline(plan) {
+  const tier = (plan.tier || '').toLowerCase()
+  if (tier === 'free') return t('plans.taglineFree')
+  if (tier === 'standard') return t('plans.taglineStandard')
+  if (tier === 'premium') return t('plans.taglinePremium')
+  if (tier === 'corporate') return t('plans.taglineCorporate')
+  return ''
+}
 
 const loadPlans = async () => {
   loading.value = true
@@ -77,7 +144,7 @@ const loadPlans = async () => {
   try {
     const [plansRes, subRes] = await Promise.all([
       portalApi.getPlans(),
-      portalApi.getSubscription()
+      portalApi.getSubscription(),
     ])
     plans.value = plansRes.data
     currentTier.value = subRes.data?.tier || 'free'
@@ -88,51 +155,12 @@ const loadPlans = async () => {
   }
 }
 
-const selectPlan = (plan) => { selectedPlan.value = plan; showPayment.value = true }
+const selectPlan = (plan) => {
+  selectedPlan.value = { ...plan, billing_period: billing.value }
+  showPayment.value = true
+}
 const onPaymentSuccess = () => { showPayment.value = false; loadPlans() }
+const openContact = () => router.push('/support')
 
-onMounted(() => { loadPlans() })
+onMounted(loadPlans)
 </script>
-
-<style scoped>
-.plans-row { padding-top: 16px; }
-
-.plan-card {
-  background: var(--vxy-card-bg);
-  border: 2px solid var(--vxy-border);
-  border-radius: var(--vxy-card-radius);
-  box-shadow: var(--vxy-card-shadow);
-  padding: 2rem 1.5rem; text-align: center;
-  position: relative; transition: all .3s ease;
-  height: 100%; display: flex; flex-direction: column;
-}
-.plan-card:hover { transform: translateY(-4px); box-shadow: 0 8px 30px rgba(34,41,47,.15); }
-.plan-popular { border-color: var(--vxy-primary); box-shadow: 0 4px 20px rgba(115,103,240,.25); }
-.plan-current { border-color: var(--vxy-success); }
-
-.plan-badge {
-  position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-  background: var(--vxy-primary); color: #fff;
-  padding: .25rem 1rem; border-radius: 20px;
-  font-size: .75rem; font-weight: 700; text-transform: uppercase; white-space: nowrap;
-}
-.plan-badge-current { background: var(--vxy-success); }
-
-.plan-header { margin-bottom: 1rem; }
-.plan-name { font-weight: 700; margin-bottom: .25rem; color: var(--vxy-heading); }
-.plan-description { font-size: .85rem; color: var(--vxy-muted); margin-bottom: 0; }
-.plan-price { margin-bottom: 1.5rem; }
-.price-amount { font-size: 2.5rem; font-weight: 800; color: var(--vxy-heading); }
-.price-period { font-size: .9rem; color: var(--vxy-muted); }
-.plan-features { list-style: none; padding: 0; margin-bottom: 1.5rem; flex-grow: 1; }
-.plan-features li { padding: .4rem 0; font-size: .9rem; color: var(--vxy-text); border-bottom: 1px solid var(--vxy-border); }
-.plan-features li:last-child { border-bottom: none; }
-.btn-primary { background: var(--vxy-primary); border-color: var(--vxy-primary); border-radius: .375rem; padding: .65rem; font-weight: 600; }
-.btn-primary:hover { background: var(--vxy-primary-dark); border-color: var(--vxy-primary-dark); box-shadow: 0 4px 12px rgba(115,103,240,.5); }
-
-@media (max-width: 576px) {
-  .plan-card { padding: 1.5rem 1rem; }
-  .price-amount { font-size: 2rem; }
-  .plan-features li { font-size: .85rem; padding: .3rem 0; }
-}
-</style>

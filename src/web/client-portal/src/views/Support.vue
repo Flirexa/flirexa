@@ -1,119 +1,194 @@
 <template>
-  <div class="support-page">
-    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
-      <h4 class="mb-0">{{ $t('support.title') }}</h4>
-      <button class="btn btn-primary" @click="showNewTicket = true" v-if="!showNewTicket">
-        {{ $t('support.newMessage') }}
-      </button>
+  <div class="fx-page">
+    <div v-if="!selectedTicket" class="fx-page-head" style="display:block; text-align:left">
+      <h1 class="fx-page-title">{{ $t('support.headline') }}</h1>
+      <p class="fx-page-sub">{{ $t('support.headlineSub') }}</p>
     </div>
 
-    <!-- New Ticket Form -->
-    <div class="card mb-4" v-if="showNewTicket">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <h6 class="mb-0">{{ $t('support.newMessage') }}</h6>
-        <button class="btn-close" @click="showNewTicket = false"></button>
+    <!-- ─── List view ─── -->
+    <template v-if="!selectedTicket">
+      <!-- Search -->
+      <div style="position:relative; margin-bottom:28px">
+        <FxIcon name="search" :size="16" style="position:absolute; left:16px; top:50%; transform:translateY(-50%); color:var(--text-3)" />
+        <input v-model="search" class="fx-search-input" :placeholder="$t('support.searchPlaceholder')" />
       </div>
-      <div class="card-body">
-        <div class="mb-3">
-          <label class="form-label">{{ $t('support.subject') }}</label>
-          <input type="text" class="form-control" v-model="newSubject" :placeholder="$t('support.subjectPlaceholder')" maxlength="255">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">{{ $t('support.message') }}</label>
-          <textarea class="form-control" rows="4" v-model="newMessage" :placeholder="$t('support.messagePlaceholder')" maxlength="4000"></textarea>
-        </div>
-        <div class="alert alert-danger" v-if="sendError">{{ sendError }}</div>
-        <button class="btn btn-primary" @click="sendNewTicket" :disabled="sending || !newSubject.trim() || !newMessage.trim()">
-          <span v-if="sending" class="spinner-border spinner-border-sm me-1"></span>
-          {{ $t('support.send') }}
-        </button>
-      </div>
-    </div>
 
-    <!-- Tickets List -->
-    <div v-if="!selectedTicket">
-      <div class="card" v-if="tickets.length">
-        <div class="list-group list-group-flush">
-          <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-start"
-            v-for="ticket in tickets" :key="ticket.id"
-            @click="selectTicket(ticket)" style="cursor: pointer;">
-            <div class="flex-grow-1">
-              <div class="d-flex align-items-center gap-2 mb-1">
-                <strong>{{ ticket.subject }}</strong>
-                <span class="badge" :class="statusClass(ticket.status)">{{ $t('support.status_' + ticket.status) }}</span>
-                <span class="badge bg-danger" v-if="unreadReplies(ticket) > 0">{{ unreadReplies(ticket) }} new</span>
+      <div class="fx-support-grid">
+        <!-- Tiles -->
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--gap); align-content:start">
+          <button class="fx-support-tile" @click="startNewTicket">
+            <div class="fx-support-tile-icon"><FxIcon name="chat" :size="18" /></div>
+            <h3>{{ $t('support.tileChat') }}</h3>
+            <p>{{ $t('support.tileChatHint') }}</p>
+            <span class="fx-badge fx-badge-success" style="margin-top:12px; align-self:flex-start">
+              <span class="fx-dot fx-dot-online"></span> {{ $t('support.online') }}
+            </span>
+          </button>
+          <a class="fx-support-tile" :href="emailHref">
+            <div class="fx-support-tile-icon"><FxIcon name="mail" :size="18" /></div>
+            <h3>{{ $t('support.tileEmail') }}</h3>
+            <p>{{ supportEmail }}</p>
+            <span style="margin-top:12px; font-size:11px; color:var(--text-3)">{{ $t('support.emailHint') }}</span>
+          </a>
+          <a class="fx-support-tile" :href="docsUrl" target="_blank" rel="noreferrer">
+            <div class="fx-support-tile-icon"><FxIcon name="book" :size="18" /></div>
+            <h3>{{ $t('support.tileDocs') }}</h3>
+            <p>{{ $t('support.tileDocsHint') }}</p>
+          </a>
+          <a class="fx-support-tile" :href="statusUrl" target="_blank" rel="noreferrer">
+            <div class="fx-support-tile-icon"><FxIcon name="speed" :size="18" /></div>
+            <h3>{{ $t('support.tileStatus') }}</h3>
+            <p>{{ $t('support.tileStatusHint') }}</p>
+          </a>
+        </div>
+
+        <!-- FAQ accordion -->
+        <div class="fx-card">
+          <div style="padding:var(--pad-card) var(--pad-card) 0">
+            <h3 class="fx-section-title">{{ $t('support.faqTitle') }}</h3>
+          </div>
+          <div style="margin-top:10px">
+            <div v-for="(f, i) in filteredFaqs" :key="i" class="fx-faq-item">
+              <div class="fx-faq-q" @click="openFaq = openFaq === i ? -1 : i">
+                <span>{{ f.q }}</span>
+                <FxIcon name="chevronDown" :size="16"
+                        :style="{ color: 'var(--text-3)', transform: openFaq === i ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }" />
               </div>
-              <p class="mb-1 text-muted small text-truncate" style="max-width: 500px;">{{ ticket.message }}</p>
-              <small class="text-muted">{{ formatDate(ticket.created_at) }} · {{ ticket.replies.length }} {{ $t('support.replies') }}</small>
+              <div v-if="openFaq === i" class="fx-faq-a">{{ f.a }}</div>
             </div>
-            <span class="text-muted">→</span>
+            <div v-if="!filteredFaqs.length" class="fx-empty" style="padding:36px 20px">
+              <p class="fx-empty-sub">{{ $t('support.noResults') }}</p>
+            </div>
           </div>
         </div>
       </div>
-      <div class="text-center py-5 text-muted" v-else-if="!loading">
-        <div style="font-size: 3rem; margin-bottom: 1rem;">💬</div>
-        <p>{{ $t('support.noTickets') }}</p>
-        <button class="btn btn-primary" @click="showNewTicket = true">{{ $t('support.newMessage') }}</button>
-      </div>
-      <div class="text-center py-5" v-else>
-        <div class="spinner-border text-primary"></div>
-      </div>
-    </div>
 
-    <!-- Ticket Detail / Conversation -->
-    <div v-if="selectedTicket" class="card">
-      <div class="card-header">
-        <div class="d-flex align-items-center flex-wrap gap-2">
-          <button class="btn btn-sm btn-outline-secondary" @click="selectedTicket = null">&larr; {{ $t('support.back') }}</button>
-          <strong class="text-truncate" style="max-width: 200px;">{{ selectedTicket.subject }}</strong>
-          <span class="badge" :class="statusClass(selectedTicket.status)">{{ $t('support.status_' + selectedTicket.status) }}</span>
-        </div>
-      </div>
-      <div class="card-body conversation-body">
-        <!-- Original message -->
-        <div class="message-bubble user-message">
-          <div class="message-text">{{ selectedTicket.message }}</div>
-          <div class="message-meta">{{ formatDateTime(selectedTicket.created_at) }}</div>
-        </div>
-
-        <!-- Replies -->
-        <div v-for="reply in selectedTicket.replies" :key="reply.id"
-          class="message-bubble" :class="reply.direction === 'admin' ? 'admin-message' : 'user-message'">
-          <div class="message-sender" v-if="reply.direction === 'admin'">{{ $t('support.adminReply') }}</div>
-          <div class="message-text">{{ reply.message }}</div>
-          <div class="message-meta">{{ formatDateTime(reply.created_at) }}</div>
-        </div>
-      </div>
-
-      <!-- Reply form -->
-      <div class="card-footer" v-if="selectedTicket.status !== 'closed'">
-        <div class="alert alert-danger small py-2 mb-2" v-if="replyError">{{ replyError }}</div>
-        <div class="reply-form">
-          <textarea class="form-control" rows="2" v-model="replyText" :placeholder="$t('support.replyPlaceholder')" maxlength="4000"
-            @keydown.ctrl.enter="sendReply"></textarea>
-          <button class="btn btn-primary reply-send-btn" @click="sendReply" :disabled="replying || !replyText.trim()">
-            <span v-if="replying" class="spinner-border spinner-border-sm"></span>
-            <span v-else>{{ $t('support.send') }}</span>
+      <!-- Tickets list -->
+      <div style="margin-top: var(--gap-lg)">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px; flex-wrap:wrap">
+          <div>
+            <h2 class="fx-section-title" style="font-size:15px">{{ $t('support.yourTickets') }}</h2>
+            <div style="font-size:12px; color:var(--text-3); margin-top:2px">{{ $t('support.yourTicketsHint') }}</div>
+          </div>
+          <button class="fx-btn fx-btn-primary" @click="startNewTicket">
+            <FxIcon name="plus" :size="14" /> {{ $t('support.newMessage') }}
           </button>
         </div>
+
+        <div v-if="ticketsLoading" class="fx-empty">
+          <div class="fx-empty-icon"><FxIcon name="refresh" :size="22" /></div>
+          <p class="fx-empty-sub">{{ $t('common.loading') }}</p>
+        </div>
+        <div v-else-if="!tickets.length" class="fx-card fx-empty">
+          <div class="fx-empty-icon"><FxIcon name="chat" :size="22" /></div>
+          <h3 class="fx-empty-title">{{ $t('support.noTickets') }}</h3>
+          <p class="fx-empty-sub">{{ $t('support.noTicketsHint') }}</p>
+        </div>
+        <div v-else class="fx-card" style="overflow:hidden">
+          <div v-for="(ticket, i) in tickets" :key="ticket.id"
+               style="padding:14px var(--pad-card); cursor:pointer; display:grid; grid-template-columns:1fr auto; gap:12px; align-items:center;"
+               :style="{ borderBottom: i === tickets.length - 1 ? '0' : '1px solid var(--border)' }"
+               @click="selectTicket(ticket)">
+            <div style="min-width:0">
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px">
+                <strong style="font-size:13px; color:var(--text)">{{ ticket.subject }}</strong>
+                <span class="fx-badge" :class="statusBadgeClass(ticket.status)">{{ $t('support.status_' + ticket.status) }}</span>
+                <span v-if="unreadReplies(ticket) > 0" class="fx-badge fx-badge-danger">{{ unreadReplies(ticket) }} {{ $t('support.new') }}</span>
+              </div>
+              <div style="font-size:12px; color:var(--text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis">{{ ticket.message }}</div>
+              <div style="font-size:11px; color:var(--text-4); margin-top:4px; font-family:var(--mono)">
+                {{ formatDate(ticket.created_at) }} · {{ ticket.replies.length }} {{ $t('support.replies') }}
+              </div>
+            </div>
+            <FxIcon name="chevron" :size="16" style="color:var(--text-3)" />
+          </div>
+        </div>
       </div>
-      <div class="card-footer text-muted text-center small" v-else>
-        {{ $t('support.ticketClosed') }}
+    </template>
+
+    <!-- ─── Ticket detail ─── -->
+    <template v-else>
+      <div class="fx-page-head" style="margin-bottom:14px">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap">
+          <button class="fx-btn fx-btn-ghost fx-btn-sm" @click="selectedTicket = null">
+            <FxIcon name="chevronLeft" :size="14" /> {{ $t('support.back') }}
+          </button>
+          <h1 class="fx-page-title" style="font-size:20px">{{ selectedTicket.subject }}</h1>
+          <span class="fx-badge" :class="statusBadgeClass(selectedTicket.status)">
+            {{ $t('support.status_' + selectedTicket.status) }}
+          </span>
+        </div>
       </div>
-    </div>
+
+      <div class="fx-card" style="overflow:hidden; display:flex; flex-direction:column; max-height:70vh">
+        <div class="fx-conversation-body">
+          <div class="fx-msg fx-msg-user">
+            <div class="fx-msg-text">{{ selectedTicket.message }}</div>
+            <div class="fx-msg-meta">{{ formatDateTime(selectedTicket.created_at) }}</div>
+          </div>
+          <div v-for="reply in selectedTicket.replies" :key="reply.id"
+               class="fx-msg" :class="reply.direction === 'admin' ? 'fx-msg-admin' : 'fx-msg-user'">
+            <div v-if="reply.direction === 'admin'" class="fx-msg-sender">{{ $t('support.adminReply') }}</div>
+            <div class="fx-msg-text">{{ reply.message }}</div>
+            <div class="fx-msg-meta">{{ formatDateTime(reply.created_at) }}</div>
+          </div>
+        </div>
+        <div v-if="selectedTicket.status !== 'closed'" style="padding:14px var(--pad-card); border-top:1px solid var(--border)">
+          <div v-if="replyError" class="fx-toast error" style="margin-bottom:10px; max-width:100%">{{ replyError }}</div>
+          <div style="display:flex; gap:8px; align-items:flex-end">
+            <textarea class="fx-textarea" rows="2" v-model="replyText"
+                      :placeholder="$t('support.replyPlaceholder')" maxlength="4000"
+                      @keydown.ctrl.enter="sendReply" style="flex:1"></textarea>
+            <button class="fx-btn fx-btn-primary" @click="sendReply" :disabled="replying || !replyText.trim()">
+              <FxIcon name="send" :size="14" /> {{ $t('support.send') }}
+            </button>
+          </div>
+        </div>
+        <div v-else style="padding:18px; text-align:center; color:var(--text-3); font-size:13px; border-top:1px solid var(--border)">
+          {{ $t('support.ticketClosed') }}
+        </div>
+      </div>
+    </template>
+
+    <!-- New ticket modal -->
+    <transition name="fx-modal-fade">
+      <div v-if="showNewTicket" class="fx-modal-overlay" @click.self="showNewTicket = false">
+        <div class="fx-modal-box">
+          <div class="fx-modal-header">
+            <h3>{{ $t('support.newMessage') }}</h3>
+            <button class="fx-icon-btn-sm" @click="showNewTicket = false"><FxIcon name="close" :size="14" /></button>
+          </div>
+          <div class="fx-modal-body">
+            <label class="fx-label">{{ $t('support.subject') }}</label>
+            <input class="fx-input" v-model="newSubject" :placeholder="$t('support.subjectPlaceholder')" maxlength="255" style="margin-bottom:12px" />
+            <label class="fx-label">{{ $t('support.message') }}</label>
+            <textarea class="fx-textarea" rows="5" v-model="newMessage"
+                      :placeholder="$t('support.messagePlaceholder')" maxlength="4000"></textarea>
+            <div v-if="sendError" style="color:var(--danger); font-size:12px; margin-top:10px">{{ sendError }}</div>
+          </div>
+          <div class="fx-modal-footer">
+            <button class="fx-btn fx-btn-ghost" @click="showNewTicket = false">{{ $t('common.close') }}</button>
+            <button class="fx-btn fx-btn-primary" @click="sendNewTicket" :disabled="sending || !newSubject.trim() || !newMessage.trim()">
+              <FxIcon name="send" :size="14" /> {{ $t('support.send') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 import { formatDate, formatDateTime } from '../utils'
+import FxIcon from '../components/FxIcon.vue'
 
 const { t } = useI18n()
 
 const tickets = ref([])
-const loading = ref(true)
+const ticketsLoading = ref(true)
 const showNewTicket = ref(false)
 const selectedTicket = ref(null)
 const newSubject = ref('')
@@ -123,21 +198,57 @@ const sendError = ref(null)
 const replyText = ref('')
 const replying = ref(false)
 const replyError = ref(null)
+const search = ref('')
+const openFaq = ref(0)
+
+// Branding-configurable links. Defaults point at the canonical flirexa.biz
+// surfaces; admins can override via the public branding endpoint.
+const supportEmail = computed(() =>
+  window.__branding?.branding_support_email || 'support@flirexa.biz')
+const emailHref = computed(() => `mailto:${supportEmail.value}`)
+const docsUrl = computed(() =>
+  window.__branding?.branding_docs_url || 'https://flirexa.biz')
+const statusUrl = computed(() =>
+  window.__branding?.branding_status_url || 'https://flirexa.biz')
+
+const FAQS = computed(() => [
+  { q: t('support.faq1.q'), a: t('support.faq1.a') },
+  { q: t('support.faq2.q'), a: t('support.faq2.a') },
+  { q: t('support.faq3.q'), a: t('support.faq3.a') },
+  { q: t('support.faq4.q'), a: t('support.faq4.a') },
+  { q: t('support.faq5.q'), a: t('support.faq5.a') },
+])
+
+const filteredFaqs = computed(() => {
+  const q = search.value.trim().toLowerCase()
+  if (!q) return FAQS.value
+  return FAQS.value.filter(f => f.q.toLowerCase().includes(q) || f.a.toLowerCase().includes(q))
+})
+
+const startNewTicket = () => {
+  newSubject.value = ''
+  newMessage.value = ''
+  sendError.value = null
+  showNewTicket.value = true
+}
 
 const loadTickets = async () => {
-  loading.value = true
+  ticketsLoading.value = true
   try {
     const { data } = await portalApi.getSupportMessages()
     tickets.value = data
-  } catch (e) { /* ignore */ }
-  loading.value = false
+  } catch { /* ignore */ }
+  ticketsLoading.value = false
 }
 
 const sendNewTicket = async () => {
   sending.value = true
   sendError.value = null
   try {
-    await portalApi.sendSupportMessage({ subject: newSubject.value.trim(), message: newMessage.value.trim() })
+    await portalApi.sendSupportMessage({
+      subject: newSubject.value.trim(),
+      message: newMessage.value.trim(),
+    })
     newSubject.value = ''
     newMessage.value = ''
     showNewTicket.value = false
@@ -160,8 +271,7 @@ const sendReply = async () => {
     await portalApi.replySupportTicket(selectedTicket.value.id, { message: replyText.value.trim() })
     replyText.value = ''
     await loadTickets()
-    // Re-select the same ticket
-    const updated = tickets.value.find(t => t.id === selectedTicket.value.id)
+    const updated = tickets.value.find(x => x.id === selectedTicket.value.id)
     if (updated) selectedTicket.value = updated
   } catch (e) {
     replyError.value = t('common.error') + ': ' + (e.response?.data?.detail || e.message)
@@ -170,19 +280,17 @@ const sendReply = async () => {
   replying.value = false
 }
 
-const unreadReplies = (ticket) => ticket.replies.filter(r => r.direction === 'admin' && !r.is_read).length
+const unreadReplies = (ticket) =>
+  ticket.replies.filter(r => r.direction === 'admin' && !r.is_read).length
 
-const statusClass = (status) => {
-  switch (status) {
-    case 'open': return 'bg-primary'
-    case 'answered': return 'bg-success'
-    case 'closed': return 'bg-secondary'
-    default: return 'bg-secondary'
-  }
+const statusBadgeClass = (status) => {
+  if (status === 'open') return 'fx-badge-info'
+  if (status === 'answered') return 'fx-badge-success'
+  if (status === 'closed') return 'fx-badge-neutral'
+  return 'fx-badge-neutral'
 }
 
 let pollInterval = null
-
 watch(selectedTicket, (ticket) => {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
   if (ticket && ticket.status !== 'closed') {
@@ -190,7 +298,7 @@ watch(selectedTicket, (ticket) => {
       try {
         const { data } = await portalApi.getSupportMessages()
         tickets.value = data
-        const updated = data.find(t => t.id === ticket.id)
+        const updated = data.find(x => x.id === ticket.id)
         if (updated) selectedTicket.value = updated
       } catch { /* ignore */ }
     }, 5000)
@@ -198,47 +306,47 @@ watch(selectedTicket, (ticket) => {
 })
 
 onMounted(loadTickets)
-
-onUnmounted(() => {
-  if (pollInterval) clearInterval(pollInterval)
-})
+onUnmounted(() => { if (pollInterval) clearInterval(pollInterval) })
 </script>
 
 <style scoped>
-.conversation-body {
-  max-height: 500px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: .75rem;
-  padding: 1.5rem;
+.fx-conversation-body {
+  padding: var(--pad-card);
+  display: flex; flex-direction: column; gap: 12px;
+  overflow-y: auto;
+  flex: 1;
 }
-
-.message-bubble {
-  max-width: 80%; padding: .75rem 1rem;
-  border-radius: .75rem;
+.fx-msg {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
   word-break: break-word; white-space: pre-wrap;
+  font-size: 13px;
 }
-.user-message {
+.fx-msg-user {
   align-self: flex-end;
-  background: var(--vxy-primary-light);
-  color: var(--vxy-text);
-  border-bottom-right-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--text);
 }
-.admin-message {
+.fx-msg-admin {
   align-self: flex-start;
-  background: var(--vxy-hover-bg);
-  color: var(--vxy-text);
-  border-bottom-left-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text);
 }
-.message-sender { font-weight: 600; font-size: .75rem; color: var(--vxy-primary); margin-bottom: .25rem; }
-.message-meta { font-size: .7rem; color: var(--vxy-muted); margin-top: .35rem; text-align: right; }
-.message-text { font-size: .9rem; line-height: 1.4; color: var(--vxy-text); }
+.fx-msg-sender {
+  font-weight: 600; font-size: 11px;
+  color: var(--accent); margin-bottom: 4px;
+}
+.fx-msg-meta {
+  font-size: 10px; color: var(--text-3);
+  margin-top: 6px; text-align: right;
+  font-family: var(--mono);
+}
+.fx-msg-text { line-height: 1.45; }
+.fx-modal-fade-enter-active, .fx-modal-fade-leave-active { transition: opacity .2s ease; }
+.fx-modal-fade-enter-from, .fx-modal-fade-leave-to { opacity: 0; }
 
-.reply-form { display: flex; gap: .5rem; }
-.reply-send-btn { align-self: flex-end; white-space: nowrap; }
-
-@media (max-width: 576px) {
-  .conversation-body { max-height: 350px; padding: 1rem; }
-  .message-bubble { max-width: 90%; padding: .6rem .8rem; }
-  .reply-form { flex-direction: column; }
-  .reply-send-btn { align-self: stretch; }
+@media (max-width: 760px) {
+  .fx-msg { max-width: 92%; }
 }
 </style>

@@ -200,8 +200,17 @@ class ClientPortalSubscription(Base):
 
     @property
     def traffic_used_total_gb(self) -> float:
-        """Total traffic used in GB"""
-        return (self.traffic_used_rx + self.traffic_used_tx) / (1024 ** 3)
+        """Total traffic used in GB.
+
+        SQLAlchemy `default=0` only fires when WE create a row; rows that
+        landed via raw SQL, older migrations, or external loaders can have
+        NULL in either column. `None + None` raised TypeError → 500 → the
+        portal-users detail modal stayed empty until the user retried.
+        Coerce both to 0 so the property is always safe to call.
+        """
+        rx = self.traffic_used_rx or 0
+        tx = self.traffic_used_tx or 0
+        return (rx + tx) / (1024 ** 3)
 
     @property
     def traffic_remaining_gb(self) -> Optional[float]:

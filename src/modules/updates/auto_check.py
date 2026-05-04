@@ -56,6 +56,120 @@ def _get_channel() -> str:
         db.close()
 
 
+def _auto_apply_enabled() -> bool:
+    """
+    Whether the panel should auto-apply updates as soon as it sees one on
+    the configured channel. Defaults to True for installs that never set
+    the value (covers fresh installs that ran migration 028 on an empty
+    DB and got 'true' written; also covers very old installs predating
+    the toggle that haven't seen the migration yet — for those we'd rather
+    err on the side of "stay current" since they explicitly chose to
+    upgrade by hitting Apply on the previous step).
+    """
+    try:
+        from ...database.connection import SessionLocal
+        from ...database.models import SystemConfig
+    except Exception:
+        return True
+    db = SessionLocal()
+    try:
+        cfg = db.query(SystemConfig).filter_by(key="updates_auto_apply").first()
+        if cfg is None:
+            return True
+        return (cfg.value or "").strip().lower() in ("1", "true", "yes", "on")
+    finally:
+        db.close()
+
+
+# If a previous auto-apply attempt for the same target version FAILED within
+# this window, skip retrying. Without this guard a permanent failure (DKMS
+# can't build the new module, disk full, dependency conflict, …) would have
+# the panel re-attempt the same broken upgrade every check interval — every
+# 6 hours by default — flooding the update history with FAILED rows and
+# wasting the operator's time. Manual `/updates/apply` always bypasses this:
+# only `started_by='auto'` records count toward the cooldown.
+_AUTO_APPLY_COOLDOWN_HOURS = 24
+
+
+async def _try_auto_apply(manifest: dict, current_version: str, channel: str) -> None:
+    """
+    Trigger apply_update for this manifest if it's safe to do so.
+
+    Safety gates:
+      - auto-apply must be enabled (`updates_auto_apply` system config)
+      - manifest version must be strictly newer than current
+      - no other update may already be in flight
+      - the box must not be in maintenance mode (operator paused work)
+      - the same version must not have failed via auto-apply recently
+        (cooldown window above)
+    Failures here are logged but never crash the auto-check loop.
+    """
+    if not _auto_apply_enabled():
+        return
+    try:
+        from .manager import apply_update, is_newer
+        from ...modules.operational_mode import (
+            get_active_update_state,
+            get_explicit_maintenance_state,
+        )
+        from ...database.connection import SessionLocal
+        from ...database.models import UpdateHistory, UpdateStatus
+    except Exception as e:
+        logger.warning("auto-apply: import failed: {}", e)
+        return
+
+    new_version = manifest.get("version")
+    if not new_version or not is_newer(new_version, current_version):
+        return
+
+    db = SessionLocal()
+    try:
+        active, _, active_id = get_active_update_state(db)
+        if active:
+            logger.info("auto-apply: skipped — update {} already in flight", active_id)
+            return
+        maintenance = get_explicit_maintenance_state(db)
+        if maintenance.enabled:
+            logger.info("auto-apply: skipped — panel is in maintenance mode")
+            return
+
+        # Cooldown: don't auto-retry a version we already failed to apply
+        # automatically in the last 24h. Operator can still apply manually.
+        from datetime import datetime, timezone, timedelta
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=_AUTO_APPLY_COOLDOWN_HOURS)
+        recent_failed_auto = (
+            db.query(UpdateHistory)
+            .filter(
+                UpdateHistory.to_version == new_version,
+                UpdateHistory.started_by == "auto",
+                UpdateHistory.status == UpdateStatus.FAILED,
+                UpdateHistory.started_at >= cutoff,
+            )
+            .order_by(UpdateHistory.started_at.desc())
+            .first()
+        )
+        if recent_failed_auto:
+            logger.warning(
+                "auto-apply: skipped — {} failed via auto-apply at {} "
+                "(cooldown {}h, retry manually via Apply button)",
+                new_version,
+                recent_failed_auto.started_at.isoformat() if recent_failed_auto.started_at else "?",
+                _AUTO_APPLY_COOLDOWN_HOURS,
+            )
+            return
+
+        try:
+            update_id = await apply_update(manifest, started_by="auto", db=db)
+            logger.warning(
+                "auto-apply: started update {} → {} on channel {} (id={})",
+                current_version, new_version, channel, update_id,
+            )
+        except Exception as e:
+            logger.error("auto-apply: failed to start: {}", e)
+    finally:
+        db.close()
+
+
 async def _run_one_check() -> bool:
     """One pass: fetch manifest, log result. Returns True on hard failure (so caller can back off)."""
     from .checker import check_for_update
@@ -83,6 +197,8 @@ async def _run_one_check() -> bool:
         "Update auto-check ({}): new version available {} → {} (current {})",
         channel, current, new_version, current,
     )
+    # Optionally auto-apply (gated by `updates_auto_apply` system config).
+    await _try_auto_apply(manifest, current, channel)
     return False
 
 

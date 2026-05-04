@@ -167,13 +167,16 @@ export const serversApi = {
   create: (data) => api.post('/servers', data, { timeout: 300000 }),
   update: (id, data) => api.put(`/servers/${id}`, data),
   delete: (id, force = false) => api.delete(`/servers/${id}`, { params: { force } }),
-  start: (id) => api.post(`/servers/${id}/start`),
-  stop: (id) => api.post(`/servers/${id}/stop`),
-  restart: (id) => api.post(`/servers/${id}/restart`),
+  // Bringing up/down a remote interface can take 30-60s on first boot
+  // (kernel module load + iptables rules + agent round-trip), so the
+  // global 15s default is too aggressive for these calls.
+  start: (id) => api.post(`/servers/${id}/start`, {}, { timeout: 90000 }),
+  stop: (id) => api.post(`/servers/${id}/stop`, {}, { timeout: 90000 }),
+  restart: (id) => api.post(`/servers/${id}/restart`, {}, { timeout: 90000 }),
   getStats: (id) => api.get(`/servers/${id}/stats`),
   getBandwidth: (id) => api.get(`/servers/${id}/bandwidth`),
   getClients: (id) => api.get(`/servers/${id}/clients`),
-  saveConfig: (id) => api.post(`/servers/${id}/save-config`),
+  saveConfig: (id) => api.post(`/servers/${id}/save-config`, {}, { timeout: 60000 }),
   discover: (data) => api.post('/servers/discover', data, { timeout: 120000 }),
   installAgent: (id, port = 8001) => api.post(`/servers/${id}/install-agent`, { port }, { timeout: 300000 }),
   checkAgentStatus: (id) => api.get(`/agent/${id}/status`),
@@ -186,8 +189,11 @@ export const serversApi = {
   },
   setDefault: (id) => api.post(`/servers/${id}/set-default`),
   reconcile: (id) => api.post(`/servers/${id}/reconcile`),
+  getKeypair: (id) => api.get(`/servers/${id}/keypair`),
+  migrateClients: (id, payload) => api.post(`/servers/${id}/migrate-clients`, payload, { timeout: 180000 }),
   getBootstrapLogs: (taskId, since = 0) => api.get(`/servers/bootstrap/${taskId}`, { params: { since } }),
-  installProxy: (id, data) => api.post(`/servers/${id}/install-proxy`, data, { timeout: 300000 }),
+  installProxy: (id, data, opts = {}) => api.post(`/servers/${id}/install-proxy`, data, { timeout: 300000, ...opts }),
+  installAwg: (id, data, opts = {}) => api.post(`/servers/${id}/install-awg`, data, { timeout: 300000, ...opts }),
 }
 
 // ===== Bots =====
@@ -316,6 +322,7 @@ export const systemApi = {
   triggerLimitCheck: () => api.post('/system/check-limits'),
   getPaymentSettings: () => api.get('/system/payment-settings'),
   updatePaymentSettings: (data) => api.post('/system/payment-settings', data),
+  runPaymentTest: (provider) => api.post(`/system/payment-test/${encodeURIComponent(provider)}`),
   getSmtpSettings: () => api.get('/system/smtp-settings'),
   updateSmtpSettings: (data) => api.post('/system/smtp-settings', data),
   testSmtp: () => api.post('/system/smtp-test'),

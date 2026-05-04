@@ -17,7 +17,7 @@ config = context.config
 # Set DB URL from environment (same source as connection.py)
 database_url = os.getenv(
     "DATABASE_URL",
-    "postgresql://flirexa:flirexa@localhost:5432/flirexa_db"
+    "postgresql://vpnmanager:vpnmanager@localhost:5432/vpnmanager_db"
 )
 config.set_main_option("sqlalchemy.url", database_url)
 
