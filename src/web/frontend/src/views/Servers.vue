@@ -1133,6 +1133,69 @@
               </label>
             </div>
 
+            <!-- Selective migration: list of clients with checkboxes.
+                 Default = all selected → behaves like old bulk-migrate.
+                 Uncheck any → API call switches to subset path. -->
+            <div class="mb-3">
+              <div class="d-flex align-items-center justify-content-between mb-1">
+                <label class="form-label small fw-bold mb-0">
+                  {{ $t('servers.migrateClientsToPick') || 'Clients to migrate' }}
+                  <span class="text-muted fw-normal">
+                    ({{ migrateSelectedIds.size }} / {{ migrateClientsList.length }})
+                  </span>
+                </label>
+                <div v-if="migrateClientsList.length" class="btn-group btn-group-sm" role="group">
+                  <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                          :disabled="migrateSelectionMode === 'all'"
+                          @click="selectAllMigrateClients">
+                    {{ $t('servers.migrateSelectAll') || 'All' }}
+                  </button>
+                  <button type="button" class="btn btn-link btn-sm p-0"
+                          :disabled="migrateSelectionMode === 'none'"
+                          @click="deselectAllMigrateClients">
+                    {{ $t('servers.migrateSelectNone') || 'None' }}
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="loadingMigrateClients" class="d-flex align-items-center small text-muted gap-2 py-2">
+                <span class="spinner-border spinner-border-sm"></span>
+                {{ $t('servers.migrateLoadingClients') || 'Loading clients…' }}
+              </div>
+
+              <div v-else-if="!migrateClientsList.length" class="small text-muted py-2">
+                {{ $t('servers.migrateNoClients') || 'No clients on this server.' }}
+              </div>
+
+              <div v-else>
+                <input v-model="migrateClientsFilter" type="search"
+                       class="form-control form-control-sm mb-2"
+                       :placeholder="$t('servers.migrateFilterPlaceholder') || 'Filter by name, IP or ID…'">
+                <div class="border rounded" style="max-height: 220px; overflow-y: auto;">
+                  <div v-for="c in migrateFilteredClients" :key="c.id"
+                       class="form-check ps-4 py-1 px-2 border-bottom"
+                       style="border-color: var(--bs-border-color-translucent) !important">
+                    <input class="form-check-input" type="checkbox"
+                           :id="'mig-c-' + c.id"
+                           :checked="migrateSelectedIds.has(c.id)"
+                           @change="toggleMigrateClient(c.id)">
+                    <label class="form-check-label small d-flex justify-content-between gap-2 w-100"
+                           :for="'mig-c-' + c.id">
+                      <span class="text-truncate">{{ c.name }}</span>
+                      <span class="text-muted font-monospace small">{{ c.ipv4 }}</span>
+                    </label>
+                  </div>
+                  <div v-if="!migrateFilteredClients.length" class="small text-muted p-2 text-center">
+                    {{ $t('servers.migrateFilterNoMatch') || 'No clients match the filter.' }}
+                  </div>
+                </div>
+                <div v-if="migrateSelectionMode === 'subset'" class="form-text small mt-1">
+                  <i class="mdi mdi-information-outline me-1"></i>
+                  {{ $t('servers.migrateSubsetHint') || 'Subset selected — only the checked clients will move. Useful for canary moves.' }}
+                </div>
+              </div>
+            </div>
+
             <div v-if="migrateResult" class="alert" :class="migrateResult.failed && migrateResult.failed.length ? 'alert-warning' : 'alert-success'">
               <strong>{{ migrateResult.message }}</strong>
               <div v-if="migrateResult.failed && migrateResult.failed.length" class="small mt-2">
@@ -1146,9 +1209,12 @@
           </div>
           <div class="modal-footer">
             <button class="btn btn-secondary" @click="closeMigrateClients">{{ $t('common.close') }}</button>
-            <button class="btn btn-primary" @click="runMigrate" :disabled="!migrateTargetId || migrating || migrateResult">
+            <button class="btn btn-primary" @click="runMigrate"
+                    :disabled="!migrateTargetId || migrating || migrateResult || migrateSelectionMode === 'none' || loadingMigrateClients">
               <span v-if="migrating" class="spinner-border spinner-border-sm me-2"></span>
-              {{ $t('servers.migrateNow') || 'Migrate now' }}
+              {{ migrateSelectionMode === 'subset'
+                  ? ($t('servers.migrateSelected') || 'Migrate selected')
+                  : ($t('servers.migrateNow') || 'Migrate now') }}
             </button>
           </div>
         </div>
@@ -1439,6 +1505,13 @@ const migrateRemoveFromOld = ref(true)
 const migrating = ref(false)
 const migrateResult = ref(null)
 const migrateError = ref('')
+// Selective migration: list loaded when modal opens, all selected by default.
+// If the user unchecks any → API call passes a `client_ids` subset; if all
+// remain checked → we omit `client_ids` so the backend takes the bulk path.
+const migrateClientsList = ref([])
+const migrateSelectedIds = ref(new Set())
+const loadingMigrateClients = ref(false)
+const migrateClientsFilter = ref('')
 
 // Backup/Restore
 const backingUp = ref({})
@@ -2212,7 +2285,7 @@ const migrateCandidateServers = computed(() => {
   )
 })
 
-function openMigrateClients(server) {
+async function openMigrateClients(server) {
   migrateSourceServer.value = server
   migrateTargetId.value = null
   migrateSyncRemote.value = true
@@ -2220,25 +2293,85 @@ function openMigrateClients(server) {
   migrating.value = false
   migrateResult.value = null
   migrateError.value = ''
+  migrateClientsFilter.value = ''
+  migrateClientsList.value = []
+  migrateSelectedIds.value = new Set()
+  loadingMigrateClients.value = true
+  try {
+    const { data } = await serversApi.getClients(server.id)
+    const clients = Array.isArray(data) ? data : (data.clients || [])
+    migrateClientsList.value = clients
+    // Default: every client selected so the modal behaves like the old
+    // bulk-migrate when you just hit "Migrate now" without touching the list.
+    migrateSelectedIds.value = new Set(clients.map(c => c.id))
+  } catch (err) {
+    migrateError.value = err.response?.data?.detail || err.message || 'Failed to load clients'
+  } finally {
+    loadingMigrateClients.value = false
+  }
 }
 function closeMigrateClients() {
   migrateSourceServer.value = null
   migrateTargetId.value = null
   migrateResult.value = null
   migrateError.value = ''
+  migrateClientsList.value = []
+  migrateSelectedIds.value = new Set()
 }
+
+// Subset-vs-bulk: decide what to send.
+const migrateSelectionMode = computed(() => {
+  const total = migrateClientsList.value.length
+  const sel = migrateSelectedIds.value.size
+  if (total === 0 || sel === 0) return 'none'
+  if (sel === total) return 'all'
+  return 'subset'
+})
+
+const migrateFilteredClients = computed(() => {
+  const q = migrateClientsFilter.value.trim().toLowerCase()
+  if (!q) return migrateClientsList.value
+  return migrateClientsList.value.filter(c =>
+    (c.name || '').toLowerCase().includes(q) ||
+    (c.ipv4 || '').toLowerCase().includes(q) ||
+    String(c.id).includes(q)
+  )
+})
+
+function toggleMigrateClient(id) {
+  // Set is reactive in Vue 3 only via reassignment.
+  const next = new Set(migrateSelectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  migrateSelectedIds.value = next
+}
+function selectAllMigrateClients() {
+  migrateSelectedIds.value = new Set(migrateClientsList.value.map(c => c.id))
+}
+function deselectAllMigrateClients() {
+  migrateSelectedIds.value = new Set()
+}
+
 async function runMigrate() {
   if (!migrateSourceServer.value || !migrateTargetId.value) return
+  if (migrateSelectionMode.value === 'none') return
   migrating.value = true
   migrateError.value = ''
   try {
-    const { data } = await serversApi.migrateClients(migrateSourceServer.value.id, {
+    const payload = {
       target_server_id: migrateTargetId.value,
       sync_to_remote: migrateSyncRemote.value,
       remove_from_old: migrateRemoveFromOld.value,
-    })
+    }
+    // Pass `client_ids` only when the user picked a subset — sending all IDs
+    // explicitly would defeat the bulk-path's "no clients matched" early
+    // exit and is harmless either way, but the subset case is the only one
+    // the API treats specially.
+    if (migrateSelectionMode.value === 'subset') {
+      payload.client_ids = Array.from(migrateSelectedIds.value)
+    }
+    const { data } = await serversApi.migrateClients(migrateSourceServer.value.id, payload)
     migrateResult.value = data
-    // Refresh client counts on both servers.
     await store.fetchServers()
   } catch (err) {
     migrateError.value = err.response?.data?.detail || err.message || 'Migration failed'
