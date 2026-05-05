@@ -147,6 +147,24 @@
             {{ $t('settings.refetchHint') || 'Already activated but lost your license key? Enter the activation code from the original purchase to re-fetch the same key. Hardware-bound — only works from this machine.' }}
           </div>
         </div>
+
+        <!-- Apply transfer code (lifetime_protected, on the NEW server) -->
+        <div class="mb-3">
+          <label class="form-label">{{ $t('settings.transferApply.label') }}</label>
+          <div class="input-group settings-stack-input-group">
+            <input type="text" class="form-control font-monospace"
+                   v-model="transferApplyCode"
+                   placeholder="MIGRATE-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-XXXXXXXXXX" />
+            <button class="btn btn-outline-warning"
+                    @click="applyTransferCode"
+                    :disabled="applyingTransfer || !transferApplyCode">
+              <span v-if="applyingTransfer" class="spinner-border spinner-border-sm me-2"></span>
+              {{ $t('settings.transferApply.button') }}
+            </button>
+          </div>
+          <div class="form-text">{{ $t('settings.transferApply.hint') }}</div>
+          <div v-if="transferApplyAlert" class="alert mt-2 py-2 small" :class="transferApplyAlertType">{{ transferApplyAlert }}</div>
+        </div>
         <div class="small text-muted mb-1 settings-copy-row">
           {{ $t('settings.serverId') }}: <code>{{ license.server_id }}</code>
           <button class="btn btn-outline-secondary btn-sm ms-2 py-0 px-1" style="font-size:0.7rem"
@@ -155,7 +173,124 @@
         <div v-if="license.activation_code_masked" class="small text-muted mb-2">
           {{ $t('settings.activationCode') }}: <code>{{ license.activation_code_masked }}</code>
         </div>
+
+        <!-- Owner card (only shown when payload carries owner info — 1.5.64+ keys) -->
+        <div v-if="license.owner_name || license.owner_email" class="border rounded p-2 mb-2 small">
+          <div class="text-muted text-uppercase fw-semibold mb-1" style="font-size:0.7rem;letter-spacing:0.04em">
+            {{ $t('settings.licenseOwner') }}
+          </div>
+          <div v-if="license.owner_name"><i class="mdi mdi-account me-1"></i>{{ license.owner_name }}</div>
+          <div v-if="license.owner_email" class="text-muted"><i class="mdi mdi-email-outline me-1"></i>{{ license.owner_email }}</div>
+        </div>
+
+        <!-- Lifetime-protected: self-service server transfer -->
+        <div v-if="license.enforcement === 'lifetime_protected'" class="border rounded p-3 mb-2"
+             :class="license.migration_pending ? 'border-warning' : 'border-info-subtle'">
+          <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+            <div>
+              <div class="fw-semibold">
+                <i class="mdi mdi-server-network me-1"></i>{{ $t('settings.migration.title') }}
+              </div>
+              <div class="text-muted small">{{ $t('settings.migration.subtitle') }}</div>
+            </div>
+            <button v-if="!license.migration_pending"
+                    class="btn btn-outline-warning btn-sm"
+                    @click="openMigrationModal">
+              <i class="mdi mdi-export me-1"></i>{{ $t('settings.migration.button') }}
+            </button>
+          </div>
+
+          <!-- Active migration countdown -->
+          <div v-if="license.migration_pending" class="alert alert-warning mb-0 py-2">
+            <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
+              <div>
+                <strong>{{ $t('settings.migration.pendingTitle') }}</strong><br/>
+                <span v-if="!license.migration_pending.decommissioned">
+                  {{ $t('settings.migration.decommissionsIn',
+                       { time: humanizeSeconds(license.migration_pending.decommission_seconds) }) }}
+                </span>
+                <span v-else class="text-danger fw-bold">
+                  {{ $t('settings.migration.decommissioned') }}
+                </span>
+              </div>
+              <button class="btn btn-sm btn-outline-secondary" @click="cancelMigration">
+                {{ $t('settings.migration.cancel') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div v-if="license.alert" class="alert py-2 small" :class="license.alertType">{{ license.alert }}</div>
+      </div>
+    </div>
+
+    <!-- Migration code modal -->
+    <div v-if="migration.modalOpen" class="modal fade show d-block" style="background:rgba(0,0,0,0.5)" @click.self="closeMigrationModal">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="mdi mdi-server-network me-2"></i>{{ $t('settings.migration.modalTitle') }}
+            </h5>
+            <button type="button" class="btn-close" @click="closeMigrationModal"></button>
+          </div>
+          <div class="modal-body">
+            <!-- Step 1: warning -->
+            <div v-if="!migration.code">
+              <div class="alert alert-warning small">
+                <strong>{{ $t('settings.migration.warningTitle') }}</strong>
+                <ul class="mb-0 mt-1">
+                  <li>{{ $t('settings.migration.warning1') }}</li>
+                  <li>{{ $t('settings.migration.warning2') }}</li>
+                  <li>{{ $t('settings.migration.warning3') }}</li>
+                </ul>
+              </div>
+              <div class="d-flex gap-2 justify-content-end">
+                <button class="btn btn-secondary" @click="closeMigrationModal">{{ $t('common.cancel') }}</button>
+                <button class="btn btn-warning" :disabled="migration.generating" @click="generateMigration">
+                  <span v-if="migration.generating" class="spinner-border spinner-border-sm me-2"></span>
+                  {{ $t('settings.migration.generate') }}
+                </button>
+              </div>
+            </div>
+            <!-- Step 2: show code -->
+            <div v-else>
+              <div class="alert alert-success small mb-3">
+                <strong>{{ $t('settings.migration.successTitle') }}</strong><br/>
+                {{ $t('settings.migration.successHint',
+                     { codeDays: 7, decommissionDays: migration.this_server_decommissions_in_days || 3 }) }}
+              </div>
+
+              <label class="form-label fw-semibold">{{ $t('settings.migration.codeLabel') }}</label>
+              <div class="input-group mb-3">
+                <input type="text" class="form-control font-monospace" :value="migration.code" readonly
+                       style="font-size:0.95rem;letter-spacing:0.02em"/>
+                <button class="btn btn-primary" @click="copyToClipboard(migration.code)">
+                  <i class="mdi mdi-content-copy"></i> {{ $t('common.copy') || 'Copy' }}
+                </button>
+              </div>
+
+              <div class="card bg-body-tertiary">
+                <div class="card-body p-3">
+                  <div class="fw-semibold small text-uppercase text-muted mb-2"
+                       style="letter-spacing:0.04em;font-size:0.7rem">
+                    {{ $t('settings.migration.nextSteps') }}
+                  </div>
+                  <ol class="small mb-0 ps-3">
+                    <li>{{ $t('settings.migration.step1') }}</li>
+                    <li>{{ $t('settings.migration.step2') }}</li>
+                    <li>{{ $t('settings.migration.step3') }}</li>
+                    <li>{{ $t('settings.migration.step4') }}</li>
+                  </ol>
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-end mt-3">
+                <button class="btn btn-primary" @click="closeMigrationModal">{{ $t('common.close') }}</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -940,6 +1075,10 @@ export default {
       // License
       license: {
         type: '',
+        enforcement: '',          // subscription / lifetime / lifetime_protected
+        owner_name: null,
+        owner_email: null,
+        migration_pending: null,  // { initiated_at, decommission_seconds, decommissioned }
         max_clients: 0,
         max_servers: 0,
         current_clients: 0,
@@ -956,6 +1095,19 @@ export default {
         alert: '',
         alertType: 'alert-info',
       },
+      // Customer self-service migration modal state
+      migration: {
+        modalOpen: false,
+        generating: false,
+        code: '',                 // populated after /license/transfer/initiate
+        code_expires_at: null,
+        this_server_decommissions_in_days: null,
+      },
+      // Apply transfer code on the NEW server
+      transferApplyCode: '',
+      applyingTransfer: false,
+      transferApplyAlert: '',
+      transferApplyAlertType: 'alert-info',
       replaying: false,
       licServer: {
         primary_url: null,
@@ -1226,6 +1378,73 @@ export default {
         this.licServer.migrationAlert = e.response?.data?.detail || String(e.message || e)
       }
       finally { this.licServer.migrating = false }
+    },
+
+    // ── Customer self-service server transfer (lifetime_protected) ──────
+    openMigrationModal() {
+      this.migration.modalOpen = true
+      this.migration.code = ''
+    },
+    closeMigrationModal() {
+      this.migration.modalOpen = false
+      // Refresh license card so the countdown badge shows up after generation
+      this.loadLicense()
+    },
+    async generateMigration() {
+      this.migration.generating = true
+      try {
+        var r = await systemApi.licenseTransferInitiate()
+        this.migration.code = r.data.code
+        this.migration.code_expires_at = r.data.code_expires_at
+        this.migration.this_server_decommissions_in_days = r.data.this_server_decommissions_in_days
+      } catch (e) {
+        var detail = e.response?.data?.detail
+        var msg = (detail && detail.message) || detail || e.message || String(e)
+        this.license.alertType = 'alert-danger'
+        this.license.alert = 'Migration failed: ' + msg
+        this.closeMigrationModal()
+      } finally {
+        this.migration.generating = false
+      }
+    },
+    async cancelMigration() {
+      try {
+        await systemApi.licenseTransferCancel()
+        this.license.alertType = 'alert-info'
+        this.license.alert = 'Migration cancelled — this server will keep running normally.'
+        await this.loadLicense()
+      } catch (e) {
+        this.license.alertType = 'alert-danger'
+        this.license.alert = 'Cancel failed: ' + (e.response?.data?.detail || e.message)
+      }
+    },
+    humanizeSeconds(s) {
+      if (s == null) return '—'
+      if (s <= 0) return 'now'
+      var days = Math.floor(s / 86400)
+      var hours = Math.floor((s % 86400) / 3600)
+      var mins = Math.floor((s % 3600) / 60)
+      if (days > 0) return days + 'd ' + hours + 'h'
+      if (hours > 0) return hours + 'h ' + mins + 'm'
+      return mins + 'm'
+    },
+    async applyTransferCode() {
+      this.applyingTransfer = true
+      this.transferApplyAlert = ''
+      try {
+        var r = await systemApi.licenseTransferApply({ code: this.transferApplyCode.trim() })
+        this.transferApplyAlertType = 'alert-success'
+        this.transferApplyAlert = r.data.message || 'Transfer code accepted.'
+        this.transferApplyCode = ''
+        await this.loadLicense()
+      } catch (e) {
+        this.transferApplyAlertType = 'alert-danger'
+        var detail = e.response?.data?.detail
+        var msg = (detail && detail.message) || detail || e.message || String(e)
+        this.transferApplyAlert = 'Could not apply: ' + msg
+      } finally {
+        this.applyingTransfer = false
+      }
     },
     async activateLicense() {
       if (!this.license.newKey) return

@@ -311,6 +311,10 @@ export const systemApi = {
   getLicenseServer: () => api.get('/system/license-server'),
   applyMigrationCode: (data) => api.post('/system/license-migration', data),
   triggerLicenseCheck: () => api.post('/system/license-check'),
+  // Customer self-service server transfer (lifetime_protected)
+  licenseTransferInitiate: () => api.post('/system/license/transfer/initiate'),
+  licenseTransferApply: (data) => api.post('/system/license/transfer/apply', data),
+  licenseTransferCancel: () => api.post('/system/license/transfer/cancel'),
   // System
   getStatus: () => api.get('/system/status'),
   getHealth: () => api.get('/system/health'),
