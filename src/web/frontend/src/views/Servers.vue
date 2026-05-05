@@ -1531,6 +1531,16 @@ const migrateTargetId = ref(null)
 const migrateSyncRemote = ref(true)
 const migrateRemoveFromOld = ref(true)
 const migrateKeepOnSource = ref(false)
+
+// When the operator turns on dual-active "keep on source" mode, the
+// "remove peers from old WG" toggle is conceptually a contradiction —
+// drop its checkmark immediately so the UI matches the actual behaviour
+// the backend will execute. (One-way: turning keep_on_source OFF later
+// does NOT auto-re-tick remove_from_old, so the operator can still leave
+// it unchecked if that's what they want.)
+watch(migrateKeepOnSource, (val) => {
+    if (val) migrateRemoveFromOld.value = false
+})
 const migrating = ref(false)
 const migrateResult = ref(null)
 const migrateError = ref('')
