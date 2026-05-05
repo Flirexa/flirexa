@@ -4,6 +4,20 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.58 — 2026-05-05
+
+Internal release-pipeline hardening to prevent a v1.5.55-class regression from ever shipping again. Plus a small straggler from the v1.5.55→v1.5.57 cleanup.
+
+### Fixed
+
+- One leftover loguru-style `{}` placeholder in `src/modules/updates/manager.py` (a stdlib-logging file) — would have raised `TypeError` if the SUCCESS branch on update apply was reached. Reverted to `%-style`.
+
+### Internal (dev-only)
+
+- New static linter checks every `logger.X(...)` call against the file's actual logger source (loguru vs stdlib) and refuses any `{}`/`%`-style mismatch. Now wired into `push_test.sh` as a pre-flight gate, so a broken release can't reach the test channel — let alone production.
+
+---
+
 ## v1.5.57 — 2026-05-05
 
 Hotfix combining a v1.5.55 regression revert with the WG+AWG subnet-collision fix that was meant to ship as v1.5.56.
