@@ -4,6 +4,23 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.52 — 2026-05-05
+
+Fixes a real bug in the keypair-reuse flow shipped earlier: the toggle accepted the pasted private key but the server-creation path silently overwrote it with a freshly generated one, so the "replace a broken server" workflow produced a new identity instead of preserving the old one. Existing client configs (which pin the old PublicKey) couldn't handshake with the new box, and connecting through it gave no internet access.
+
+### Fixed
+
+- **Add Server with reused private key** now actually keeps the pasted key. The backend derives the matching public key from the supplied private key (`wg pubkey` / `awg pubkey`) instead of falling through to the discovery-or-regenerate fallback that overwrote both keys.
+- New box created with the toggle now has the same identity as the old one, so existing `.conf` files keep working without re-issue.
+
+### Symptoms before the fix
+
+- After migrating clients to a new server created via "Reuse private key", clients couldn't reach the internet through the new box.
+- Migrating back to the old box restored access (it still had the original keypair).
+- Looking at WG configs on the new box revealed a different public key than the one pasted into the form.
+
+---
+
 ## v1.5.51 — 2026-05-05
 
 Starter tier capacity bump and a small landing-page tidy.

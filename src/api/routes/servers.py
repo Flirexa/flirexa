@@ -441,6 +441,28 @@ async def create_server(
 
     is_awg = server_data.server_type == "amneziawg"
 
+    # Keypair-reuse path: when the operator pastes only a private_key (the
+    # "Replacing a broken server? Reuse its private key" toggle on Add Server,
+    # or any caller using just the private_key API field), derive the matching
+    # public_key here. Without this, the empty public_key would trip the
+    # discovery+regenerate fallback below and silently overwrite the pasted
+    # key — the new box would end up with a fresh keypair and existing client
+    # configs (which pin the OLD pubkey) would stop handshaking.
+    if private_key and not public_key:
+        try:
+            if is_awg:
+                from ...core.amneziawg import AmneziaWGManager
+                public_key = AmneziaWGManager.generate_public_key(private_key)
+            else:
+                from ...core.wireguard import WireGuardManager
+                public_key = WireGuardManager.generate_public_key(private_key)
+            logger.info("Derived public_key from caller-supplied private_key (keypair reuse)")
+        except Exception as _derive_err:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid private_key — could not derive public key: {_derive_err}",
+            )
+
     # Auto-pick a free listen_port if the requested one is already taken by
     # another local server. Prevents the classic "RTNETLINK answers: Address
     # already in use" failure when a FREE user adds AmneziaWG alongside the
