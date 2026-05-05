@@ -74,6 +74,75 @@ log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
 die() { log_error "$1"; exit 1; }
 
+# ────────────────────────────────────────────────────────────────────────────
+# Progress / ETA helpers
+#
+# Each of the 8 steps has a hardcoded cold-install estimate. log_step starts
+# a step and prints the ETA banner; log_step_done closes it and renders a
+# progress bar with elapsed/remaining time. Hot-cache reinstalls finish
+# faster than the estimates — the numbers are an upper-ish bound, not a
+# promise. Keeps the UX honest under "this is taking forever" panic.
+# ────────────────────────────────────────────────────────────────────────────
+INSTALL_START_TS=$(date +%s)
+CURRENT_STEP=0
+CURRENT_STEP_START_TS=0
+STEP_ESTIMATES_S=(120 60 30 120 10 30 10 30)   # 8 steps, seconds each
+TOTAL_ESTIMATE_S=0
+for _e in "${STEP_ESTIMATES_S[@]}"; do TOTAL_ESTIMATE_S=$((TOTAL_ESTIMATE_S + _e)); done
+
+_fmt_duration() {
+    # 137 → "2m 17s" ; 45 → "45s" ; 0 → "<1s"
+    local s=$1
+    [ "$s" -le 0 ] && { echo "<1s"; return; }
+    local m=$((s / 60)) sec=$((s % 60))
+    if [ "$m" -gt 0 ]; then
+        if [ "$sec" -gt 0 ]; then echo "${m}m ${sec}s"; else echo "${m}m"; fi
+    else
+        echo "${sec}s"
+    fi
+}
+
+_progress_bar() {
+    local pct=$1 width=24 filled
+    [ "$pct" -gt 100 ] && pct=100
+    [ "$pct" -lt 0 ]   && pct=0
+    filled=$(( pct * width / 100 ))
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar+="█"; done
+    for ((i=filled; i<width; i++)); do bar+="░"; done
+    echo -e "${BLUE}[${bar}]${NC} ${pct}%"
+}
+
+log_step() {
+    # log_step N "Title"
+    local n="$1" title="$2"
+    CURRENT_STEP="$n"
+    CURRENT_STEP_START_TS=$(date +%s)
+    local est=${STEP_ESTIMATES_S[$((n - 1))]}
+    log_info "[${n}/8] ${title}  (≈$(_fmt_duration "$est") cold)"
+}
+
+log_step_done() {
+    # Call at end of each step. Renders bar + elapsed/remaining.
+    local now=$(date +%s)
+    local step_elapsed=$((now - CURRENT_STEP_START_TS))
+    local total_elapsed=$((now - INSTALL_START_TS))
+    local steps_done="$CURRENT_STEP"
+    local pct=$(( steps_done * 100 / 8 ))
+
+    # Sum of estimates for remaining steps
+    local remaining_est=0
+    for ((i=steps_done; i<8; i++)); do
+        remaining_est=$((remaining_est + STEP_ESTIMATES_S[i]))
+    done
+
+    local bar
+    bar=$(_progress_bar "$pct")
+    printf '%b · %d/8 done · elapsed %s · ~%s remaining\n' \
+        "$bar" "$steps_done" "$(_fmt_duration "$total_elapsed")" "$(_fmt_duration "$remaining_est")"
+    echo ""
+}
+
 # ============================================================================
 # PARSE ARGUMENTS
 # ============================================================================
@@ -130,6 +199,8 @@ sed_escape_replacement() {
 # 1. PRE-FLIGHT CHECKS
 # ============================================================================
 preflight() {
+    log_info "Cold-install estimate: ~$(_fmt_duration "$TOTAL_ESTIMATE_S") on a fresh Ubuntu/Debian. Reinstalls / hot-cache hosts finish faster."
+    echo ""
     log_info "Pre-flight checks..."
 
     # Root check
@@ -243,7 +314,7 @@ PY
 # 3. INSTALL SYSTEM DEPENDENCIES
 # ============================================================================
 install_system_deps() {
-    log_info "[1/8] Installing system dependencies..."
+    log_step 1 "Installing system dependencies..."
 
     wait_for_apt_locks() {
         local locks=(
@@ -443,7 +514,8 @@ install_system_deps() {
 # 4. SETUP POSTGRESQL
 # ============================================================================
 setup_postgresql() {
-    log_info "[2/8] Setting up PostgreSQL..."
+    log_step_done
+    log_step 2 "Setting up PostgreSQL..."
 
     # Generate DB password if not provided
     if [[ -z "$DB_PASS" ]]; then
@@ -529,7 +601,8 @@ SQL
 # 5. COPY APPLICATION FILES
 # ============================================================================
 copy_files() {
-    log_info "[3/8] Installing application files..."
+    log_step_done
+    log_step 3 "Installing application files..."
 
     mkdir -p "$INSTALL_DIR"
 
@@ -598,7 +671,8 @@ reset_runtime_state_for_fresh_install() {
 # 6. PYTHON VIRTUAL ENVIRONMENT
 # ============================================================================
 setup_python() {
-    log_info "[4/8] Setting up Python environment..."
+    log_step_done
+    log_step 4 "Setting up Python environment..."
 
     if [[ ! -d "$INSTALL_DIR/venv" ]]; then
         if python3 -m venv "$INSTALL_DIR/venv" >/dev/null 2>&1; then
@@ -737,7 +811,8 @@ except Exception:
 }
 
 configure_env() {
-    log_info "[5/8] Configuring environment..."
+    log_step_done
+    log_step 5 "Configuring environment..."
 
     # If .env already exists (upgrade), preserve it completely
     if [[ -f "$INSTALL_DIR/.env" ]]; then
@@ -1148,7 +1223,8 @@ configure_web_access_preferences() {
 # 8. INITIALIZE DATABASE
 # ============================================================================
 init_database() {
-    log_info "[6/8] Initializing database..."
+    log_step_done
+    log_step 6 "Initializing database..."
 
     cd "$INSTALL_DIR"
     "$INSTALL_DIR/venv/bin/python" main.py init-db 2>&1 | tail -3 || {
@@ -1183,7 +1259,8 @@ install_cli_entrypoint() {
 }
 
 install_systemd() {
-    log_info "[7/8] Installing systemd services..."
+    log_step_done
+    log_step 7 "Installing systemd services..."
 
     # Core services from deploy/systemd/
     local services=("vpnmanager-api" "vpnmanager-admin-bot" "vpnmanager-client-bot" "vpnmanager-worker")
@@ -1273,7 +1350,8 @@ configure_firewall() {
 # 11. START SERVICES
 # ============================================================================
 start_services() {
-    log_info "[8/8] Starting services..."
+    log_step_done
+    log_step 8 "Starting services..."
 
     # Start API
     systemctl start vpnmanager-api
@@ -1754,6 +1832,8 @@ print('ok')
 # 14. SUMMARY
 # ============================================================================
 print_summary() {
+    log_step_done
+
     local server_ip
     server_ip=$(curl -s --max-time 3 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
 

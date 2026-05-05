@@ -4,6 +4,28 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.54 — 2026-05-05
+
+Internal build-tooling hardening. No user-facing changes — install / upgrade behaviour and product surface are identical to v1.5.53.
+
+---
+
+## v1.5.53 — 2026-05-05
+
+The installer now tells you what it's actually doing and how long it should take.
+
+### Added
+
+- **Per-step progress bar** in `install.sh`: each of the 8 install steps prints its own ETA banner ("Installing system dependencies… (≈2m cold)") and a cumulative bar afterwards (`[████░░░░░░] 25% · 2/8 done · elapsed 2m 44s · ~3m 30s remaining`).
+- **Total install estimate** printed during pre-flight, so you know up front whether the install is going to take 30 seconds (warm host) or 7 minutes (fresh Ubuntu / cold cache).
+- The "AmneziaWG installing…" hang on fresh Ubuntu hosts (DKMS compile against current kernel headers — typically the slowest single step) is now visibly part of step 1/8, so it doesn't look stuck.
+
+### Why
+
+Previously the installer was silent for 60–180 seconds at a time during heavy steps (apt update with new PPAs, DKMS kernel-module build, pip install with C extensions). On a fresh VM this looked like a hang; "did it crash?" was a recurring support thread. The bar + ETA surfaces real progress without changing what the installer actually does.
+
+---
+
 ## v1.5.52 — 2026-05-05
 
 Fixes a real bug in the keypair-reuse flow shipped earlier: the toggle accepted the pasted private key but the server-creation path silently overwrote it with a freshly generated one, so the "replace a broken server" workflow produced a new identity instead of preserving the old one. Existing client configs (which pin the old PublicKey) couldn't handshake with the new box, and connecting through it gave no internet access.
