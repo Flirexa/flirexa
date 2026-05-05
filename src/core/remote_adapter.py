@@ -199,20 +199,23 @@ class RemoteServerAdapter:
     def start_interface(self) -> bool:
         """Start WireGuard interface"""
         if self.mode == "agent":
-            # Agent manages interface via systemd — verify it's actually up
-            is_up = self.backend.health_check()
-            if is_up:
+            # Try the agent's /interface/up endpoint first (agent ≥ 1.4.0).
+            # Falls back to a bare health check for older agents — they
+            # already auto-start the interface via systemd, so being healthy
+            # is the same as being up.
+            if self.backend.start_interface():
                 return True
-            logger.warning("Agent mode: interface not up, cannot start remotely (use systemd on agent server)")
-            return False
+            return self.backend.health_check()
         else:
             return self.backend.start_interface()
 
     def stop_interface(self) -> bool:
         """Stop WireGuard interface"""
         if self.mode == "agent":
-            logger.warning("Interface stop not supported in agent mode (use systemd on agent server)")
-            return False
+            # agent ≥ 1.4.0 supports /interface/down; older agents 404 on it
+            # and we surface that as False so the panel shows a clearer
+            # message ("re-bootstrap from panel to enable Stop in agent mode").
+            return self.backend.stop_interface()
         else:
             return self.backend.stop_interface()
 

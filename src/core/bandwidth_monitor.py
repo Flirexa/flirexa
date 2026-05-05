@@ -77,11 +77,17 @@ class BandwidthMonitor:
         for p in peers:
             current[p.public_key] = (p.transfer_rx, p.transfer_tx)
 
-        # Client lookup: public_key -> (name, id, ipv4)
-        clients = self.db.query(Client).filter(Client.server_id == server_id).all()
+        # Client lookup: public_key -> (name, id, ipv4, owner_server_id)
+        # Look up across ALL servers, not just this one — when dual-active
+        # migration ("Keep clients on source server") adds a peer to the
+        # destination server's WireGuard, the matching DB record stays on
+        # the SOURCE server. Filtering by server_id alone produces an empty
+        # cmap on dst, and live peers fall back to public-key fragments in
+        # the panel's Top Consumers list.
+        clients = self.db.query(Client).all()
         cmap = {}
         for c in clients:
-            cmap[c.public_key] = (c.name, c.id, c.ipv4 or "?")
+            cmap[c.public_key] = (c.name, c.id, c.ipv4 or "?", c.server_id)
 
         # Compute rates from delta
         peer_rates = []
@@ -98,7 +104,17 @@ class BandwidthMonitor:
                 rx_mbps = round(delta_rx * 8 / dt / 1_000_000, 2)
                 tx_mbps = round(delta_tx * 8 / dt / 1_000_000, 2)
 
-                name, cid, ipv4 = cmap.get(pub_key, (pub_key[:12], 0, "?"))
+                name, cid, ipv4, owner_sid = cmap.get(pub_key, (pub_key[:12], 0, "?", None))
+                # Mark peers whose DB record lives on a different server (the
+                # dual-active "shadow peer" case) so the UI can show e.g.
+                # "test1 (from cloudConeWG)".
+                shadow_from = None
+                if owner_sid is not None and owner_sid != server_id:
+                    src_srv = next((s for s in [server] if s.id == owner_sid), None)
+                    if src_srv is None:
+                        from ..database.models import Server as _S
+                        src_srv = self.db.query(_S).filter(_S.id == owner_sid).first()
+                    shadow_from = src_srv.name if src_srv else f"server #{owner_sid}"
                 peer_rates.append({
                     "public_key": pub_key,
                     "client_name": name,
@@ -107,6 +123,7 @@ class BandwidthMonitor:
                     "rx_rate_mbps": rx_mbps,
                     "tx_rate_mbps": tx_mbps,
                     "total_rate_mbps": round(rx_mbps + tx_mbps, 2),
+                    "shadow_from": shadow_from,  # null for native, server name for dual-active mirrors
                 })
                 total_rx += rx_mbps
                 total_tx += tx_mbps

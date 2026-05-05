@@ -1111,12 +1111,20 @@
               <label class="form-label small fw-bold">To</label>
               <select v-model="migrateTargetId" class="form-select form-select-sm">
                 <option :value="null" disabled>{{ $t('servers.selectTargetServer') || 'Select target server…' }}</option>
-                <option v-for="s in migrateCandidateServers" :key="s.id" :value="s.id">
+                <option v-for="s in migrateCandidateServers" :key="s.id" :value="s.id"
+                        :disabled="migrateSourceServer && s.public_key !== migrateSourceServer.public_key">
                   {{ s.name }} · {{ s.server_type }} · {{ s.endpoint || 'local' }}
+                  <template v-if="migrateSourceServer && s.public_key !== migrateSourceServer.public_key">
+                    — {{ $t('servers.migrateDiffKeypair') || 'different keypair' }}
+                  </template>
                 </option>
               </select>
               <small v-if="!migrateCandidateServers.length" class="text-muted">
                 {{ $t('servers.migrateNoTargets') || 'No other server with the same protocol available.' }}
+              </small>
+              <small v-else-if="migrateCandidateServers.length && !migrateAnyKeypairMatches" class="text-warning d-block mt-1">
+                <i class="mdi mdi-alert-circle-outline me-1"></i>
+                {{ $t('servers.migrateNoKeypairMatch') || 'No target server has the same WireGuard keypair as the source. Recreate one with Add Server → "Reuse private key", or migrate by manually re-issuing client configs.' }}
               </small>
             </div>
 
@@ -2322,6 +2330,16 @@ const migrateCandidateServers = computed(() => {
     (s.server_type || 'wireguard') === srcType &&
     s.server_category !== 'proxy'
   )
+})
+
+// True if at least one candidate server shares the source's WireGuard
+// keypair — we use this to surface a clear warning when none do, since
+// migrating to a different-keypair host would silently break every
+// client's existing config.
+const migrateAnyKeypairMatches = computed(() => {
+  if (!migrateSourceServer.value) return false
+  const srcKey = migrateSourceServer.value.public_key
+  return migrateCandidateServers.value.some(s => s.public_key === srcKey)
 })
 
 async function openMigrateClients(server) {
