@@ -1543,6 +1543,16 @@ class MigrateClientsRequest(BaseModel):
     target_server_id: int = Field(..., description="ID of the server clients should be moved to")
     sync_to_remote: bool = Field(True, description="Also push peer entries to the new server's running WireGuard")
     remove_from_old: bool = Field(True, description="Remove peer entries from the old server's running WireGuard")
+    keep_on_source: bool = Field(
+        False,
+        description=(
+            "Dual-active copy mode. When true, clients stay associated with the SOURCE server "
+            "in the DB and only get added as peers on the target server's WireGuard. The source "
+            "server keeps both its DB association AND its live peer entries. Forces "
+            "remove_from_old=false implicitly. Designed for the DNS-propagation transition: "
+            "during the change-over period, customers' configs work against either endpoint."
+        ),
+    )
     client_ids: Optional[List[int]] = Field(
         None,
         description=(
@@ -1649,6 +1659,14 @@ async def migrate_clients_between_servers(
     moved = 0
     failed: List[Dict[str, Any]] = []
 
+    # Dual-active "copy" mode: clients stay registered against src in the DB
+    # AND keep their live peer on src; we only ALSO add the peer to dst.
+    # Implies remove_from_old=False (forced) and skips the DB re-point step
+    # so the panel still shows them on the source server during the
+    # DNS-propagation window.
+    if payload.keep_on_source:
+        payload.remove_from_old = False
+
     # Pre-build WG managers for each side so we don't open SSH on every iteration.
     src_wg = core.clients._get_wg(src) if payload.remove_from_old else None
     dst_wg = core.clients._get_wg(dst) if payload.sync_to_remote else None
@@ -1670,8 +1688,10 @@ async def migrate_clients_between_servers(
                             c.name, src.name, _e_rm,
                         )
 
-                # 2) Re-point in DB.
-                c.server_id = dst.id
+                # 2) Re-point in DB — skipped in copy mode so the panel still
+                #    shows the client on the source server.
+                if not payload.keep_on_source:
+                    c.server_id = dst.id
 
                 # 3) Add peer to NEW server's live WG (best-effort) — same client keys.
                 if dst_wg is not None:

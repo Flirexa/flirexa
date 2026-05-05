@@ -1126,11 +1126,24 @@
                 {{ $t('servers.migrateSyncRemote') || 'Push peers to the new server\'s WireGuard (recommended)' }}
               </label>
             </div>
-            <div class="form-check mb-3">
-              <input class="form-check-input" type="checkbox" id="removeOld" v-model="migrateRemoveFromOld">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" id="removeOld"
+                     v-model="migrateRemoveFromOld" :disabled="migrateKeepOnSource">
               <label class="form-check-label small" for="removeOld">
                 {{ $t('servers.migrateRemoveOld') || 'Remove peers from the old server\'s WireGuard' }}
               </label>
+            </div>
+            <!-- Dual-active copy mode: keeps clients on the source AND adds them
+                 to the destination, for the DNS-propagation transition window. -->
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" id="keepOnSource" v-model="migrateKeepOnSource">
+              <label class="form-check-label small" for="keepOnSource">
+                {{ $t('servers.migrateKeepOnSource') || 'Keep clients on source server (dual-active during DNS propagation)' }}
+              </label>
+              <div v-if="migrateKeepOnSource" class="form-text small ms-4 mt-1" style="color: var(--bs-info-text-emphasis)">
+                <i class="mdi mdi-information-outline me-1"></i>
+                {{ $t('servers.migrateKeepOnSourceHint') || "Source keeps the clients in its panel and on its live WireGuard. Destination gets the same peers added — clients can connect to either endpoint during the cutover. When DNS has finished propagating, run a regular migrate (this checkbox off) to complete the move." }}
+              </div>
             </div>
 
             <!-- Selective migration: list of clients with checkboxes.
@@ -1517,6 +1530,7 @@ const migrateSourceServer = ref(null)
 const migrateTargetId = ref(null)
 const migrateSyncRemote = ref(true)
 const migrateRemoveFromOld = ref(true)
+const migrateKeepOnSource = ref(false)
 const migrating = ref(false)
 const migrateResult = ref(null)
 const migrateError = ref('')
@@ -2305,6 +2319,7 @@ async function openMigrateClients(server) {
   migrateTargetId.value = null
   migrateSyncRemote.value = true
   migrateRemoveFromOld.value = true
+  migrateKeepOnSource.value = false
   migrating.value = false
   migrateResult.value = null
   migrateError.value = ''
@@ -2377,6 +2392,7 @@ async function runMigrate() {
       target_server_id: migrateTargetId.value,
       sync_to_remote: migrateSyncRemote.value,
       remove_from_old: migrateRemoveFromOld.value,
+      keep_on_source: migrateKeepOnSource.value,
     }
     // Pass `client_ids` only when the user picked a subset — sending all IDs
     // explicitly would defeat the bulk-path's "no clients matched" early

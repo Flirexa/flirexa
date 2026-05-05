@@ -497,6 +497,8 @@ export default {
     migrateNoTargets: 'No hay otro servidor con el mismo protocolo disponible.',
     migrateSyncRemote: 'Sincronizar peers al WireGuard del nuevo servidor (recomendado)',
     migrateRemoveOld: 'Eliminar peers del WireGuard del servidor antiguo',
+    migrateKeepOnSource: 'Mantener clientes en el servidor origen (dual-activo durante la propagación DNS)',
+    migrateKeepOnSourceHint: 'El servidor origen mantiene los clientes en su panel y en su WireGuard activo. Al destino se le añaden los mismos peers — los clientes pueden conectarse a cualquiera de los dos endpoints durante el cambio. Cuando el DNS haya propagado, ejecuta una migración normal (sin esta casilla) para completar el movimiento.',
     migrateNow: 'Migrar ahora',
     migrateClientsToPick: 'Clientes a migrar',
     migrateSelectAll: 'Todos',

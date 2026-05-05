@@ -506,6 +506,8 @@ export default {
     migrateNoTargets: 'Нет других серверов с тем же протоколом.',
     migrateSyncRemote: 'Добавить пиров на WireGuard нового сервера (рекомендуется)',
     migrateRemoveOld: 'Удалить пиров с WireGuard старого сервера',
+    migrateKeepOnSource: 'Оставить клиентов на исходном сервере (dual-active на время DNS-пропагации)',
+    migrateKeepOnSourceHint: 'Исходный сервер сохраняет клиентов в панели и в живом WireGuard. На целевом просто добавляются те же пиры — клиенты могут подключаться к любому из двух эндпоинтов во время перехода. Когда DNS пропагируется, повтори миграцию без этой галочки чтобы завершить move.',
     migrateNow: 'Перенести сейчас',
     migrateClientsToPick: 'Клиенты для переноса',
     migrateSelectAll: 'Все',

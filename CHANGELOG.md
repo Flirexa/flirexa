@@ -4,6 +4,29 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.59 — 2026-05-05
+
+Migrate Clients gains a dual-active "copy" mode for transitions where DNS hasn't fully propagated yet — clients keep working against both endpoints during the cutover window.
+
+### Added
+
+- **"Keep clients on source server (dual-active during DNS propagation)"** checkbox in the Migrate Clients modal. When ticked, the source server retains both its DB association AND its live WireGuard peers; the destination just gets the same peers added on top. While DNS is in flux, customer configs work against either endpoint depending on what their resolver returns.
+- The new option automatically greys out the "Remove peers from old WG" toggle, since the two are conceptually mutually exclusive.
+
+### Why
+
+Previously the only ways to migrate were either a full move (clients leave the source for the destination) or a "kernel-only-keep" mode (peers stayed on source's WireGuard, but the DB still re-pointed and the source's panel showed it as empty). Neither preserved the dual-active state needed during a DNS transition. The new mode fills that gap: source stays visible and live, destination becomes additionally live, both honour the same client identities.
+
+### How to complete the move later
+
+When DNS has fully propagated, run Migrate again on the same selection without the new checkbox. That re-points the DB to the destination and removes the peers from the source's WireGuard, finishing the cutover.
+
+### Tests
+
+Four pytest cases cover the matrix (full move / kernel-only-keep / dual-active / dual-active+selective) and assert exactly which `add_peer` / `remove_peer` calls fire on each side. CI now has migration semantics under regression coverage.
+
+---
+
 ## v1.5.58 — 2026-05-05
 
 Internal release-pipeline hardening to prevent a v1.5.55-class regression from ever shipping again. Plus a small straggler from the v1.5.55→v1.5.57 cleanup.
