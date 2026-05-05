@@ -4,6 +4,17 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.60 — 2026-05-05
+
+UI polish on the dual-active migrate flow shipped in v1.5.59.
+
+### Fixed
+
+- The "Remove peers from old WG" checkbox in Migrate Clients now also unticks itself the moment "Keep clients on source server" is enabled. Previously it stayed visually ticked (just greyed out) even though the backend ignored it — the box and the actual outcome are now consistent.
+- One-way only: turning "Keep on source" off again does not auto-re-tick "Remove from old", so the operator's last choice is preserved.
+
+---
+
 ## v1.5.59 — 2026-05-05
 
 Migrate Clients gains a dual-active "copy" mode for transitions where DNS hasn't fully propagated yet — clients keep working against both endpoints during the cutover window.
