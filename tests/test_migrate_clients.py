@@ -101,7 +101,9 @@ def _patch_wg_managers():
 
 
 def test_migrate_default_move(app_with_two_servers):
-    """Plain migrate: DB re-points, peer removed from src, added to dst."""
+    """Plain migrate: DB re-points, peer removed from src, added to dst.
+    The fixture seeds src/dst with different keypairs, so we pass
+    force_different_keys=True to bypass the safety guard tested separately."""
     app, TestSession, src_id, dst_id = app_with_two_servers
     managers, patcher = _patch_wg_managers()
     with patcher, TestClient(app) as client:
@@ -110,6 +112,7 @@ def test_migrate_default_move(app_with_two_servers):
             "sync_to_remote": True,
             "remove_from_old": True,
             "keep_on_source": False,
+            "force_different_keys": True,
         })
     assert r.status_code == 200, r.text
     assert r.json()["moved"] == 3
@@ -138,6 +141,7 @@ def test_migrate_keep_on_source_dual_active(app_with_two_servers):
             # it off when keep_on_source=True; we test that here.
             "remove_from_old": True,
             "keep_on_source": True,
+            "force_different_keys": True,
         })
     assert r.status_code == 200, r.text
     assert r.json()["moved"] == 3
@@ -167,6 +171,7 @@ def test_migrate_kernel_only_remove_off(app_with_two_servers):
             "sync_to_remote": True,
             "remove_from_old": False,   # keep peers on src kernel
             "keep_on_source": False,    # but DO move the DB association
+            "force_different_keys": True,
         })
     assert r.status_code == 200, r.text
     assert r.json()["moved"] == 3
@@ -182,6 +187,44 @@ def test_migrate_kernel_only_remove_off(app_with_two_servers):
     assert managers[dst_id].add_peer.call_count == 3
     if src_id in managers:
         assert managers[src_id].remove_peer.call_count == 0
+
+
+def test_migrate_refuses_different_keypair(app_with_two_servers):
+    """Migrate refuses with HTTP 400 if src and dst have different keypairs.
+    Operator-safety: prevents accidental migrate to wrong-server pick."""
+    app, TestSession, src_id, dst_id = app_with_two_servers
+    managers, patcher = _patch_wg_managers()
+    with patcher, TestClient(app) as client:
+        r = client.post(f"/api/v1/servers/{src_id}/migrate-clients", json={
+            "target_server_id": dst_id,
+            # default force_different_keys=False
+        })
+    assert r.status_code == 400, r.text
+    body = r.json()
+    assert body["detail"]["error"] == "keypair_mismatch"
+    # Nothing should have been touched
+    db = TestSession()
+    try:
+        # All 3 still on src, none on dst
+        assert db.query(Client).filter(Client.server_id == src_id).count() == 3
+        assert db.query(Client).filter(Client.server_id == dst_id).count() == 0
+    finally: db.close()
+    # No add_peer / remove_peer calls
+    if src_id in managers: assert managers[src_id].remove_peer.call_count == 0
+    if dst_id in managers: assert managers[dst_id].add_peer.call_count == 0
+
+
+def test_migrate_force_different_keys_bypasses_guard(app_with_two_servers):
+    """force_different_keys=True bypasses the keypair-match safety guard."""
+    app, TestSession, src_id, dst_id = app_with_two_servers
+    managers, patcher = _patch_wg_managers()
+    with patcher, TestClient(app) as client:
+        r = client.post(f"/api/v1/servers/{src_id}/migrate-clients", json={
+            "target_server_id": dst_id,
+            "force_different_keys": True,
+        })
+    assert r.status_code == 200, r.text
+    assert r.json()["moved"] == 3
 
 
 def test_migrate_subset_with_keep_on_source(app_with_two_servers):
@@ -200,6 +243,7 @@ def test_migrate_subset_with_keep_on_source(app_with_two_servers):
             "sync_to_remote": True,
             "keep_on_source": True,
             "client_ids": chosen_ids,
+            "force_different_keys": True,
         })
     assert r.status_code == 200, r.text
     assert r.json()["moved"] == 2

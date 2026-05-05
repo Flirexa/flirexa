@@ -4,6 +4,27 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.61 — 2026-05-05
+
+Bundle of four fixes around the Migrate Clients flow, plus agent-mode interface control. All driven by operator-feedback.
+
+### Fixed
+
+- **Top Consumers / Bandwidth on the destination server** now resolves peer names across ALL servers, not just the current one. After a dual-active migrate, the destination's live WireGuard has the source's peers; their DB record stays on the source, so the panel previously fell back to public-key fragments. The new lookup finds the original client name and tags shadow peers with their source-server name.
+- **Stop / Start now work in agent mode.** The agent (≥ 1.4.0) gains `/interface/up` and `/interface/down` endpoints calling `wg-quick`. The panel's Stop button no longer returns a misleading "Failed to stop server" error. Older agents that don't expose the endpoint surface a clearer message asking the operator to re-bootstrap.
+- **Migrate Clients refuses keypair-mismatched targets.** When the source and destination have different WireGuard public keys, every client config (which pins the source's PublicKey) would fail to handshake on the destination — usually accidental selection. The API now returns HTTP 400 with `error: keypair_mismatch` and a helpful pointer to the "Reuse private key" Add Server toggle. Pass `force_different_keys=true` to override when you really do intend to re-issue every config afterwards.
+- The Migrate Clients modal greys out destination servers with mismatched keypairs in the dropdown and shows a warning when no candidate matches the source's identity.
+
+### Tests
+
+Migration test suite extended from 4 to 6 cases — keypair-mismatch refusal and force-bypass paths are both under regression coverage.
+
+### Note on agent re-bootstrap
+
+The `/interface/up` and `/interface/down` endpoints are part of agent v1.4.0 (bundled in the v1.5.61 tarball). They take effect on a remote VPN node after the panel re-runs agent_bootstrap on it. Older agents keep working — they just continue to surface the friendlier "agent < 1.4.0" warning if you press Stop in the panel.
+
+---
+
 ## v1.5.60 — 2026-05-05
 
 UI polish on the dual-active migrate flow shipped in v1.5.59.

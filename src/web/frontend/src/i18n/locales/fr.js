@@ -497,6 +497,8 @@ export default {
     migrateNoTargets: 'Aucun autre serveur du même protocole disponible.',
     migrateSyncRemote: 'Transférer les pairs vers WireGuard du nouveau serveur (recommandé)',
     migrateRemoveOld: 'Supprimer les pairs de WireGuard de l\'ancien serveur',
+    migrateDiffKeypair: 'paire de clés différente',
+    migrateNoKeypairMatch: 'Aucun serveur cible n\'a la même paire de clés WireGuard que la source. Recréez-en un via Add Server → "Reuse private key", ou migrez en réémettant manuellement les configs clients.',
     migrateKeepOnSource: 'Conserver les clients sur le serveur source (double-actif pendant la propagation DNS)',
     migrateKeepOnSourceHint: 'Le serveur source conserve les clients dans son panneau et sur son WireGuard actif. Le serveur de destination reçoit les mêmes pairs — les clients peuvent se connecter à l\'un ou l\'autre des points d\'extrémité pendant la bascule. Une fois la propagation DNS terminée, relancez une migration normale (sans cette case cochée) pour terminer le déplacement.',
     migrateNow: 'Migrer maintenant',

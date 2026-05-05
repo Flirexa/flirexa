@@ -1553,6 +1553,16 @@ class MigrateClientsRequest(BaseModel):
             "during the change-over period, customers' configs work against either endpoint."
         ),
     )
+    force_different_keys: bool = Field(
+        False,
+        description=(
+            "Bypass the public-key match safety check. Off by default — migration refuses "
+            "to run when src and dst have different keypairs because existing client configs "
+            "(which pin the src's PublicKey) cannot handshake with dst until the operator "
+            "re-issues every config. Set to true only if you know what you're doing and "
+            "intend to re-issue configs after the move."
+        ),
+    )
     client_ids: Optional[List[int]] = Field(
         None,
         description=(
@@ -1599,6 +1609,30 @@ async def migrate_clients_between_servers(
                 f"Protocol mismatch: source is {src.server_type}, target is {dst.server_type}. "
                 "Migration only supports same-protocol moves."
             ),
+        )
+
+    # Safety guard — clients' .conf files pin the SOURCE server's PublicKey.
+    # If the destination has a different keypair, every client would need a
+    # new .conf re-issued and re-installed before they could connect. That's
+    # almost always an accident (operator picked the wrong dst from the
+    # dropdown). Refuse unless force_different_keys is explicitly set.
+    if (src.public_key or "") != (dst.public_key or "") and not payload.force_different_keys:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "keypair_mismatch",
+                "message": (
+                    f"'{src.name}' and '{dst.name}' have different WireGuard keypairs. "
+                    "Existing client configs pin the source's PublicKey and would fail "
+                    "to handshake on the destination. Either: "
+                    "(1) recreate the destination via Add Server with the 'Replacing a "
+                    "broken server? Reuse its private key' toggle and paste the source's "
+                    "private key, or (2) pass force_different_keys=true if you intend to "
+                    "re-issue every client config afterwards."
+                ),
+                "src_pubkey_hint": (src.public_key or "")[:12] + "…",
+                "dst_pubkey_hint": (dst.public_key or "")[:12] + "…",
+            },
         )
 
     q = db.query(Client).filter(Client.server_id == src.id)
