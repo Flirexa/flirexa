@@ -388,7 +388,7 @@ def _resolve_orphan(rec, now) -> str:
                 # finished writing its exit code.
                 rec.error_message = None
                 rec.last_step = "Finalising"
-                logger.info("Update {} resolved as SUCCESS (exitcode=0)", rec.id)
+                logger.info("Update %d resolved as SUCCESS (exitcode=0)", rec.id)
             elif rc == 2:
                 rec.status        = UpdateStatus.FAILED
                 rec.error_message = "update_apply.sh failed — auto-rollback was attempted"
