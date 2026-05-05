@@ -4,6 +4,40 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.63 — 2026-05-05
+
+Live auto-refresh on the panel — the Clients list and Dashboard counters now update on their own, no more F5 to see who's online.
+
+### Added
+
+- **Live indicator with interval picker** in the top-right of the Clients page and Dashboard. Click the badge to choose how often the panel re-fetches: Off / 5s / 15s / 30s / 1m / 5m. Choice is persisted per page in `localStorage`, so each operator keeps their own cadence across reloads.
+- **Auto-pause when the tab is in the background** (Page Visibility API). A panel left open in another tab won't keep waking the agents up — polling resumes the moment the tab is brought back into focus.
+
+### How it looks
+
+The badge sits inline with the page title actions. Green pulsing dot = polling, grey = paused (tab hidden), pale grey = Off. The current interval is shown next to the label ("Live · 15s"). Reduced-motion users get a steady dot instead of the pulse, dark-mode contrast is handled.
+
+### Under the hood
+
+A small `useLivePoll` composable (Vue 3) wraps `setInterval` + visibility handling + cleanup on unmount, so adding live behaviour to other pages later is a one-liner. The backend already injects fresh `last_handshake` from each agent on every `GET /api/v1/clients`, so what feels like "live" is just the frontend asking for the snapshot it was already getting on demand.
+
+---
+
+## v1.5.62 — 2026-05-05
+
+Two production-hardening fixes after a panel-saturation incident on a multi-server install.
+
+### Fixed
+
+- **One unreachable agent can no longer slow the whole panel.** A single agent whose management port had become unreachable from the panel host could pile up 30-second connect-timeouts in the FastAPI threadpool — every `/bandwidth` poll for that one server stacked another blocked worker, until the UI itself stopped responding. The agent client gains a host-keyed circuit breaker: after 3 consecutive connect failures the panel skips that host for 60 s, returns immediately, and unblocks the threadpool. After the cooldown expires, the next failure re-opens the breaker for another 60 s instead of letting timeouts leak through forever.
+- **"Uninstall agent" no longer disconnects customers.** The panel's per-server agent uninstall flow used to bring down the WireGuard interface and remove its `.conf` file as part of cleanup — disconnecting every connected peer because the operator clicked an agent-management button. This was over-engineering: the install side already rewrites the config and bounces the interface on the next install, so the destructive teardown was unnecessary. `uninstall_agent` now defaults to control-plane-only (systemd unit, agent code dir, agent's own iptables rule). The `delete_server` flow that purges an entire server record still tears the data plane down, opted into via a new `purge_vpn_interface=True` flag.
+
+### Tests
+
+Three new regression tests pin the new uninstall behaviour: control-plane uninstall keeps `wg1` up and `/etc/wireguard/wg1.conf` intact (WG and AmneziaWG variants both covered); the explicit `purge_vpn_interface=True` flag still brings the interface down for the delete-server flow.
+
+---
+
 ## v1.5.61 — 2026-05-05
 
 Bundle of four fixes around the Migrate Clients flow, plus agent-mode interface control. All driven by operator-feedback.

@@ -408,6 +408,67 @@ class TestInstallAgentFlow:
 # AGENT.PY — AWG COMMAND SELECTION TESTS
 # ============================================================================
 
+class TestUninstallPreservesDataPlane:
+    """Uninstalling the agent service must NOT bring down the customer-facing
+    WireGuard interface by default. That data-plane teardown is reserved for
+    `delete_server` (which sets `purge_vpn_interface=True` explicitly).
+
+    Regression: Herbert clicked "Uninstall agent" on a server that had become
+    panel-unreachable. The old code wiped /etc/wireguard/wg1.conf and ran
+    `wg-quick down wg1`, knocking 13 customers offline. Reinstall is the only
+    place that needs to rewrite the config (bootstrap S4 already does it),
+    so the destructive teardown was overkill on this path.
+    """
+
+    def _make_bootstrap(self):
+        bs = AgentBootstrap("1.2.3.4", 22, "root", "pass")
+        # Stub _exec to record commands and return canned data. We pretend
+        # the unit file's env vars include WG_INTERFACE so iface is detected.
+        bs._exec = MagicMock(return_value=("AGENT_PORT=8002\nWG_INTERFACE=wg1\n", "", 0))
+        bs.close = MagicMock()
+        return bs
+
+    def test_uninstall_default_keeps_wg_interface_up(self):
+        bs = self._make_bootstrap()
+        ok = bs.uninstall_agent(service_name="vpnmanager-agent-wg1",
+                                interface_hint="wg1")
+        assert ok is True
+        cmds = [c.args[0] for c in bs._exec.call_args_list]
+        # No wg-quick down anywhere
+        assert not any("wg-quick down" in c for c in cmds), \
+            f"unexpected wg-quick down: {cmds}"
+        # No conf removal
+        assert not any("rm -f /etc/wireguard/wg1.conf" in c for c in cmds), \
+            f"unexpected conf removal: {cmds}"
+        # Systemd unit IS torn down
+        assert any("systemctl stop vpnmanager-agent-wg1" in c for c in cmds)
+        assert any("rm -f /etc/systemd/system/vpnmanager-agent-wg1.service" in c
+                   for c in cmds)
+
+    def test_uninstall_with_purge_brings_wg_down_and_removes_conf(self):
+        bs = self._make_bootstrap()
+        ok = bs.uninstall_agent(service_name="vpnmanager-agent-wg1",
+                                interface_hint="wg1",
+                                purge_vpn_interface=True)
+        assert ok is True
+        cmds = [c.args[0] for c in bs._exec.call_args_list]
+        assert any("wg-quick down wg1" in c for c in cmds), \
+            f"expected wg-quick down: {cmds}"
+        assert any("rm -f /etc/wireguard/wg1.conf" in c for c in cmds), \
+            f"expected conf removal: {cmds}"
+
+    def test_uninstall_default_keeps_awg_interface_up(self):
+        bs = AgentBootstrap("1.2.3.4", 22, "root", "pass")
+        bs._exec = MagicMock(return_value=("AGENT_PORT=8003\nWG_INTERFACE=awg0\n", "", 0))
+        bs.close = MagicMock()
+        ok = bs.uninstall_agent(service_name="vpnmanager-agent-awg0",
+                                interface_hint="awg0")
+        assert ok is True
+        cmds = [c.args[0] for c in bs._exec.call_args_list]
+        assert not any("awg-quick down" in c for c in cmds)
+        assert not any("rm -f /etc/amnezia/amneziawg/awg0.conf" in c for c in cmds)
+
+
 class TestAgentAWGCommands:
     """Verify that agent.py command selection logic is correct for AWG vs WG interfaces."""
 

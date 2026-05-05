@@ -31,9 +31,12 @@
           <option v-for="s in servers" :key="s.id" :value="s.id">{{ s.name }}</option>
         </select>
       </div>
-      <button class="btn btn-primary btn-sm" @click="showCreateModal = true">
-        {{ $t('clients.newClient') }}
-      </button>
+      <div class="d-flex align-items-center gap-2">
+        <LiveIndicator :live="isLivePoll" v-model:intervalMs="livePollInterval" />
+        <button class="btn btn-primary btn-sm" @click="showCreateModal = true">
+          {{ $t('clients.newClient') }}
+        </button>
+      </div>
     </div>
 
     <!-- Bulk actions bar -->
@@ -511,6 +514,8 @@ import { useClientsStore } from '../stores/clients'
 import { clientsApi, serversApi } from '../api'
 import { formatBytes, formatMB, formatDate } from '../utils'
 import MobileDetailSheet from '../components/MobileDetailSheet.vue'
+import LiveIndicator from '../components/LiveIndicator.vue'
+import { useLivePoll, usePersistedInterval } from '../composables/useLivePoll'
 
 const { t } = useI18n()
 const store = useClientsStore()
@@ -966,6 +971,12 @@ onMounted(async () => {
     }),
   ])
 })
+
+// Live auto-refresh: re-pull clients (which carries fresh last_handshake
+// from each agent) on a user-picked interval. Persisted per page so
+// Herbert's "show me online users without F5" preference sticks.
+const livePollInterval = usePersistedInterval('vmm.live.clients', 15_000)
+const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(), livePollInterval)
 </script>
 
 <style scoped>
