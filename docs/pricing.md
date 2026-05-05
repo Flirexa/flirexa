@@ -6,8 +6,8 @@ VPN Management Studio is a one-time purchase with a lifetime license. No subscri
 
 | Feature | Starter — $99 | Business — $249 | Enterprise — $499 |
 |---------|:--------------:|:----------------:|:------------------:|
-| **Max clients** | 50 | 200 | Unlimited |
-| **Max servers** | 1 | 5 | Unlimited |
+| **Max clients** | 500 | 2000 | Unlimited |
+| **Max servers** | 1 | 10 | Unlimited |
 | **Protocols** (WireGuard, AmneziaWG, Hysteria2, TUIC) | All | All | All |
 | **Admin panel** | Yes | Yes | Yes |
 | **Telegram admin bot** | Yes | Yes | Yes |

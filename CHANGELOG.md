@@ -4,6 +4,18 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.51 — 2026-05-05
+
+Starter tier capacity bump and a small landing-page tidy.
+
+### Changed
+
+- **Starter tier client limit raised from 300 to 500.** Existing Starter licences automatically pick up the new ceiling — no re-issue needed; the tier metadata is read live from the license manager. The bump aligns the tier with the published landing copy and gives solo operators meaningful headroom over the FREE tier (which stays at 80).
+- Landing pricing page numbers updated to match: Starter 500 clients / 1 server, Business 2000 clients / 10 servers.
+- Payment modal footer no longer promises "Fiat (card / bank) coming soon" — the line had been there indefinitely without an actual integration in flight. Replaced with a factual note about license scope ("All sales final. License is bound to one server per activation code.").
+
+---
+
 ## v1.5.50 — 2026-05-05
 
 UI follow-up to v1.5.48's Migrate Clients action: the modal now lets you pick which clients to move, instead of only doing bulk all-or-nothing.

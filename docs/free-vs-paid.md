@@ -56,7 +56,7 @@ For solo operators who started monetizing and outgrew the FREE protocol set or w
 - **TUIC** support — alternative QUIC proxy, useful when Hysteria2 is fingerprinted
 - **Promo codes** — percent-off, free-day extensions, tier-restricted, expiring
 - **Auto-renewal** — reminder emails N days before expiry, optional auto-charge
-- **Up to 300 clients** (vs 80 on FREE)
+- **Up to 500 clients** (vs 80 on FREE)
 
 Stays on **1 server**.
 
