@@ -1,10 +1,10 @@
 # Pricing
 
-VPN Management Studio is a one-time purchase with a lifetime license. No subscriptions, no recurring fees.
+VPN Management Studio is a monthly subscription. Cancel anytime.
 
 ## Plans
 
-| Feature | Starter — $99 | Business — $249 | Enterprise — $499 |
+| Feature | Starter — $19/mo | Business — $49/mo | Enterprise — $149/mo |
 |---------|:--------------:|:----------------:|:------------------:|
 | **Max clients** | 500 | 2000 | Unlimited |
 | **Max servers** | 1 | 10 | Unlimited |
@@ -22,10 +22,14 @@ VPN Management Studio is a one-time purchase with a lifetime license. No subscri
 
 ## What's included
 
-- Lifetime license (one-time purchase, no subscription)
-- Free updates for as long as the product is actively maintained
+- Monthly subscription, cancellable any time
+- Every release published while your subscription is active
 - Access to all supported VPN protocols
 - Email support at [support@flirexa.biz](mailto:support@flirexa.biz)
+
+## Cancellation
+
+Cancel any time. Your licence stays active until the end of the period you've already paid for; no further billing happens after cancellation. The version you have at the moment of cancellation keeps working — you simply stop receiving further updates.
 
 ## Payment
 
@@ -37,9 +41,9 @@ All payments are processed via cryptocurrency through NOWPayments. Accepted curr
 
 After payment confirmation, you will receive your activation code immediately via email and on the thank-you page.
 
-## Upgrade path
+## Upgrade / downgrade
 
-To upgrade from one tier to another, contact [support@flirexa.biz](mailto:support@flirexa.biz). You will receive a new activation code for the higher tier.
+To switch tiers, contact [support@flirexa.biz](mailto:support@flirexa.biz). The new rate applies from the next billing cycle.
 
 ## More information
 
