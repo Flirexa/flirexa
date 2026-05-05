@@ -4,6 +4,25 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.57 — 2026-05-05
+
+Hotfix combining a v1.5.55 regression revert with the WG+AWG subnet-collision fix that was meant to ship as v1.5.56.
+
+### Fixed
+
+- **v1.5.55 regression: smoke-check fail on upgrade.** The mass `%s → {}` conversion in v1.5.55 also touched 6 modules that use stdlib `logging` (not loguru). Stdlib `logging` interprets `%s` but not `{}`, so on those calls the stdlib→loguru bridge raised `TypeError: not all arguments converted during string formatting` at startup. Smoke-check rolled the upgrade back. Reverted those 6 files to `%s` style — they were never loguru in the first place. Loguru-native files keep their `{}` style.
+- **WireGuard + AmneziaWG subnet collision on the same host.** Adding a second VPN protocol on a host that already had one was using the same default client subnet (`10.0.1.0/24`), so the kernel routed that subnet through the last-up interface and the older interface's clients lost return traffic. Two-layer fix:
+  - Add Server form now picks `10.0.1.0/24` for WireGuard and `10.66.66.0/24` for AmneziaWG by default. Switching the protocol updates the field unless the operator already typed a custom value.
+  - Backend auto-shifts the third octet of the requested subnet when it overlaps an existing local server's pool, so direct-API callers (and the 2× WG / 2× AWG case) are also safe.
+
+### Symptoms before the fix
+
+- Created an AmneziaWG server alongside an existing WireGuard one (same host) → clients on the WireGuard server lost internet through the tunnel.
+- Reverse case (WG added next to AWG) symmetric.
+- Upgrading to v1.5.55 → smoke check failed, install rolled back automatically.
+
+---
+
 ## v1.5.55 — 2026-05-05
 
 Internal logging hygiene. No user-visible behaviour change, but logs in `journalctl -u vpnmanager-*` now render readably.

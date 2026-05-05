@@ -154,7 +154,7 @@ def _mark_stale_progress_failed(rec: UpdateHistory, db: Session) -> bool:
     rec.duration_seconds = (now - started).total_seconds()
     db.commit()
     db.refresh(rec)
-    logger.warning("Marked stale update record {} as FAILED", rec.id)
+    logger.warning("Marked stale update record %s as FAILED", rec.id)
     return True
 
 
@@ -353,7 +353,7 @@ async def apply_update_endpoint(
         )
 
     update_id = await apply_update(manifest, started_by="admin", db=db)
-    logger.info("Update started: id={} {}→{}", update_id, current, manifest["version"])
+    logger.info("Update started: id=%d %s→%s", update_id, current, manifest["version"])
 
     return {
         "update_id":    update_id,
@@ -496,7 +496,7 @@ async def set_update_channel(req: ChannelRequest, db: Session = Depends(get_db))
     db.commit()
     from src.modules.updates.checker import invalidate_cache
     invalidate_cache()   # force re-fetch from new channel
-    logger.info("Update channel changed to: {}", req.channel)
+    logger.info("Update channel changed to: %s", req.channel)
     return {"channel": req.channel}
 
 
@@ -537,7 +537,7 @@ async def set_auto_apply(req: AutoApplyRequest, db: Session = Depends(get_db)):
             description="Auto-apply updates from the configured channel",
         ))
     db.commit()
-    logger.info("Updates auto-apply set to: {}", val)
+    logger.info("Updates auto-apply set to: %s", val)
     return {"auto_apply": req.enabled}
 
 
@@ -589,5 +589,5 @@ async def restart_services():
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    logger.info("Restart triggered for services: {}", ", ".join(services))
+    logger.info("Restart triggered for services: %s", ", ".join(services))
     return {"message": "Restart initiated", "services": services}

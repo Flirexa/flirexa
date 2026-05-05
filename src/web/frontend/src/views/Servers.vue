@@ -1455,18 +1455,33 @@ watch(() => showAddModal.value, (open) => {
 
 function onProtocolChange() {
   const type = newServer.value.server_type
+  // Default subnets per protocol — different ranges so a user adding both
+  // WG and AWG on the same host doesn't get a routing collision (both
+  // interfaces claiming 10.0.1.0/24 → kernel routes via the last one up,
+  // older interface's clients lose return traffic). Backend has a parallel
+  // auto-shift safety net for API callers who don't pick a free subnet.
+  const WG_DEFAULT_POOL  = '10.0.1.0/24'
+  const AWG_DEFAULT_POOL = '10.66.66.0/24'
+
   if (type === 'amneziawg') {
     if (!newServer.value.interface.startsWith('awg')) {
       const num = newServer.value.interface.replace(/\D/g, '') || '0'
       newServer.value.interface = `awg${num}`
     }
     if ([51820, 51821].includes(newServer.value.listen_port)) newServer.value.listen_port = 51820
+    // Switch the default pool unless the user has already typed a custom one
+    if ([WG_DEFAULT_POOL, AWG_DEFAULT_POOL].includes(newServer.value.address_pool_ipv4)) {
+      newServer.value.address_pool_ipv4 = AWG_DEFAULT_POOL
+    }
   } else if (type === 'wireguard') {
     if (!newServer.value.interface.startsWith('wg')) {
       const num = newServer.value.interface.replace(/\D/g, '') || '1'
       newServer.value.interface = `wg${num}`
     }
     if ([51820].includes(newServer.value.listen_port)) newServer.value.listen_port = 51821
+    if ([WG_DEFAULT_POOL, AWG_DEFAULT_POOL].includes(newServer.value.address_pool_ipv4)) {
+      newServer.value.address_pool_ipv4 = WG_DEFAULT_POOL
+    }
   } else if (type === 'hysteria2') {
     newServer.value.listen_port = 8443
   } else if (type === 'tuic') {

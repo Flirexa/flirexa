@@ -489,6 +489,59 @@ async def create_server(
             )
             listen_port = candidate
 
+        # Auto-shift the client subnet if it overlaps any existing local
+        # server's pool. Two VPN interfaces on the same host with the same
+        # /24 break each other — the kernel routes the subnet through the
+        # last one to come up, so older interface's clients lose return
+        # traffic. Caught the hard way by adding AmneziaWG on the same box
+        # as an existing WireGuard install with the default 10.0.1.0/24.
+        # Walk the third octet within the same family until we find a free /24.
+        if address_pool_ipv4:
+            try:
+                import ipaddress
+                req_net = ipaddress.IPv4Network(address_pool_ipv4, strict=False)
+                existing_pools_raw = (
+                    db.query(Server.address_pool_ipv4)
+                    .filter(Server.address_pool_ipv4.isnot(None))
+                    .filter(Server.ssh_host.is_(None))   # local servers only
+                    .all()
+                )
+                existing_nets = []
+                for (pool_str,) in existing_pools_raw:
+                    if not pool_str:
+                        continue
+                    try:
+                        existing_nets.append(ipaddress.IPv4Network(pool_str.strip(), strict=False))
+                    except (ValueError, TypeError):
+                        pass
+
+                def _overlaps_any(net):
+                    return any(net.overlaps(e) for e in existing_nets)
+
+                if _overlaps_any(req_net):
+                    octets = req_net.network_address.exploded.split(".")
+                    base = ".".join(octets[:2])
+                    third_orig = int(octets[2])
+                    chosen = None
+                    for delta in range(1, 256):
+                        third_try = (third_orig + delta) % 256
+                        cand = ipaddress.IPv4Network(
+                            f"{base}.{third_try}.0/{req_net.prefixlen}", strict=False
+                        )
+                        if not _overlaps_any(cand):
+                            chosen = str(cand)
+                            break
+                    if chosen:
+                        logger.info(
+                            "Subnet {} already in use by another local server; auto-picked {} for new {}",
+                            address_pool_ipv4, chosen, server_data.server_type,
+                        )
+                        address_pool_ipv4 = chosen
+                    # If nothing free in /16, leave as-is — the bring-up will
+                    # surface the error explicitly. Better than silently breaking.
+            except Exception as _se:
+                logger.warning("Subnet collision check failed: {}", _se)
+
     # For AmneziaWG: auto-generate obfuscation params if not provided
     awg_params = {}
     _awg_auto = {}

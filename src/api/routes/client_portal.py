@@ -336,7 +336,7 @@ async def register(data: UserRegister, request: Request, db: Session = Depends(g
         ns = NotificationService(db)
         ns.notify_admin_new_user(user.username, user.email)
     except Exception as _notify_err:
-        logger.warning("notify_admin_new_user failed for {}: {}", user.username, _notify_err)
+        logger.warning("notify_admin_new_user failed for %s: %s", user.username, _notify_err)
 
     # Send verification email if SMTP is configured
     smtp_service, _smtp_settings = _get_email_service()
@@ -568,7 +568,7 @@ async def get_features(
         max_nets, _ = mgr._get_corp_limits(user_id)
         corp_networks = max_nets > 0
     except Exception:
-        logger.warning("Failed to get corp limits for user {}, defaulting to no corporate access", user_id)
+        logger.warning("Failed to get corp limits for user %s, defaulting to no corporate access", user_id)
         corp_networks = False
     return {
         "features": {
@@ -1169,7 +1169,7 @@ async def get_available_providers():
         info = get_license_manager().get_license_info()
         is_paid_tier = info.type not in (LicenseType.FREE, LicenseType.TRIAL)
     except Exception as _lerr:
-        logger.debug("Provider gating: could not resolve license tier ({}) — defaulting to free.", _lerr)
+        logger.debug("Provider gating: could not resolve license tier (%s) — defaulting to free.", _lerr)
 
     providers = []
 
@@ -1298,7 +1298,7 @@ async def check_payment_status(
                         payment_status = "completed"
         except Exception as _chk_err:
             logger.warning(
-                "[PAY:{}] Provider status check failed (using DB status): {}",
+                "[PAY:%s] Provider status check failed (using DB status): %s",
                 invoice_id, _chk_err,
             )
 
@@ -1390,7 +1390,7 @@ async def plugin_webhook(
             # WARNING: this path is unsafe (no signature check). We log a hard
             # warning so admins notice and upgrade the plugin.
             logger.error(
-                "Plugin {} uses legacy unsigned webhook API — accept without verification. "
+                "Plugin %s uses legacy unsigned webhook API — accept without verification. "
                 "Upgrade the plugin to use process_webhook(body, headers).",
                 provider_name,
             )
@@ -1590,7 +1590,7 @@ async def nowpayments_webhook(
     # Without this check, an attacker could POST a forged "finished" event
     # for any order_id and credit a free subscription.
     if not nowpayments_provider.verify_signature(body, signature):
-        logger.warning("NOWPayments: rejected webhook with bad signature (order_id={})", data.get("order_id"))
+        logger.warning("NOWPayments: rejected webhook with bad signature (order_id=%s)", data.get("order_id"))
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     try:
@@ -1846,7 +1846,7 @@ async def create_wireguard_client(
         server_id = body.get("server_id")
         custom_name = (body.get("name") or "").strip()[:64] or None
     except Exception as _body_err:
-        logger.debug("create_wireguard_config: no/invalid JSON body (user_id={}): {}", user_id, _body_err)
+        logger.debug("create_wireguard_config: no/invalid JSON body (user_id=%d): %s", user_id, _body_err)
 
     if server_id is not None:
         target_server = db.query(Server).filter(Server.id == server_id).first()
@@ -2362,7 +2362,7 @@ async def reply_to_support_ticket(
             f"{data.message[:500]}"
         )
     except Exception as _notif_err:
-        logger.warning("Support reply admin notification failed: {}", _notif_err)
+        logger.warning("Support reply admin notification failed: %s", _notif_err)
 
     return {"id": reply.id, "status": "sent"}
 

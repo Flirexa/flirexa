@@ -49,7 +49,7 @@ def _load_pub_key():
         from cryptography.hazmat.primitives.serialization import load_pem_public_key
         return load_pem_public_key(path.read_bytes())
     except Exception as exc:
-        logger.error("Failed to load server_verify_public.pem: {}", exc)
+        logger.error("Failed to load server_verify_public.pem: %s", exc)
         return None
 
 
@@ -81,7 +81,7 @@ def _verify_signed(data: dict):
         )
         return json.loads(payload_bytes)
     except Exception as exc:
-        logger.error("Signed data verification failed: {}", exc)
+        logger.error("Signed data verification failed: %s", exc)
         return None
 
 
@@ -113,7 +113,7 @@ def get_server_urls() -> Tuple[str, str]:
                     "falling back to env vars / compiled-in URLs"
                 )
     except Exception as exc:
-        logger.error("Failed to read license_servers.signed: {}", exc)
+        logger.error("Failed to read license_servers.signed: %s", exc)
 
     # Env vars — work in dev/test when signed file is absent or failed
     primary = os.getenv("LICENSE_SERVER_URL", "").rstrip("/")
@@ -207,7 +207,7 @@ def apply_migration_code(code_json: str) -> Tuple[bool, str]:
     _save_nonces(used_nonces)
 
     logger.info(
-        "License server migration applied: primary={} backup={}",
+        "License server migration applied: primary=%s backup=%s",
         new_primary, new_backup or "—"
     )
     return True, f"Migration applied. New server: {new_primary}"
@@ -227,4 +227,4 @@ def _save_nonces(nonces: list):
         _NONCES_FILE.parent.mkdir(parents=True, exist_ok=True)
         _NONCES_FILE.write_text(json.dumps(nonces[-500:]))  # keep last 500 max
     except Exception as exc:
-        logger.error("Failed to save used nonces: {}", exc)
+        logger.error("Failed to save used nonces: %s", exc)
