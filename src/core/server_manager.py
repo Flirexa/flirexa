@@ -352,7 +352,7 @@ class ServerManager:
         server.status = new_legacy_status
         server.lifecycle_status = new_lifecycle_status.value
         logger.info(
-            "SERVER_STATUS_CHANGE server_id=%d name=%r legacy:%s→%s lifecycle:%s→%s reason=%r",
+            "SERVER_STATUS_CHANGE server_id={} name={} legacy:{}→{} lifecycle:{}→{} reason={}",
             server.id, server.name,
             old_status.value if old_status else "None",
             new_legacy_status.value,
@@ -377,7 +377,7 @@ class ServerManager:
                 },
             ))
         except Exception as _ae:
-            logger.debug("Could not write status-change audit log: %s", _ae)
+            logger.debug("Could not write status-change audit log: {}", _ae)
 
     def delete_server(self, server_id: int, force: bool = False) -> bool:
         """

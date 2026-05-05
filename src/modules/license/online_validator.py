@@ -297,7 +297,7 @@ def _verify_response(payload_b64: str, sig_b64: str) -> Optional[dict]:
         # Silently accepting would allow MITM via key deletion + fake server.
         key_path = os.getenv("SERVER_VERIFY_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH))
         logger.error(
-            "TAMPER ALERT: server_verify_public.pem not found at %s — "
+            "TAMPER ALERT: server_verify_public.pem not found at {} — "
             "rejecting server response to prevent MITM attack",
             key_path
         )
@@ -445,7 +445,7 @@ async def _try_server(url: str, payload: dict) -> Optional[bool]:
     """
     if url.startswith("http://"):
         logger.warning(
-            "SECURITY WARNING: license server URL uses plain HTTP (%s). "
+            "SECURITY WARNING: license server URL uses plain HTTP ({}). "
             "License key is transmitted in cleartext. Use HTTPS in production.", url
         )
     try:

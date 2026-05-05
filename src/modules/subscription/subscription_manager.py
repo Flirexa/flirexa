@@ -203,7 +203,7 @@ class SubscriptionManager:
             return self.create_subscription(user_id, "free")
         except Exception as _free_err:
             logger.warning(
-                "ensure_subscription: create_subscription(free) failed for user %d: %s — using hardcoded fallback",
+                "ensure_subscription: create_subscription(free) failed for user {}: {} — using hardcoded fallback",
                 user_id, _free_err,
             )
         # Ultimate fallback: hardcoded minimal free subscription
@@ -514,7 +514,7 @@ class SubscriptionManager:
             )
         except Exception as _fup_err:
             logger.debug(
-                "complete_payment: with_for_update() not supported (invoice=%s): %s — using plain query",
+                "complete_payment: with_for_update() not supported (invoice={}): {} — using plain query",
                 invoice_id, _fup_err,
             )
             # Fallback for DBs that don't support FOR UPDATE (e.g. SQLite in tests)
@@ -524,7 +524,7 @@ class SubscriptionManager:
 
         if not payment:
             logger.error(
-                "[PAY] complete_payment: invoice_id=%s not found in DB", invoice_id
+                "[PAY] complete_payment: invoice_id={} not found in DB", invoice_id
             )
             return False
 
@@ -533,7 +533,7 @@ class SubscriptionManager:
             from src.modules.payment.payment_tracer import PaymentTracer
             tracer = PaymentTracer(self.db, payment)
         except Exception as _tr_err:
-            logger.debug("PaymentTracer init failed for %s: %s", invoice_id, _tr_err)
+            logger.debug("PaymentTracer init failed for {}: {}", invoice_id, _tr_err)
             tracer = None
 
         # Idempotency: re-check status inside lock — concurrent call will see "completed" here
@@ -571,7 +571,7 @@ class SubscriptionManager:
         if user and (user.is_banned or not user.is_active):
             self.db.commit()
             logger.warning(
-                "[PAY:%s] completed for restricted user %d — subscription NOT activated",
+                "[PAY:{}] completed for restricted user {} — subscription NOT activated",
                 invoice_id, payment.user_id,
             )
             if tracer:
@@ -599,14 +599,14 @@ class SubscriptionManager:
                         self.auto_create_wireguard_client(payment.user_id)
                     except Exception as e:
                         logger.error(
-                            "[PAY:%s] Failed to auto-create WG client for user %d: %s",
+                            "[PAY:{}] Failed to auto-create WG client for user {}: {}",
                             invoice_id, payment.user_id, e,
                         )
                 if tracer:
                     tracer.step("sync_wg", status="ok", detail={"sync_wg": True})
             except Exception as e:
                 logger.error(
-                    "[PAY:%s] sync_wg failed for user %d: %s", invoice_id, payment.user_id, e
+                    "[PAY:{}] sync_wg failed for user {}: {}", invoice_id, payment.user_id, e
                 )
                 if tracer:
                     tracer.step("sync_wg", status="error", detail={"error": str(e)})
@@ -1020,7 +1020,7 @@ class SubscriptionManager:
                     disabled_count += 1
         except Exception as _cm_err:
             logger.error(
-                "check_traffic_exceeded: ClientManager.disable_client failed — falling back to DB-only disable: %s",
+                "check_traffic_exceeded: ClientManager.disable_client failed — falling back to DB-only disable: {}",
                 _cm_err,
             )
             # Fallback: update DB only if WG removal fails

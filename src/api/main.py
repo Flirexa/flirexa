@@ -87,16 +87,16 @@ async def lifespan(app: FastAPI):
         from ..modules.updates.manager import cleanup_orphaned_updates
         n = cleanup_orphaned_updates()
         if n:
-            logger.warning("Cleaned up %d orphaned update record(s) on startup", n)
+            logger.warning("Cleaned up {} orphaned update record(s) on startup", n)
     except Exception as _e:
-        logger.warning("Could not cleanup orphaned updates on startup: %s", _e)
+        logger.warning("Could not cleanup orphaned updates on startup: {}", _e)
 
     # Mark any bootstrap tasks that were still running as interrupted.
     try:
         from ..modules.bootstrap_logger import mark_interrupted_tasks
         mark_interrupted_tasks()
     except Exception as _e:
-        logger.warning("Could not mark interrupted bootstrap tasks on startup: %s", _e)
+        logger.warning("Could not mark interrupted bootstrap tasks on startup: {}", _e)
 
     # Clear restart_pending flag — services have just restarted, new code is running.
     try:
@@ -131,9 +131,9 @@ async def lifespan(app: FastAPI):
             pp_webhook_id = os.getenv("PAYPAL_WEBHOOK_ID", "")
             provider = PayPalProvider(client_id=pp_id, client_secret=pp_secret, sandbox=pp_sandbox, webhook_id=pp_webhook_id)
             client_portal.paypal_provider = provider
-            logger.info("PayPal initialized (sandbox=%s)", pp_sandbox)
+            logger.info("PayPal initialized (sandbox={})", pp_sandbox)
         except Exception as e:
-            logger.warning("PayPal init failed: %s", e)
+            logger.warning("PayPal init failed: {}", e)
 
     # Initialize NOWPayments provider
     np_key = os.getenv("NOWPAYMENTS_API_KEY", "")
@@ -145,7 +145,7 @@ async def lifespan(app: FastAPI):
             client_portal.nowpayments_provider = NOWPaymentsProvider(api_key=np_key, ipn_secret=np_secret, sandbox=np_sandbox)
             logger.info("NOWPayments initialized")
         except Exception as e:
-            logger.warning("NOWPayments init failed: %s", e)
+            logger.warning("NOWPayments init failed: {}", e)
 
     # Load payment plugins from plugins/payments/
     try:
@@ -192,7 +192,7 @@ async def lifespan(app: FastAPI):
         finally:
             _fs_db.close()
     except Exception as _fse:
-        logger.warning("Could not restore fail-safe state: %s", _fse)
+        logger.warning("Could not restore fail-safe state: {}", _fse)
 
     # Restore bandwidth limits (tc rules live in RAM, lost on reboot)
     try:
@@ -223,7 +223,7 @@ async def lifespan(app: FastAPI):
         except asyncio.TimeoutError:
             logger.warning("Initial online license check timed out after 5s — continuing startup")
         except Exception as e:
-            logger.warning("Initial online license check failed during startup: %s", e)
+            logger.warning("Initial online license check failed during startup: {}", e)
         _license_validator_task = asyncio.create_task(run_validator_loop())
         logger.info("Online license validator started")
 
@@ -234,7 +234,7 @@ async def lifespan(app: FastAPI):
         from ..modules.updates.auto_check import run_auto_update_check_loop
         _update_autocheck_task = asyncio.create_task(run_auto_update_check_loop())
     except Exception as e:
-        logger.warning("Could not start update auto-check loop: %s", e)
+        logger.warning("Could not start update auto-check loop: {}", e)
 
     # Sync server fleet to current license tier on every startup. Catches the
     # case where a paid subscription expired while the box was off — without
@@ -243,14 +243,14 @@ async def lifespan(app: FastAPI):
         from ..modules.license.enforcement import reconcile as _lic_reconcile
         _lic_reconcile()
     except Exception as e:
-        logger.warning("License enforcement reconcile failed at startup: %s", e)
+        logger.warning("License enforcement reconcile failed at startup: {}", e)
 
     # Start instance heartbeat (always — sends status even without a license)
     try:
         from ..modules.license.instance_manager import start_heartbeat_task
         _heartbeat_task = start_heartbeat_task()
     except Exception as e:
-        logger.warning("Could not start instance heartbeat: %s", e)
+        logger.warning("Could not start instance heartbeat: {}", e)
 
     # Start background monitoring (skip if external worker is handling it)
     _bg_tasks = []

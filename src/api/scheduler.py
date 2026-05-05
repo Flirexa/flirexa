@@ -96,10 +96,10 @@ def _try_recover_pending_payments(db) -> None:
                 status = loop.run_until_complete(prov_obj.check_payment(provider_invoice))
                 loop.close()
             except Exception as _e:
-                logger.debug("Recovery check_payment(%s) inner failed: %s", p.invoice_id, _e)
+                logger.debug("Recovery check_payment({}) inner failed: {}", p.invoice_id, _e)
                 continue
         except Exception as _e:
-            logger.debug("Recovery check_payment(%s) failed: %s", p.invoice_id, _e)
+            logger.debug("Recovery check_payment({}) failed: {}", p.invoice_id, _e)
             continue
 
         completed = (
@@ -114,14 +114,14 @@ def _try_recover_pending_payments(db) -> None:
             manager.complete_payment(p.invoice_id, sync_wg=True)
             recovered += 1
             logger.warning(
-                "Recovered dropped-webhook payment: invoice=%s provider=%s user=%d",
+                "Recovered dropped-webhook payment: invoice={} provider={} user={}",
                 p.invoice_id, provider_name, p.user_id,
             )
         except Exception as _ce:
-            logger.error("Recovery complete_payment failed for %s: %s", p.invoice_id, _ce)
+            logger.error("Recovery complete_payment failed for {}: {}", p.invoice_id, _ce)
 
     if recovered:
-        logger.info("Pending-payment recovery: %d invoice(s) self-healed this cycle", recovered)
+        logger.info("Pending-payment recovery: {} invoice(s) self-healed this cycle", recovered)
 
 
 # ─── Monitoring ───────────────────────────────────────────────────────────────
@@ -315,7 +315,7 @@ def monitoring_cycle():
         try:
             _try_recover_pending_payments(db)
         except Exception as _rerr:
-            logger.error("Pending-payment recovery failed: %s", _rerr)
+            logger.error("Pending-payment recovery failed: {}", _rerr)
 
         # Older bucket: still pending after 6h with no recovery → louder warning
         # so admins can chase the provider directly.
@@ -391,7 +391,7 @@ async def monitoring_loop():
                 )
             except asyncio.TimeoutError:
                 logger.error(
-                    "Monitoring cycle exceeded timeout (%ss) — continuing without blocking API loop",
+                    "Monitoring cycle exceeded timeout ({}s) — continuing without blocking API loop",
                     _MONITOR_TIMEOUT,
                 )
             _reconcile_counter += 1
@@ -404,7 +404,7 @@ async def monitoring_loop():
                     )
                 except asyncio.TimeoutError:
                     logger.error(
-                        "Reconciliation cycle exceeded timeout (%ss) — continuing without blocking API loop",
+                        "Reconciliation cycle exceeded timeout ({}s) — continuing without blocking API loop",
                         _RECONCILE_TIMEOUT,
                     )
                 except Exception as _re:

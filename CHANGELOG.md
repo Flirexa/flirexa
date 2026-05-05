@@ -4,6 +4,17 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.55 — 2026-05-05
+
+Internal logging hygiene. No user-visible behaviour change, but logs in `journalctl -u vpnmanager-*` now render readably.
+
+### Fixed
+
+- **137 loguru calls** across 17 modules were using legacy `%s/%d/%f` placeholders, which loguru does not interpret — those messages were getting logged with literal `%s` markers visible (e.g. `[BV] FIN-2: client %d '%s' over traffic limit (%.0f/%.0f MB)`). Converted to loguru-native `{}` braces (with `{:.0f}` preserved where precision matters), so log output now shows the actual values.
+- Touched modules include the business validator, payment recovery scheduler, plugin loader, license server-config, subscription manager, update manager, and the API/route layer.
+
+---
+
 ## v1.5.54 — 2026-05-05
 
 Internal build-tooling hardening. No user-facing changes — install / upgrade behaviour and product surface are identical to v1.5.53.

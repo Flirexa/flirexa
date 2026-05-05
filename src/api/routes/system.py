@@ -450,7 +450,7 @@ async def activate_license(data: LicenseActivateRequest):
         _lic_reconcile()
     except Exception as exc:
         from loguru import logger
-        logger.warning("License enforcement reconcile after activation failed: %s", exc)
+        logger.warning("License enforcement reconcile after activation failed: {}", exc)
 
     return {
         "status": "activated",
@@ -532,7 +532,7 @@ async def replay_license(data: LicenseReplayRequest):
                     _lic_reconcile()
                 except Exception as exc:
                     from loguru import logger
-                    logger.warning("License enforcement reconcile after replay failed: %s", exc)
+                    logger.warning("License enforcement reconcile after replay failed: {}", exc)
 
                 return {
                     "status":  "replayed",
@@ -2138,6 +2138,6 @@ def repair_all(db: Session = Depends(get_db)):
         + len(summary["proxy_rebuild"]["ok"])
     )
     summary["total_actions_taken"] = total_actions
-    logger.info("[REPAIR] System repair completed: %d actions taken", total_actions)
+    logger.info("[REPAIR] System repair completed: {} actions taken", total_actions)
 
     return summary

@@ -106,7 +106,7 @@ class PaymentTracer:
         try:
             self.db.flush()
         except Exception as exc:
-            logger.warning("[PAY:%s] pipeline_log flush failed: %s", self.payment.trace_id, exc)
+            logger.warning("[PAY:{}] pipeline_log flush failed: {}", self.payment.trace_id, exc)
 
     def mark_inconsistent(self, reason: str):
         """
@@ -114,7 +114,7 @@ class PaymentTracer:
         Logs CRITICAL and persists pipeline_status='inconsistent'.
         """
         logger.critical(
-            "[PAY:%s] INCONSISTENT: invoice=%s user_id=%s — %s",
+            "[PAY:{}] INCONSISTENT: invoice={} user_id={} — {}",
             self.payment.trace_id,
             self.payment.invoice_id,
             self.payment.user_id,
@@ -125,7 +125,7 @@ class PaymentTracer:
         try:
             self.db.commit()
         except Exception as exc:
-            logger.error("[PAY:%s] mark_inconsistent commit failed: %s", self.payment.trace_id, exc)
+            logger.error("[PAY:{}] mark_inconsistent commit failed: {}", self.payment.trace_id, exc)
             try:
                 self.db.rollback()
             except Exception:
@@ -170,6 +170,6 @@ def get_tracer(db: Session, invoice_id: str) -> Optional[PaymentTracer]:
         .first()
     )
     if not payment:
-        logger.warning("[PaymentTracer] invoice_id=%s not found", invoice_id)
+        logger.warning("[PaymentTracer] invoice_id={} not found", invoice_id)
         return None
     return PaymentTracer(db, payment)

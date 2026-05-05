@@ -146,7 +146,7 @@ class PluginLoader:
                 manifest = load_manifest(plugin_path)
             except PluginManifestError as exc:
                 record.error = f"manifest: {exc}"
-                logger.warning("Plugin %s skipped (bad manifest): %s", plugin_path.name, exc)
+                logger.warning("Plugin {} skipped (bad manifest): {}", plugin_path.name, exc)
                 continue
 
             # Stage 2: license entitlement
@@ -159,7 +159,7 @@ class PluginLoader:
                 if feature != "community" and not license_manager.has_feature(feature):
                     record.skipped = True
                     record.skip_reason = f"license missing feature {feature!r}"
-                    logger.debug("Plugin %s skipped: %s", plugin_path.name, record.skip_reason)
+                    logger.debug("Plugin {} skipped: {}", plugin_path.name, record.skip_reason)
                     continue
 
             # Stage 3: import + instantiate
@@ -168,7 +168,7 @@ class PluginLoader:
                 plugin = self._instantiate_plugin(module, manifest, plugin_path)
             except PluginLoadError as exc:
                 record.error = str(exc)
-                logger.error("Plugin %s failed to load: %s", plugin_path.name, exc)
+                logger.error("Plugin {} failed to load: {}", plugin_path.name, exc)
                 continue
 
             # Stage 4: register router (if any) on FastAPI app
@@ -178,7 +178,7 @@ class PluginLoader:
                     fastapi_app.include_router(router)
                 except Exception as exc:
                     record.error = f"router registration failed: {exc}"
-                    logger.error("Plugin %s router failed to mount: %s", plugin_path.name, exc)
+                    logger.error("Plugin {} router failed to mount: {}", plugin_path.name, exc)
                     continue
 
             # Stage 5: on_load hook (best-effort)
@@ -186,13 +186,13 @@ class PluginLoader:
                 plugin.on_load()
             except Exception as exc:
                 # Plugin is still considered loaded — on_load is just a hint
-                logger.warning("Plugin %s on_load() raised: %s", plugin_path.name, exc)
+                logger.warning("Plugin {} on_load() raised: {}", plugin_path.name, exc)
 
             record.plugin = plugin
             record.features = list(plugin.get_features())
             record.loaded = True
             logger.info(
-                "Plugin loaded: %s v%s (%s)",
+                "Plugin loaded: {} v{} ({})",
                 plugin.display_name, plugin.version, plugin.name,
             )
 

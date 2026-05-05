@@ -1409,7 +1409,7 @@ async def install_awg_on_server(
         # Anything else (NameError, paramiko, runtime). Roll back the row,
         # log, return 400 with the error message so the panel doesn't show
         # a misleading orphan server entry on refresh.
-        logger.exception("install-awg crashed for server_id=%s", server.id)
+        logger.exception("install-awg crashed for server_id={}", server.id)
         try:
             await asyncio.to_thread(core.servers.delete_server, server.id, True)
         except Exception:
@@ -1613,7 +1613,7 @@ async def migrate_clients_between_servers(
                         src_wg.remove_peer(c.public_key)
                     except Exception as _e_rm:
                         logger.warning(
-                            "migrate_clients: remove peer %s from %s failed: %s",
+                            "migrate_clients: remove peer {} from {} failed: {}",
                             c.name, src.name, _e_rm,
                         )
 
@@ -1630,7 +1630,7 @@ async def migrate_clients_between_servers(
                         )
                     except Exception as _e_add:
                         logger.warning(
-                            "migrate_clients: add peer %s to %s failed: %s",
+                            "migrate_clients: add peer {} to {} failed: {}",
                             c.name, dst.name, _e_add,
                         )
                 moved += 1
