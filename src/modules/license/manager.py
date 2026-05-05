@@ -149,7 +149,7 @@ LICENSE_TIERS = {
         ]
     },
     LicenseType.STANDARD: {
-        "max_clients": 300,
+        "max_clients": 500,
         # Starter: one of each protocol (WireGuard + AmneziaWG + Hysteria2 + TUIC = 4).
         "max_servers": 4,
         "features": [
@@ -184,7 +184,7 @@ LICENSE_TIERS = {
     # extended with feature flags introduced after the tier rename so signed
     # keys generated before the rename still unlock the right capabilities.
     LicenseType.STARTER: {
-        "max_clients": 300,
+        "max_clients": 500,
         "max_servers": 1,
         "features": [
             "basic_management",
