@@ -4,6 +4,29 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.64 — 2026-05-05
+
+A new license model: lifetime-protected. Pay once, run forever, and migrate to a new server yourself without contacting us.
+
+### Added
+
+- **`lifetime_protected` license type.** Locally-validated signature like a regular lifetime license — the panel never depends on the license server to keep working — but a 24h telemetry heartbeat lets the vendor spot installations sharing the same key (clone detection). This is the new sweet spot between "online subscription that we can revoke" and "pure offline lifetime that we can't see at all".
+- **Owner name and email in the signed payload.** Settings → License now shows who a key belongs to without a database round-trip. Useful when an operator hands the box off and the next person needs to see who originally bought it.
+- **Self-service server transfer.** Lifetime-protected customers see a `Migrate to new server` button that generates a one-time code (`MIGRATE-…`). They install the panel on the new box, paste their license key, then paste the code into the `Have a transfer code?` field. The next heartbeat tells the license server about the legitimate fingerprint change — no clone alert. **The old server self-decommissions 3 days later** ("burning bridge"), so the customer is forced to actually move rather than running the same key on two boxes indefinitely.
+- Three new endpoints: `POST /api/v1/system/license/transfer/{initiate,apply,cancel}`.
+
+### Operator UI
+
+- Owner card under the License panel — name + email in a soft-bordered block. Hidden when the field is missing (older keys keep working, just don't show owner info).
+- Migration modal with an explicit warning step ("3-day countdown starts on Generate"), a copy-to-clipboard code field, and a step-by-step list of what to do on the new server.
+- A live countdown badge on the License card while a migration is pending (`This server stops working in 2d 14h…`), with a Cancel button to abort if the move was a misclick.
+
+### Tests
+
+20 new pytest cases in `test_lifetime_protected.py` — payload generation, license-type detection from raw `LICENSE_KEY`, heartbeat interval selection per type, online-validator never-block guarantee for lifetime/lifetime_protected, migration code round-trip + tamper detection + refusal for wrong license type, decommission countdown including idempotency on repeated Generate clicks.
+
+---
+
 ## v1.5.63 — 2026-05-05
 
 Live auto-refresh on the panel — the Clients list and Dashboard counters now update on their own, no more F5 to see who's online.

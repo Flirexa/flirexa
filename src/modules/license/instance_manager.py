@@ -269,6 +269,13 @@ async def send_heartbeat() -> bool:
         "uptime_seconds":  int(time.time() - _start_time),
         "timestamp":       int(time.time()),
     }
+    # If a migration receipt was activated locally (lifetime_protected
+    # self-migration), include it in heartbeats until the lic-server
+    # acknowledges it. The pending file is consumed on the first 200 OK
+    # response carrying `migration_acknowledged=true`.
+    pending = _load_pending_migration()
+    if pending:
+        body["migration_receipt"] = pending
     sig = _sign_heartbeat(body, machine_id, instance_id)
 
     servers = _get_server_urls()
@@ -284,13 +291,94 @@ async def send_heartbeat() -> bool:
                 backups = result.get("backup_license_servers", [])
                 if primary:
                     _save_server_list(primary, backups)
+                # Lic-server acked the migration receipt — drop the local
+                # pending file so subsequent heartbeats stop sending it.
+                if pending and result.get("migration_acknowledged"):
+                    _clear_pending_migration()
+                    logger.info("Migration receipt acknowledged by lic-server — cleared local pending state")
                 return True
 
     logger.debug("Heartbeat failed: all {} server(s) unreachable", len(servers))
     return False
 
 
+# ── Pending migration receipt (lifetime_protected) ────────────────────────────
+
+_PENDING_MIGRATION_PATH = Path(os.getenv(
+    "PENDING_MIGRATION_PATH",
+    str(Path(__file__).parent.parent.parent.parent / "data" / "pending_migration.json"),
+))
+
+
+def save_pending_migration(code: str, from_hw_id: str, license_id: str) -> None:
+    """Persist a verified migration receipt so the next heartbeat can
+    forward it to the lic-server. Called once when the operator submits
+    a migration code on the new server during activation."""
+    try:
+        _PENDING_MIGRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _PENDING_MIGRATION_PATH.write_text(json.dumps({
+            "code":        code,
+            "from_hw_id":  from_hw_id,
+            "license_id":  license_id,
+            "saved_at":    int(time.time()),
+        }))
+        logger.info("Pending migration receipt saved (license_id={}, from_hw={})",
+                    license_id[:8] + "…", (from_hw_id or "")[:8] + "…")
+    except Exception as e:
+        logger.error("Failed to persist pending migration receipt: {}", e)
+
+
+def _load_pending_migration() -> Optional[dict]:
+    try:
+        if _PENDING_MIGRATION_PATH.exists():
+            return json.loads(_PENDING_MIGRATION_PATH.read_text())
+    except Exception:
+        return None
+    return None
+
+
+def _clear_pending_migration() -> None:
+    try:
+        if _PENDING_MIGRATION_PATH.exists():
+            _PENDING_MIGRATION_PATH.unlink()
+    except Exception:
+        pass
+
+
 # ── Background loop ───────────────────────────────────────────────────────────
+
+# Heartbeat cadence per license_type. Subscription customers get the
+# tight default (5 min) so a revocation reaches them quickly; lifetime_
+# protected customers don't need that latency — 24h is plenty for clone
+# detection and keeps lic-server load low. Pure lifetime never beats.
+_HEARTBEAT_INTERVAL_BY_TYPE = {
+    "subscription":       _HEARTBEAT_INTERVAL,   # 300 s
+    "lifetime_protected": 86_400,                # 24 h
+    "lifetime":           None,                  # no heartbeat
+}
+
+
+def _read_license_type_from_env() -> str:
+    """Parse license_type out of LICENSE_KEY without verifying signature.
+
+    Safe because every code path that branches on this value defaults to
+    the strictest behaviour ("subscription") on parse failure.
+    """
+    import base64 as _b64, json as _json
+    raw = os.getenv("LICENSE_KEY", "").strip()
+    if not raw or "." not in raw:
+        return "subscription"
+    try:
+        head = raw.split(".", 1)[0]
+        head += "=" * (-len(head) % 4)
+        payload = _json.loads(_b64.urlsafe_b64decode(head).decode())
+        t = payload.get("license_type", "subscription")
+        if t in _HEARTBEAT_INTERVAL_BY_TYPE:
+            return t
+    except Exception:
+        pass
+    return "subscription"
+
 
 async def _heartbeat_loop():
     """
@@ -299,21 +387,31 @@ async def _heartbeat_loop():
     any kind. Wakes up on the first iteration that sees a non-empty
     LICENSE_KEY in the environment, which appears once the operator enters
     an activation code via install.sh or the admin panel.
+
+    Cadence is selected per-iteration from `license_type` so an upgrade
+    from subscription → lifetime_protected (or back) takes effect on the
+    next tick without restarting the API.
     """
     # Small delay so the API is fully started before first heartbeat
     await asyncio.sleep(20)
     while True:
         try:
             license_key = os.getenv("LICENSE_KEY", "").strip()
-            if license_key:
+            lic_type = _read_license_type_from_env()
+            interval = _HEARTBEAT_INTERVAL_BY_TYPE.get(lic_type, _HEARTBEAT_INTERVAL)
+            if license_key and interval is not None:
                 await send_heartbeat()
-            # else: dormant — license server stays asleep until activation
+            # else: dormant — license server stays asleep
+            # (no LICENSE_KEY, OR license_type="lifetime" pure-offline)
         except asyncio.CancelledError:
             break
         except Exception as e:
             logger.debug("Heartbeat error: {}", e)
+        # When lifetime (no heartbeat), still poll the env once a minute
+        # so an upgrade activation doesn't have to wait 24 h to be noticed.
+        sleep_s = interval if interval is not None else 60
         try:
-            await asyncio.sleep(_HEARTBEAT_INTERVAL)
+            await asyncio.sleep(sleep_s)
         except asyncio.CancelledError:
             break
 

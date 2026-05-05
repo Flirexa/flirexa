@@ -35,6 +35,32 @@ _GRACE_PERIOD_H  = int(os.getenv("LICENSE_GRACE_PERIOD_HOURS", "72"))   # 3 days
 _REQUEST_TIMEOUT = 15   # seconds
 
 
+def _local_license_type() -> str:
+    """Read `license_type` from the locally-stored LICENSE_KEY without
+    verifying its signature.
+
+    Used only for choosing enforcement mode (block vs allow) — signature
+    verification still happens elsewhere (LicenseManager) before the
+    license is trusted to grant features. Reading the type unverified is
+    safe here because every code path returns "subscription" (the strict
+    default) on parse failure or when the field is missing.
+    """
+    raw = os.getenv("LICENSE_KEY", "").strip()
+    if not raw or "." not in raw:
+        return "subscription"
+    try:
+        payload_b64 = raw.split(".", 1)[0]
+        # Restore base64url padding
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode())
+        t = payload.get("license_type", "subscription")
+        if t in ("subscription", "lifetime", "lifetime_protected"):
+            return t
+    except Exception:
+        pass
+    return "subscription"
+
+
 def _load_server_urls():
     """Load license server URLs from signed config (or env in dev mode)."""
     try:
@@ -181,6 +207,14 @@ def is_license_blocked() -> tuple[bool, str]:
 
     if not _SERVER_URL and not _SERVER_URL_BACKUP:
         return False, ""   # No server configured — middleware handles activation check
+
+    # license_type=lifetime_protected is offline-tolerant by design: lic-server
+    # is for clone-detection telemetry only, never the kill switch. A pure
+    # "lifetime" key never even runs this check (heartbeat loop returns early),
+    # but if it ever reaches here we honour the same rule.
+    lic_type = _local_license_type()
+    if lic_type in ("lifetime", "lifetime_protected"):
+        return False, ""
 
     # ── 0. Clock rollback detection ─────────────────────────────────────────
     # If wall clock moved backwards by > 5 min since last successful check,
@@ -586,6 +620,17 @@ async def run_validator_loop():
     """
     if not _SERVER_URL and not _SERVER_URL_BACKUP:
         logger.info("LICENSE_SERVER_URL not set — online validation disabled")
+        return
+
+    # license_type=lifetime → pure offline, never poll. license_type=lifetime_protected
+    # also opts out of the validator loop (it's a blocker; heartbeat handles
+    # telemetry on its own slower cadence).
+    lic_type = _local_license_type()
+    if lic_type in ("lifetime", "lifetime_protected"):
+        logger.info(
+            "License type {} — online validator disabled (offline-tolerant by design)",
+            lic_type,
+        )
         return
 
     _warmup_from_cache()

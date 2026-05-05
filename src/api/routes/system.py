@@ -601,6 +601,96 @@ async def apply_license_migration(data: LicenseMigrationRequest):
     return {"status": "applied", "message": message}
 
 
+# ── Customer self-service license transfer (lifetime_protected) ──────────────
+#
+# Distinct from /license-migration above: that one re-points the panel at
+# new license servers (vendor-issued). These two endpoints let the *customer*
+# move their lifetime_protected license to a new HW without contacting us.
+#
+# Flow:
+#   1. Old panel:  POST /license/transfer/initiate   → gets MIGRATE-… code
+#                  Old panel starts a 3-day countdown to self-decommission.
+#   2. New panel:  POST /license/transfer/apply  + LICENSE_KEY in env
+#                  Panel verifies code offline, persists pending receipt,
+#                  next heartbeat carries it as proof of legitimate move.
+
+@router.post("/license/transfer/initiate")
+async def license_transfer_initiate():
+    """Generate a one-time code that authorizes moving this license to a
+    new server. Once called, this server self-decommissions in 3 days —
+    plan to have the new server up before then.
+
+    Only works for `lifetime_protected` licenses; other types either
+    don't move (subscription — contact vendor) or don't need a code
+    (lifetime — just copy LICENSE_KEY)."""
+    from ...modules.license.migration_code import generate_migration_code, MIGRATION_CODE_TTL_DAYS, OLD_SERVER_DECOMMISSION_DAYS
+
+    mc = generate_migration_code()
+    if mc is None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "transfer_unavailable",
+                "message": (
+                    "Self-service transfer is only available for lifetime_protected licenses. "
+                    "Either your license type doesn't support this, or no LICENSE_KEY is set."
+                ),
+            },
+        )
+    return {
+        "code":             mc.code,
+        "issued_at":        mc.issued_at.isoformat(),
+        "code_expires_at":  mc.expires_at.isoformat(),
+        "code_valid_days":  MIGRATION_CODE_TTL_DAYS,
+        "this_server_decommissions_in_days": OLD_SERVER_DECOMMISSION_DAYS,
+    }
+
+
+class LicenseTransferApplyRequest(BaseModel):
+    code: str
+
+
+@router.post("/license/transfer/apply")
+async def license_transfer_apply(data: LicenseTransferApplyRequest):
+    """On the NEW server, verify a transfer code and stage it to ride
+    along the next heartbeat. The lic-server records the migration as a
+    legitimate fingerprint change (not a clone)."""
+    from ...modules.license.migration_code import (
+        verify_migration_code, parse_migration_code_metadata, _read_license_payload,
+        _license_id_from_payload,
+    )
+    from ...modules.license.instance_manager import save_pending_migration
+
+    code = data.code.strip().upper()
+    ok, msg = verify_migration_code(code)
+    if not ok:
+        raise HTTPException(status_code=400, detail={"error": "invalid_code", "message": msg})
+
+    payload = _read_license_payload() or {}
+    save_pending_migration(
+        code=code,
+        from_hw_id=payload.get("hardware_id", ""),
+        license_id=_license_id_from_payload(payload),
+    )
+    meta = parse_migration_code_metadata(code) or {}
+    return {
+        "status":  "applied",
+        "message": "Transfer code accepted — the next heartbeat will notify the license server.",
+        "code_issued_at":  meta.get("issued_at"),
+        "code_expires_at": meta.get("expires_at"),
+    }
+
+
+@router.post("/license/transfer/cancel")
+async def license_transfer_cancel():
+    """Cancel a pending transfer on THIS server (stops the self-decommission
+    countdown). Already-issued codes remain cryptographically valid until
+    their TTL — only this server's countdown is cleared."""
+    from ...modules.license.migration_code import cancel_migration
+    cleared = cancel_migration()
+    return {"status": "cancelled" if cleared else "no_pending_transfer"}
+
+
 @router.post("/license-check")
 async def trigger_license_check():
     """Trigger an immediate license server check (runs in background)."""

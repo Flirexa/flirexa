@@ -74,6 +74,17 @@ class LicenseInfo:
     hardware_id: str = ""
     grace_period: bool = False
     billing_type: str = "lifetime"   # monthly / lifetime / annual
+    # license_type controls enforcement model (1.5.64+):
+    #   "subscription"       — online enforcement, can be revoked
+    #   "lifetime"           — pure offline, no heartbeat, no online check
+    #   "lifetime_protected" — offline-tolerant + telemetry heartbeat for clone
+    #                          detection; online_validator never blocks
+    license_type: str = "subscription"
+    owner_name: Optional[str] = None
+    owner_email: Optional[str] = None
+    # `migration_secret` is sensitive — never expose it via API responses or
+    # logs. Only the migration-code generator reads it.
+    migration_secret: Optional[str] = None
 
     @property
     def plan(self) -> str:
@@ -461,6 +472,25 @@ class LicenseManager:
             # No network calls, no expiry, full free feature set.
             return self._create_free_license("No license key — running in FREE mode")
 
+        # Self-decommission gate: if THIS server has handed out a migration
+        # code more than OLD_SERVER_DECOMMISSION_DAYS ago, refuse to grant
+        # paid features even though the signature still verifies. The
+        # customer chose to migrate; this is the burning bridge that
+        # prevents the old install from staying up forever.
+        try:
+            from .migration_code import is_decommissioned, get_migration_initiated
+            if is_decommissioned():
+                rec = get_migration_initiated() or {}
+                logger.warning(
+                    "License self-decommissioned: migration to new server initiated at {} — falling back to FREE mode",
+                    rec.get("initiated_at", "?"),
+                )
+                return self._create_free_license(
+                    "Server migrated — this install was decommissioned. Use the new server."
+                )
+        except Exception as e:
+            logger.debug("migration_code check skipped: {}", e)
+
         try:
             return self._parse_and_validate(key, skip_signature=False)
         except Exception as e:
@@ -524,6 +554,13 @@ class LicenseManager:
         raw_plan     = payload.get("plan") or payload.get("tier", "trial")
         license_type = _normalize_license_type(raw_plan)
         billing_type = payload.get("billing_type", "lifetime")
+        # license_type field (new in 1.5.64) controls enforcement model.
+        # Defaults to "subscription" for keys issued by older license-servers
+        # that don't include the field — preserves existing behaviour.
+        lic_enforcement = payload.get("license_type", "subscription")
+        owner_name      = payload.get("owner_name") or None
+        owner_email     = payload.get("owner_email") or None
+        migration_secret = payload.get("migration_secret") or None
 
         max_clients = payload.get("max_clients", 10)
         max_servers = payload.get("max_servers", 1)
@@ -595,9 +632,13 @@ class LicenseManager:
             hardware_id=hardware_id,
             grace_period=grace_period,
             billing_type=billing_type,
+            license_type=lic_enforcement,
+            owner_name=owner_name,
+            owner_email=owner_email,
+            migration_secret=migration_secret,
         )
 
-        logger.info(f"License validated: plan={license_type.value} billing={billing_type}, clients={max_clients}, servers={max_servers}")
+        logger.info(f"License validated: plan={license_type.value} billing={billing_type} type={lic_enforcement}, clients={max_clients}, servers={max_servers}")
         return self._license_info
 
     def _create_free_license(self, message: str = "") -> LicenseInfo:
@@ -845,6 +886,9 @@ class LicenseManager:
             "license_type": license_info.type.value,
             "plan":         license_info.plan,
             "billing_type": license_info.billing_type,
+            "enforcement":  license_info.license_type,   # subscription / lifetime / lifetime_protected
+            "owner_name":   license_info.owner_name,
+            "owner_email":  license_info.owner_email,
             "is_valid":     license_info.is_valid,
             "max_clients":  license_info.max_clients,
             "max_servers":  license_info.max_servers,
@@ -854,6 +898,22 @@ class LicenseManager:
             "grace_period": license_info.grace_period,
             "message":      license_info.validation_message,
         }
+
+        # Migration state (lifetime_protected only): expose to the UI so
+        # the operator can see "this server self-decommissions in N days"
+        # after they've kicked off a migration.
+        try:
+            from .migration_code import get_migration_initiated, time_to_decommission, is_decommissioned
+            rec = get_migration_initiated()
+            if rec:
+                ttd = time_to_decommission()
+                result["migration_pending"] = {
+                    "initiated_at":         rec.get("initiated_at"),
+                    "decommission_seconds": int(ttd.total_seconds()) if ttd else None,
+                    "decommissioned":       is_decommissioned(),
+                }
+        except Exception:
+            pass
 
         # Append online validation state if the validator is running
         try:
