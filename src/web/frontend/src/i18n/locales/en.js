@@ -624,6 +624,8 @@ export default {
     migrateNoTargets: 'No other server with the same protocol available.',
     migrateSyncRemote: "Push peers to the new server's WireGuard (recommended)",
     migrateRemoveOld: "Remove peers from the old server's WireGuard",
+    migrateKeepOnSource: 'Keep clients on source server (dual-active during DNS propagation)',
+    migrateKeepOnSourceHint: "Source keeps the clients in its panel and on its live WireGuard. Destination gets the same peers added — clients can connect to either endpoint during the cutover. When DNS has finished propagating, run a regular migrate (this checkbox off) to complete the move.",
     migrateNow: 'Migrate now',
     migrateClientsToPick: 'Clients to migrate',
     migrateSelectAll: 'All',
