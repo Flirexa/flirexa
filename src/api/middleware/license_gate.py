@@ -46,7 +46,7 @@ def require_license_feature(feature_name: str):
         except Exception as exc:
             # If license verification machinery is itself broken, fail closed
             # for paid features — better safe than letting FREE bypass via crash.
-            logger.error("License gate could not load LicenseManager: %s", exc)
+            logger.error("License gate could not load LicenseManager: {}", exc)
             raise HTTPException(
                 status_code=503,
                 detail="License verification unavailable. Please retry shortly.",

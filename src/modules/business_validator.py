@@ -107,7 +107,7 @@ class BusinessValidator:
 
     def run_all(self, auto_fix: bool = False) -> ValidationReport:
         """Run every invariant check and return a consolidated report."""
-        logger.info("[BV] Starting full business invariant validation (auto_fix=%s)", auto_fix)
+        logger.info("[BV] Starting full business invariant validation (auto_fix={})", auto_fix)
 
         checks = [
             self._check_inv1_active_sub_client_enabled,
@@ -127,7 +127,7 @@ class BusinessValidator:
                 check(auto_fix=auto_fix)
             except Exception as exc:
                 msg = f"Check {check.__name__} raised: {exc}"
-                logger.error("[BV] %s", msg)
+                logger.error("[BV] {}", msg)
                 self._report.errors_during_check.append(msg)
 
         self._report.finished_at = datetime.now(timezone.utc)
@@ -136,29 +136,29 @@ class BusinessValidator:
         try:
             self._cache_deep_check_results()
         except Exception as exc:
-            logger.debug("[BV] cache_deep_check_results failed: %s", exc)
+            logger.debug("[BV] cache_deep_check_results failed: {}", exc)
 
         if self._report.violations:
             logger.error(
-                "[BV] %s — %d unfixed violations",
+                "[BV] {} — {} unfixed violations",
                 self._report.summary(),
                 len([v for v in self._report.violations if not v.fixed]),
             )
         else:
-            logger.info("[BV] %s — all OK", self._report.summary())
+            logger.info("[BV] {} — all OK", self._report.summary())
 
         return self._report
 
     def check_after_payment(self, payment_invoice_id: str, auto_fix: bool = True) -> ValidationReport:
         """Run targeted checks after a payment completes (call from payment pipeline)."""
-        logger.debug("[BV] Post-payment check for invoice %s", payment_invoice_id)
+        logger.debug("[BV] Post-payment check for invoice {}", payment_invoice_id)
         self._check_inv5_payment_completed_has_active_sub(auto_fix=auto_fix, invoice_id=payment_invoice_id)
         self._report.finished_at = datetime.now(timezone.utc)
         return self._report
 
     def check_after_expiry(self, client_id: int, auto_fix: bool = True) -> ValidationReport:
         """Run targeted checks after a client expires (call from timer_manager)."""
-        logger.debug("[BV] Post-expiry check for client_id=%d", client_id)
+        logger.debug("[BV] Post-expiry check for client_id={}", client_id)
         self._check_inv2_expired_sub_client_disabled(auto_fix=auto_fix, client_id=client_id)
         self._check_inv6_status_matches_enabled(auto_fix=auto_fix, client_id=client_id)
         self._report.finished_at = datetime.now(timezone.utc)
@@ -256,7 +256,7 @@ class BusinessValidator:
                     v.fixed = True
                     self._report.auto_fixed += 1
                     logger.warning(
-                        "[BV] INV-2 auto-fix: disabled client %d '%s' (status=%s)",
+                        "[BV] INV-2 auto-fix: disabled client {} '{}' (status={})",
                         client.id, client.name, client.status.value,
                     )
                     self._audit(
@@ -265,7 +265,7 @@ class BusinessValidator:
                         {"reason": "business_validator_inv2", "status": client.status.value},
                     )
                 except Exception as exc:
-                    logger.error("[BV] INV-2 auto-fix failed for client %d: %s", client.id, exc)
+                    logger.error("[BV] INV-2 auto-fix failed for client {}: {}", client.id, exc)
 
         # Also check clients with expired expiry_date but still enabled
         q2 = self.db.query(Client).filter(
@@ -298,7 +298,7 @@ class BusinessValidator:
                     v.fixed = True
                     self._report.auto_fixed += 1
                     logger.warning(
-                        "[BV] INV-2 auto-fix: expired client %d '%s'", client.id, client.name
+                        "[BV] INV-2 auto-fix: expired client {} '{}'", client.id, client.name
                     )
                     self._audit(
                         AuditAction.CLIENT_DISABLE,
@@ -306,7 +306,7 @@ class BusinessValidator:
                         {"reason": "business_validator_expired_date"},
                     )
                 except Exception as exc:
-                    logger.error("[BV] INV-2 auto-fix failed for client %d: %s", client.id, exc)
+                    logger.error("[BV] INV-2 auto-fix failed for client {}: {}", client.id, exc)
 
     # ── INV-5: completed payment → active subscription ───────────────────────
 
@@ -357,7 +357,7 @@ class BusinessValidator:
             )
             self._record_violation(v)
             logger.critical(
-                "[BV] INV-5 CRITICAL: payment %s completed but no active sub for user %d",
+                "[BV] INV-5 CRITICAL: payment {} completed but no active sub for user {}",
                 payment.invoice_id, payment.user_id,
             )
 
@@ -402,7 +402,7 @@ class BusinessValidator:
                         v.fixed = True
                         self._report.auto_fixed += 1
                     except Exception as exc:
-                        logger.error("[BV] INV-6 fix failed for client %d: %s", client.id, exc)
+                        logger.error("[BV] INV-6 fix failed for client {}: {}", client.id, exc)
 
             elif not client.enabled and client.status not in good_disabled:
                 v = Violation(
@@ -423,7 +423,7 @@ class BusinessValidator:
                         v.fixed = True
                         self._report.auto_fixed += 1
                     except Exception as exc:
-                        logger.error("[BV] INV-6 fix failed for client %d: %s", client.id, exc)
+                        logger.error("[BV] INV-6 fix failed for client {}: {}", client.id, exc)
 
     # ── INV-7: proxy clients must have no bandwidth_limit ────────────────────
 
@@ -461,11 +461,11 @@ class BusinessValidator:
                     v.fixed = True
                     self._report.auto_fixed += 1
                     logger.warning(
-                        "[BV] INV-7 auto-fix: cleared bandwidth_limit on proxy client %d '%s'",
+                        "[BV] INV-7 auto-fix: cleared bandwidth_limit on proxy client {} '{}'",
                         client.id, client.name,
                     )
                 except Exception as exc:
-                    logger.error("[BV] INV-7 fix failed for client %d: %s", client.id, exc)
+                    logger.error("[BV] INV-7 fix failed for client {}: {}", client.id, exc)
 
     # ── Financial holes ───────────────────────────────────────────────────────
 
@@ -529,7 +529,7 @@ class BusinessValidator:
                 )
                 self._record_violation(v)
                 logger.critical(
-                    "[BV] FIN-2: client %d '%s' over traffic limit (%.0f/%.0f MB) but enabled",
+                    "[BV] FIN-2: client {} '{}' over traffic limit ({:.0f}/{:.0f} MB) but enabled",
                     client.id, client.name, used_mb, client.traffic_limit_mb,
                 )
                 if auto_fix:
@@ -540,14 +540,14 @@ class BusinessValidator:
                         v.fixed = True
                         self._report.auto_fixed += 1
                         logger.warning(
-                            "[BV] FIN-2 auto-fix: disabled client %d '%s'", client.id, client.name
+                            "[BV] FIN-2 auto-fix: disabled client {} '{}'", client.id, client.name
                         )
                         self._audit(
                             AuditAction.CLIENT_DISABLE, "client", client.id, client.name,
                             {"reason": "business_validator_traffic_exceeded"},
                         )
                     except Exception as exc:
-                        logger.error("[BV] FIN-2 fix failed for client %d: %s", client.id, exc)
+                        logger.error("[BV] FIN-2 fix failed for client {}: {}", client.id, exc)
 
     # ── INV-8: TC bandwidth rules actually applied ────────────────────────────
 
@@ -579,7 +579,7 @@ class BusinessValidator:
                 tm = TrafficManager(self.db)
                 result = tm.verify_bandwidth_applied(server.id)
             except Exception as exc:
-                logger.error("[BV] INV-8 TC check failed for server %d: %s", server.id, exc)
+                logger.error("[BV] INV-8 TC check failed for server {}: {}", server.id, exc)
                 self._report.errors_during_check.append(f"INV-8 server {server.id}: {exc}")
                 continue
 
@@ -607,7 +607,7 @@ class BusinessValidator:
                         v.fixed = True
                         self._report.auto_fixed += 1
                         logger.warning(
-                            "[BV] INV-8 [AUTO-FIX] client_id=%d name='%s' action=reapply_tc mbps=%d",
+                            "[BV] INV-8 [AUTO-FIX] client_id={} name='{}' action=reapply_tc mbps={}",
                             mm["client_id"], mm["name"], mm["expected_mbps"],
                         )
                         self._audit(
@@ -616,7 +616,7 @@ class BusinessValidator:
                              "mbps": mm["expected_mbps"]},
                         )
                     except Exception as exc:
-                        logger.error("[BV] INV-8 auto-fix failed for client %d: %s",
+                        logger.error("[BV] INV-8 auto-fix failed for client {}: {}",
                                      mm["client_id"], exc)
 
     # ── INV-9: WG peer presence matches DB enabled flag ───────────────────────
@@ -685,16 +685,16 @@ class BusinessValidator:
                         self._report.auto_fixed += 1
                     for action in ghost_removed:
                         logger.warning(
-                            "[BV] INV-9 [AUTO-FIX] server=%s action=remove_ghost_peer peer=%s",
+                            "[BV] INV-9 [AUTO-FIX] server={} action=remove_ghost_peer peer={}",
                             server.name, action,
                         )
                     for action in re_added:
                         logger.warning(
-                            "[BV] INV-9 [AUTO-FIX] server=%s action=re_add_peer peer=%s",
+                            "[BV] INV-9 [AUTO-FIX] server={} action=re_add_peer peer={}",
                             server.name, action,
                         )
                 except Exception as exc:
-                    logger.error("[BV] INV-9 auto-fix (reconcile) failed for server %d: %s",
+                    logger.error("[BV] INV-9 auto-fix (reconcile) failed for server {}: {}",
                                  server.id, exc)
 
     # ── INV-10: Proxy config matches DB enabled clients ───────────────────────
@@ -719,7 +719,7 @@ class BusinessValidator:
             try:
                 self._check_proxy_server_config(server, auto_fix=auto_fix)
             except Exception as exc:
-                logger.error("[BV] INV-10 proxy check failed for server %d: %s",
+                logger.error("[BV] INV-10 proxy check failed for server {}: {}",
                              server.id, exc)
                 self._report.errors_during_check.append(
                     f"INV-10 server {server.id}: {exc}"
@@ -747,7 +747,7 @@ class BusinessValidator:
         try:
             config_raw = mgr._read_file(config_path)
         except Exception as exc:
-            logger.warning("[BV] INV-10 could not read config for server %d: %s",
+            logger.warning("[BV] INV-10 could not read config for server {}: {}",
                            server.id, exc)
             return
         finally:
@@ -784,7 +784,7 @@ class BusinessValidator:
         try:
             cfg = _json.loads(config_raw)
         except Exception as exc:
-            logger.warning("[BV] INV-10 TUIC config JSON parse error for server %d: %s",
+            logger.warning("[BV] INV-10 TUIC config JSON parse error for server {}: {}",
                            server.id, exc)
             return
 
@@ -843,7 +843,7 @@ class BusinessValidator:
             )
             self._record_violation(v)
             logger.critical(
-                "[BV] INV-10 CRITICAL: TUIC server %d '%s' — %d ghost user(s) in config",
+                "[BV] INV-10 CRITICAL: TUIC server {} '{}' — {} ghost user(s) in config",
                 server.id, server.name, len(ghost),
             )
             if auto_fix:
@@ -855,7 +855,7 @@ class BusinessValidator:
             import yaml as _yaml
             cfg = _yaml.safe_load(config_raw)
         except Exception as exc:
-            logger.warning("[BV] INV-10 Hysteria2 config YAML parse error for server %d: %s",
+            logger.warning("[BV] INV-10 Hysteria2 config YAML parse error for server {}: {}",
                            server.id, exc)
             return
 
@@ -888,7 +888,7 @@ class BusinessValidator:
                 v.fixed = True
                 self._report.auto_fixed += 1
                 logger.warning(
-                    "[BV] INV-10 [AUTO-FIX] server_id=%d name='%s' action=regenerate_proxy_config",
+                    "[BV] INV-10 [AUTO-FIX] server_id={} name='{}' action=regenerate_proxy_config",
                     server.id, server.name,
                 )
                 self._audit(
@@ -897,9 +897,9 @@ class BusinessValidator:
                 )
             else:
                 logger.error("[BV] INV-10 auto-fix: apply_proxy_config returned False "
-                             "for server %d '%s'", server.id, server.name)
+                             "for server {} '{}'", server.id, server.name)
         except Exception as exc:
-            logger.error("[BV] INV-10 auto-fix failed for server %d: %s",
+            logger.error("[BV] INV-10 auto-fix failed for server {}: {}",
                          server.id, exc)
 
     # ── INV-11: Worker heartbeat freshness ───────────────────────────────────
@@ -951,7 +951,7 @@ class BusinessValidator:
             )
             self._record_violation(v)
             logger.critical(
-                "[BV] INV-11 CRITICAL: worker heartbeat stale by %.0f min (last: %s)",
+                "[BV] INV-11 CRITICAL: worker heartbeat stale by {:.0f} min (last: {})",
                 age_min, row.value,
             )
             # No auto-fix possible for a dead worker from within the BV
@@ -1039,7 +1039,7 @@ class BusinessValidator:
             self.db.add(entry)
             self.db.commit()
         except Exception as exc:
-            logger.debug("[BV] audit write failed: %s", exc)
+            logger.debug("[BV] audit write failed: {}", exc)
             try:
                 self.db.rollback()
             except Exception:
@@ -1057,7 +1057,7 @@ class BusinessValidator:
         )
         if not client:
             logger.error(
-                "[BV] INV-1 auto-fix: no client found for user %d — cannot re-enable", user_id
+                "[BV] INV-1 auto-fix: no client found for user {} — cannot re-enable", user_id
             )
             return False
         try:
@@ -1067,7 +1067,7 @@ class BusinessValidator:
             self.db.commit()
             self._report.auto_fixed += 1
             logger.warning(
-                "[BV] INV-1 auto-fix: re-enabled client %d '%s' for user %d",
+                "[BV] INV-1 auto-fix: re-enabled client {} '{}' for user {}",
                 client.id, client.name, user_id,
             )
             self._audit(
@@ -1076,7 +1076,7 @@ class BusinessValidator:
             )
             return True
         except Exception as exc:
-            logger.error("[BV] INV-1 auto-fix failed for user %d: %s", user_id, exc)
+            logger.error("[BV] INV-1 auto-fix failed for user {}: {}", user_id, exc)
             return False
 
     def _fix_create_sub_for_payment(self, payment: ClientPortalPayment) -> bool:
@@ -1087,13 +1087,13 @@ class BusinessValidator:
             mgr.apply_subscription_limits(payment.user_id, reset_traffic=False)
             self._report.auto_fixed += 1
             logger.warning(
-                "[BV] INV-5 auto-fix: re-applied subscription limits for user %d (payment %s)",
+                "[BV] INV-5 auto-fix: re-applied subscription limits for user {} (payment {})",
                 payment.user_id, payment.invoice_id,
             )
             return True
         except Exception as exc:
             logger.error(
-                "[BV] INV-5 auto-fix failed for payment %s: %s", payment.invoice_id, exc
+                "[BV] INV-5 auto-fix failed for payment {}: {}", payment.invoice_id, exc
             )
             return False
 
@@ -1110,7 +1110,7 @@ def run_validation(auto_fix: bool = True) -> ValidationReport:
         finally:
             db.close()
     except Exception as exc:
-        logger.error("[BV] run_validation failed with unhandled exception: %s", exc)
+        logger.error("[BV] run_validation failed with unhandled exception: {}", exc)
         report = ValidationReport()
         report.errors_during_check.append(str(exc))
         report.finished_at = datetime.now(timezone.utc)

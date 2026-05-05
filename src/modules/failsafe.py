@@ -143,7 +143,7 @@ class FailSafeManager:
                 if not info.is_valid or info.is_expired():
                     new_state.add_reason(f"license_invalid: {info.validation_message}")
         except Exception as exc:
-            logger.debug("failsafe: license check failed: %s", exc)
+            logger.debug("failsafe: license check failed: {}", exc)
 
         # ── Condition 2: All WG servers drifted / unreachable ─────────────────
         try:
@@ -159,7 +159,7 @@ class FailSafeManager:
                             f"all_{len(online_servers)}_wg_servers_drifted"
                         )
         except Exception as exc:
-            logger.debug("failsafe: server check failed: %s", exc)
+            logger.debug("failsafe: server check failed: {}", exc)
 
         # ── Condition 3: Mass WG errors (tracked via record_error) ───────────
         with self._state_lock:
@@ -179,13 +179,13 @@ class FailSafeManager:
                     )
                 if not was_active:
                     logger.critical(
-                        "[FAILSAFE] ACTIVATED — reasons: %s",
+                        "[FAILSAFE] ACTIVATED — reasons: {}",
                         ", ".join(new_state.reasons),
                     )
                     state_changed = True
                 else:
                     logger.warning(
-                        "[FAILSAFE] still active — reasons: %s",
+                        "[FAILSAFE] still active — reasons: {}",
                         ", ".join(new_state.reasons),
                     )
             else:
@@ -216,7 +216,7 @@ class FailSafeManager:
             self._state.active = True
             self._state.add_reason(f"manual: {reason}")
             self._state.activated_at = datetime.now(timezone.utc)
-            logger.critical("[FAILSAFE] Manually activated: %s", reason)
+            logger.critical("[FAILSAFE] Manually activated: {}", reason)
         if db is not None:
             self._persist_state(db)
 
@@ -255,7 +255,7 @@ class FailSafeManager:
                     activated_at.isoformat() if activated_at else "")
             db.commit()
         except Exception as exc:
-            logger.debug("[FAILSAFE] persist_state failed: %s", exc)
+            logger.debug("[FAILSAFE] persist_state failed: {}", exc)
             try:
                 db.rollback()
             except Exception:
@@ -294,8 +294,8 @@ class FailSafeManager:
                     self._state.active = True
                     self._state.reasons = reasons
                     self._state.activated_at = activated_at or datetime.now(timezone.utc)
-                    logger.warning("[FAILSAFE] Restored persisted state on startup: %s", reasons)
+                    logger.warning("[FAILSAFE] Restored persisted state on startup: {}", reasons)
                 else:
                     logger.debug("[FAILSAFE] No persisted fail-safe state to restore")
         except Exception as exc:
-            logger.debug("[FAILSAFE] load_persisted_state failed: %s", exc)
+            logger.debug("[FAILSAFE] load_persisted_state failed: {}", exc)

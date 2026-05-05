@@ -105,7 +105,7 @@ def _progress_update(update_id: int, step_number: int, message: str, log_line: s
     p["heartbeat_at"] = datetime.now(timezone.utc).isoformat()
     if log_line:
         p["log"].append(log_line)
-    logger.info("[UPDATE %d] S%d %s", update_id, step_number, message)
+    logger.info("[UPDATE {}] S{} {}", update_id, step_number, message)
 
 
 def _sha256_text(text: str) -> str:
@@ -137,7 +137,7 @@ def _cleanup_staging_dir(path: Path):
         if path.exists():
             shutil.rmtree(path)
     except Exception:
-        logger.warning("Could not clean staging dir: %s", path)
+        logger.warning("Could not clean staging dir: {}", path)
 
 
 def _cleanup_update_artifacts(now: Optional[datetime] = None) -> dict[str, int]:
@@ -249,7 +249,7 @@ def _cleanup_update_artifacts(now: Optional[datetime] = None) -> dict[str, int]:
         if any(result.values()):
             db.commit()
             logger.info(
-                "Update artifact cleanup: backups=%d records=%d staging=%d",
+                "Update artifact cleanup: backups={} records={} staging={}",
                 result["deleted_update_backups"],
                 result["trimmed_update_records"],
                 result["deleted_staging_dirs"],
@@ -314,10 +314,10 @@ def _check_disk_space(path: Path, required_mb: int) -> Optional[str]:
                 f"Insufficient disk space at {path}: "
                 f"{available_mb}MB available, {required_mb}MB required"
             )
-        logger.debug("Disk space OK at %s: %dMB available", path, available_mb)
+        logger.debug("Disk space OK at {}: {}MB available", path, available_mb)
         return None
     except Exception as e:
-        logger.warning("Could not check disk space at %s: %s", path, e)
+        logger.warning("Could not check disk space at {}: {}", path, e)
         return None   # don't block the update if we can't check
 
 
@@ -364,7 +364,7 @@ def _resolve_orphan(rec, now) -> str:
         try:
             pid = int(pid_file.read_text().strip())
             os.kill(pid, 0)  # 0 = just check existence
-            logger.info("Update %d: apply script PID %d still running", rec.id, pid)
+            logger.info("Update {}: apply script PID {} still running", rec.id, pid)
             return "running"
         except (ValueError, ProcessLookupError, PermissionError):
             pass  # Process dead — check exit code file
@@ -392,14 +392,14 @@ def _resolve_orphan(rec, now) -> str:
             elif rc == 2:
                 rec.status        = UpdateStatus.FAILED
                 rec.error_message = "update_apply.sh failed — auto-rollback was attempted"
-                logger.warning("Update %d resolved as FAILED with auto-rollback (exitcode=2)", rec.id)
+                logger.warning("Update {} resolved as FAILED with auto-rollback (exitcode=2)", rec.id)
             else:
                 rec.status        = UpdateStatus.FAILED
                 rec.error_message = f"update_apply.sh exited with code {rc}"
-                logger.warning("Update %d resolved as FAILED (exitcode=%d)", rec.id, rc)
+                logger.warning("Update {} resolved as FAILED (exitcode={})", rec.id, rc)
             return "resolved"
         except (ValueError, OSError) as e:
-            logger.warning("Update %d: could not read exitcode file: %s", rec.id, e)
+            logger.warning("Update {}: could not read exitcode file: {}", rec.id, e)
 
     if rollback_pid.exists() and not rollback_complete.exists():
         return "unknown"
@@ -505,7 +505,7 @@ def reconcile_inflight_updates() -> int:
         if superseded_ids:
             db.commit()
             logger.info(
-                "Auto-cleared %d stale ROLLBACK_REQUIRED row(s) superseded by later SUCCESS: %s",
+                "Auto-cleared {} stale ROLLBACK_REQUIRED row(s) superseded by later SUCCESS: {}",
                 len(superseded_ids), superseded_ids,
             )
         # Also pick up records that an earlier reconcile pass prematurely marked
@@ -560,15 +560,15 @@ def reconcile_inflight_updates() -> int:
             db.commit()
 
         if resolved:
-            logger.info("Resolved %d update record(s) from exitcode files: %s", len(resolved), resolved)
+            logger.info("Resolved {} update record(s) from exitcode files: {}", len(resolved), resolved)
         if still_running:
-            logger.info("Update(s) still in progress (script running): %s", still_running)
+            logger.info("Update(s) still in progress (script running): {}", still_running)
         if failed:
-            logger.warning("Marked %d orphaned update record(s) as FAILED: %s", len(failed), failed)
+            logger.warning("Marked {} orphaned update record(s) as FAILED: {}", len(failed), failed)
 
         return len(resolved) + len(failed)
     except Exception as e:
-        logger.error("Could not cleanup orphaned updates: %s", e)
+        logger.error("Could not cleanup orphaned updates: {}", e)
         return 0
     finally:
         db.close()
@@ -679,19 +679,19 @@ def _run_apply_script(
             start_new_session=True,   # ← detach from API process group (SIGTERM safety)
         )
     pid_file.write_text(str(proc.pid))
-    logger.info("[UPDATE %d] apply script started, PID=%d session-detached", update_id, proc.pid)
+    logger.info("[UPDATE {}] apply script started, PID={} session-detached", update_id, proc.pid)
 
     try:
         rc = proc.wait(timeout=600)
     except subprocess.TimeoutExpired:
-        logger.error("[UPDATE %d] update_apply.sh timeout (600s) — killing PID %d", update_id, proc.pid)
+        logger.error("[UPDATE {}] update_apply.sh timeout (600s) — killing PID {}", update_id, proc.pid)
         proc.kill()
         rc = 1
     except Exception as exc:
         # This thread may be interrupted if the Python process is shutting down.
         # The script continues running independently; cleanup_orphaned_updates()
         # will resolve the outcome on the next startup via apply.exitcode.
-        logger.warning("[UPDATE %d] wait() interrupted (%s) — script may still be running", update_id, exc)
+        logger.warning("[UPDATE {}] wait() interrupted ({}) — script may still be running", update_id, exc)
         _poll = proc.poll()
         rc = _poll if _poll is not None else -15
 
@@ -994,14 +994,14 @@ async def _apply_update_task(update_id: int, manifest: dict, started_by: str):
 
     except Exception as e:
         err = f"Unexpected error: {type(e).__name__}: {e}"
-        logger.exception("EVENT:UPDATE_FAILURE update task %d failed: %s", update_id, e)
+        logger.exception("EVENT:UPDATE_FAILURE update task {} failed: {}", update_id, e)
         _set_status(UpdateStatus.FAILED, err)
     finally:
         # Always clean up the downloaded package
         if package_path and package_path.exists():
             try:
                 package_path.unlink()
-                logger.debug("Cleaned up downloaded package: %s", package_path)
+                logger.debug("Cleaned up downloaded package: {}", package_path)
             except Exception:
                 pass
         if staging_dir and staging_dir.exists():
@@ -1173,7 +1173,7 @@ async def _rollback_task(rollback_id: int, original_update_id: int):
 
     except Exception as e:
         err = f"Unexpected rollback error: {type(e).__name__}: {e}"
-        logger.exception("Rollback task %d failed", rollback_id)
+        logger.exception("Rollback task {} failed", rollback_id)
         _set_status(UpdateStatus.FAILED, err)
 
 

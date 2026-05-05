@@ -284,7 +284,7 @@ async def install_plugin(
     _write_user_index(index)
 
     logger.info(
-        "Plugin installed: name=%s url=%s sha256=%s by=%s",
+        "Plugin installed: name={} url={} sha256={} by={}",
         plugin_name, body.url, body.sha256.lower(), admin.get("username", "?"),
     )
 
@@ -328,7 +328,7 @@ async def uninstall_plugin(
     _write_user_index(index)
 
     logger.info(
-        "Plugin uninstalled: name=%s by=%s",
+        "Plugin uninstalled: name={} by={}",
         name, admin.get("username", "?"),
     )
 
