@@ -40,6 +40,7 @@ const system = useSystemStore()
 const branding = useBrandingStore()
 const mainItems = [
   { path: '/',                  mdi: 'view-dashboard-outline',      key: 'dashboard' },
+  { path: '/online-users',      mdi: 'access-point-network',         key: 'onlineUsers' },
   { path: '/clients',           mdi: 'account-multiple-outline',     key: 'clients' },
   { path: '/servers',           mdi: 'server-network',               key: 'servers' },
 ]

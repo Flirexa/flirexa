@@ -1,10 +1,5 @@
 <template>
   <div>
-    <!-- Live status badge with interval picker — top-right -->
-    <div class="d-flex justify-content-end mb-2">
-      <LiveIndicator :live="isLivePoll" v-model:intervalMs="livePollInterval" />
-    </div>
-
     <!-- Stats Cards — Row 1 -->
     <div class="row g-3 mb-3">
       <div class="col-6 col-xl-3">
@@ -375,8 +370,6 @@
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { systemApi, clientsApi, serversApi, portalUsersApi } from '../api'
 import { formatBytes } from '../utils'
-import LiveIndicator from '../components/LiveIndicator.vue'
-import { useLivePoll, usePersistedInterval } from '../composables/useLivePoll'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -647,35 +640,20 @@ async function loadMapData() {
   }
 }
 
-// Single fetcher used both at mount and by the live-poll loop. Splitting
-// it out keeps the on-mount path identical to the recurring one — no risk
-// of the auto-refresh diverging from the initial render.
-async function refreshLiveStats() {
+onMounted(async () => {
   try {
-    const [statusRes, clientsRes, serversRes] = await Promise.all([
+    const [statusRes, clientsRes, serversRes, revenueRes, chartsRes] = await Promise.all([
       systemApi.getStatus(),
       clientsApi.getAll(),
       serversApi.getAll(),
+      portalUsersApi.getRevenueStats().catch(() => ({ data: {} })),
+      portalUsersApi.getChartData().catch(() => ({ data: { revenue_trend: [], user_trend: [], sub_distribution: {}, payment_methods: {} } })),
     ])
     stats.value = statusRes.data
     const cData = clientsRes.data
     clients.value = (cData && cData.items) ? cData.items : (Array.isArray(cData) ? cData : [])
     const sData = serversRes.data
     servers.value = (sData && sData.items) ? sData.items : (Array.isArray(sData) ? sData : [])
-  } catch (err) {
-    console.error('Dashboard live refresh error:', err)
-  }
-}
-
-onMounted(async () => {
-  try {
-    // Initial load: live counters + the slower revenue/charts payload
-    // (revenue trends update once per render — no need to poll them).
-    const [_, revenueRes, chartsRes] = await Promise.all([
-      refreshLiveStats(),
-      portalUsersApi.getRevenueStats().catch(() => ({ data: {} })),
-      portalUsersApi.getChartData().catch(() => ({ data: { revenue_trend: [], user_trend: [], sub_distribution: {}, payment_methods: {} } })),
-    ])
     revenue.value = revenueRes.data
     charts.value = chartsRes.data
   } catch (err) {
@@ -687,14 +665,12 @@ onMounted(async () => {
   initMap()
   loadMapData()
 
-  // Refresh map markers every 30s
+  // Refresh map markers every 30s — only the map auto-refreshes here.
+  // The headline counters (clients/servers/active) are live on the
+  // dedicated Online Users page; Dashboard stays a calmer overview that
+  // loads once and stays put (no flicker, no constant polling).
   mapRefreshTimer = setInterval(loadMapData, 30000)
 })
-
-// Live counters: clients/servers/online status refresh on a user-picked
-// interval (persisted across reloads per page).
-const livePollInterval = usePersistedInterval('vmm.live.dashboard', 15_000)
-const { isLive: isLivePoll } = useLivePoll(refreshLiveStats, livePollInterval)
 
 onUnmounted(() => {
   if (mapRefreshTimer) clearInterval(mapRefreshTimer)

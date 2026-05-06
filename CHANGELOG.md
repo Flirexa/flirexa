@@ -4,6 +4,32 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.66 — 2026-05-06
+
+A dedicated **Online Users** page in the main navigation — a live, read-only monitor of who's currently connected to your VPN, with per-client real-time speeds. Shipped together with a calmer Dashboard.
+
+### Added
+
+- **Online Users page** in the Main section of the sidebar, between Dashboard and Clients. Read-only, no Create/Edit/Delete buttons — just a clean list of who's connected right now. Each row shows the client name (with a coloured initial avatar generated from the name so the same person always gets the same colour), the server they're on, their IPv4, when they last handshook, **their current download/upload speed**, and total session traffic. The page filters down to peers whose last handshake is within the past 3 minutes.
+- **Live indicator with interval picker** dedicated to monitoring duty — defaults to 5 s cadence (vs. 15 s on the Clients page). The picker (Off / 5s / 15s / 30s / 1m / 5m) saves per page in localStorage, so each operator keeps their own rhythm.
+- **Per-client live speed** — the table and mobile cards both show current download/upload rates in Mbps (or kbps under 1 Mbps). Numbers update every poll cycle. Background-keepalive traffic (under 5 kbps) is shown as `idle` in italics rather than as `0.00 Mbps`, so the screen reads cleanly when nobody's actively streaming.
+- **Per-server breakdown chips** under the page header — small pill for each server with how many of the page's online peers it owns. Useful for spotting if all activity is on one node.
+- **"X seconds ago" / "X minutes ago"** timestamps that tick every second locally, between network polls. The page feels alive even at 1 m polling cadence.
+
+### Changed
+
+- **Dashboard no longer auto-refreshes**, and the Live indicator is gone from there. The headline counters (Total/Active clients, Servers, etc.) load once on mount and stay put — no flicker, no constant polling. The world map's location markers still refresh every 30 s as before. If you want a live view, the Online Users page is the place for that now.
+
+### Why this split
+
+The Clients page is the one with the create/edit/delete machinery — full CRUD, filters, bulk actions. The Online Users page is purely *who's on the VPN right now*, with no controls to accidentally hit. Two different mental models, two separate pages.
+
+### Mobile
+
+- Native card layout on phones — avatar + name + server + IP stacked into a clean row, with download/upload speed and total traffic on subsequent dashed rows. No horizontal table scrolling, no truncated values.
+
+---
+
 ## v1.5.64 — 2026-05-05
 
 A new license model: lifetime-protected. Pay once, run forever, and migrate to a new server yourself without contacting us.
