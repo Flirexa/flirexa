@@ -4,10 +4,10 @@ CRUD operations for WireGuard clients
 """
 
 from typing import Optional, List, Dict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import re
 import time
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 import io
@@ -739,6 +739,77 @@ async def download_client_config(
             "Content-Disposition": "attachment; filename=" + _safe_filename(client.name) + ".conf"
         }
     )
+
+
+SHARE_LINK_DEFAULT_TTL_SEC = 600   # 10 minutes
+SHARE_LINK_MAX_TTL_SEC     = 3600  # 1 hour upper bound
+
+
+@router.post("/{client_id}/share-link")
+async def create_share_link(
+    client_id: int,
+    request: Request,
+    ttl_seconds: int = Query(SHARE_LINK_DEFAULT_TTL_SEC, ge=60, le=SHARE_LINK_MAX_TTL_SEC),
+    db: Session = Depends(get_db),
+):
+    """Generate a public, time-limited URL the operator can hand to a
+    customer so they can download the WireGuard config without logging
+    into the panel.
+
+    Returns `{url, expires_at, ttl_seconds}`. The token is stored in
+    `client_share_tokens` and validated server-side. Default TTL is 10
+    minutes; the operator can override via `?ttl_seconds=N` (clamped
+    1 minute … 1 hour).
+
+    Throwaway by design — generating a new link doesn't invalidate older
+    ones, but they all expire within the small window. If the operator
+    needs to revoke immediately, they can disable the client (which any
+    config-fetching path checks)."""
+    import secrets
+    from ...database.models import ClientShareToken
+
+    client = db.query(Client).filter(Client.id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    # Cheap garbage-collection: drop expired tokens for this client when
+    # we're already touching the table. Keeps the table small without a
+    # dedicated worker.
+    now = datetime.now(timezone.utc)
+    try:
+        db.query(ClientShareToken).filter(
+            ClientShareToken.client_id == client_id,
+            ClientShareToken.expires_at < now,
+        ).delete(synchronize_session=False)
+    except Exception:
+        db.rollback()
+
+    token = secrets.token_urlsafe(32)
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    row = ClientShareToken(
+        token=token,
+        client_id=client_id,
+        expires_at=expires_at,
+    )
+    db.add(row)
+    db.commit()
+
+    # Build absolute URL based on the request's own host so the link works
+    # regardless of whether the panel is on a custom domain or a raw IP.
+    base = str(request.base_url).rstrip("/")
+    url = f"{base}/share/{token}"
+
+    logger.info(
+        "Share link generated for client_id={} ttl={}s",
+        client_id, ttl_seconds,
+    )
+    return {
+        "url":          url,
+        "expires_at":   expires_at.isoformat(),
+        "ttl_seconds":  ttl_seconds,
+        "client_id":    client_id,
+        "client_name":  client.name,
+    }
 
 
 @router.get("/{client_id}/qrcode")

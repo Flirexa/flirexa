@@ -107,7 +107,10 @@ async def _try_auto_apply(manifest: dict, current_version: str, channel: str) ->
     if not _auto_apply_enabled():
         return
     try:
-        from .manager import apply_update, is_newer
+        # `is_newer` lives in checker.py, not manager.py — pre-1.5.68 builds
+        # had this wrong import which silently broke every auto-apply attempt.
+        from .manager import apply_update
+        from .checker import is_newer
         from ...modules.operational_mode import (
             get_active_update_state,
             get_explicit_maintenance_state,

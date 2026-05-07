@@ -156,6 +156,11 @@ export const clientsApi = {
   setTrafficLimit: (id, data) => api.post(`/clients/${id}/traffic-limit`, data),
   resetTraffic: (id) => api.post(`/clients/${id}/reset-traffic`),
   setBandwidth: (id, data) => api.post(`/clients/${id}/bandwidth-limit`, data),
+  // Time-limited public download link (10-min default TTL)
+  createShareLink: (id, ttlSeconds) => {
+    const params = ttlSeconds ? { ttl_seconds: ttlSeconds } : {}
+    return api.post(`/clients/${id}/share-link`, null, { params })
+  },
   setExpiry: (id, data) => api.post(`/clients/${id}/expiry`, data),
   getMapData: () => api.get('/clients/map-data'),
 }

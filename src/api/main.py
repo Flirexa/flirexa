@@ -579,6 +579,16 @@ def create_app(
         tags=["Auth"]
     )
 
+    # Public time-limited config-share download (mounted at root, no admin auth).
+    # The operator generates `/share/<token>` URLs from the panel; customers
+    # download their .conf without logging in. Token validates server-side.
+    from .routes import share
+    app.include_router(
+        share.router,
+        prefix="",
+        tags=["Public Share"],
+    )
+
     # Protected admin routes
     app.include_router(
         clients.router,

@@ -68,7 +68,11 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="client in pagedClients" :key="client.id" :class="selectedIds.has(client.id) ? 'table-active' : ''">
+            <tr v-for="client in pagedClients" :key="client.id"
+                :class="[
+                  selectedIds.has(client.id) ? 'table-active' : '',
+                  client.id === highlightedClientId ? 'client-row--just-created' : ''
+                ]">
               <td>
                 <input type="checkbox" class="form-check-input" :checked="selectedIds.has(client.id)" @change="toggleSelect(client.id)" />
               </td>
@@ -139,6 +143,9 @@
                     <i :class="client.enabled ? 'mdi mdi-pause' : 'mdi mdi-play'"></i>
                   </button>
                   <button class="btn btn-outline-secondary" @click="showConfig(client)" title="Config"><i class="mdi mdi-tray-arrow-down"></i></button>
+                  <button class="btn btn-outline-info" @click="generateShareLink(client)" :title="$t('clients.shareLinkTitle') || 'Get a 10-minute share link'">
+                    <i class="mdi mdi-link-variant"></i>
+                  </button>
                   <button class="btn btn-outline-secondary" @click="editClient(client)" title="Edit"><i class="mdi mdi-pencil-outline"></i></button>
                   <button class="btn btn-outline-danger" @click="confirmDelete(client)" title="Delete"><i class="mdi mdi-trash-can-outline"></i></button>
                 </div>
@@ -148,6 +155,7 @@
                     <i :class="client.enabled ? 'mdi mdi-pause' : 'mdi mdi-play'"></i>
                   </button>
                   <button class="btn btn-sm btn-outline-secondary" @click="showConfig(client)" title="Config"><i class="mdi mdi-tray-arrow-down"></i></button>
+                  <button class="btn btn-sm btn-outline-info" @click="generateShareLink(client)" title="Share"><i class="mdi mdi-link-variant"></i></button>
                   <button class="btn btn-sm btn-outline-secondary" @click="openDetail(client)" title="More"><i class="mdi mdi-dots-horizontal"></i></button>
                 </div>
               </td>
@@ -504,6 +512,74 @@
         </div>
       </template>
     </MobileDetailSheet>
+
+    <!-- Share-link / post-create modal -->
+    <div v-if="shareModal.show" class="modal fade show share-modal" style="display:block;background:rgba(0,0,0,0.5)" tabindex="-1" @click.self="closeShareModal">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable share-modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header share-modal-header">
+            <div class="share-modal-title-block">
+              <span v-if="shareModal.mode === 'post-create'" class="share-modal-eyebrow">
+                <span class="dot"></span>{{ $t('clients.shareModal.created') || 'Client created' }}
+              </span>
+              <h5 class="modal-title">
+                <span v-if="shareModal.client">{{ shareModal.client.name }}</span>
+                <span v-else>—</span>
+              </h5>
+              <div v-if="shareModal.client" class="share-modal-meta">
+                <span><i class="mdi mdi-server-outline"></i>{{ shareModal.client.server_name || serverNameFor(shareModal.client) || '—' }}</span>
+                <span class="share-modal-meta-sep">·</span>
+                <span class="ou-mono">{{ shareModal.client.ipv4 || '—' }}</span>
+              </div>
+            </div>
+            <button type="button" class="btn-close" @click="closeShareModal"></button>
+          </div>
+          <div class="modal-body share-modal-body">
+            <!-- Share link block -->
+            <div class="share-link-card">
+              <div class="share-link-card-head">
+                <div class="share-link-label">
+                  <i class="mdi mdi-link-variant"></i>
+                  {{ $t('clients.shareModal.linkLabel') || 'Time-limited download link' }}
+                </div>
+                <div v-if="shareModal.expiresAt && !shareModalIsExpired" class="share-link-countdown" :class="{ 'low': shareModalTimeLeft.startsWith('0:') || shareModalTimeLeft.startsWith('1:') }">
+                  <i class="mdi mdi-clock-outline"></i>{{ shareModalTimeLeft }}
+                </div>
+                <div v-else-if="shareModalIsExpired" class="share-link-expired">{{ $t('clients.shareModal.expired') || 'Expired' }}</div>
+              </div>
+              <div v-if="shareModal.loading" class="share-link-loading">
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                {{ $t('clients.shareModal.generating') || 'Generating link…' }}
+              </div>
+              <div v-else-if="shareModal.error" class="alert alert-danger py-2 small mb-0">{{ shareModal.error }}</div>
+              <template v-else>
+                <div class="share-link-row">
+                  <input type="text" class="form-control share-link-input font-monospace" :value="shareModal.url" readonly @focus="$event.target.select()" />
+                  <button class="btn btn-primary share-link-copy-btn" :class="{ 'is-copied': shareModal.copied }" @click="copyShareUrl">
+                    <i :class="shareModal.copied ? 'mdi mdi-check' : 'mdi mdi-content-copy'"></i>
+                    {{ shareModal.copied ? ($t('clients.shareModal.copied') || 'Copied') : ($t('common.copy') || 'Copy') }}
+                  </button>
+                </div>
+                <div class="share-link-hint">
+                  {{ $t('clients.shareModal.hint') || 'Send this link to the customer — they download the .conf without logging in. Expires automatically.' }}
+                </div>
+              </template>
+            </div>
+
+            <!-- Quick actions (post-create only — Edit shortcut after a fresh add) -->
+            <div v-if="shareModal.client && shareModal.mode === 'post-create'" class="share-quick-actions">
+              <button class="btn btn-outline-secondary share-quick-btn" @click="editClient(shareModal.client); closeShareModal()">
+                <i class="mdi mdi-pencil-outline"></i>
+                <span>{{ $t('common.edit') || 'Edit' }}</span>
+              </button>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" @click="closeShareModal">{{ $t('common.close') || 'Close' }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -573,6 +649,99 @@ const showDetailSheet = ref(false)
 const detailClient = ref(null)
 function openDetail(client) { detailClient.value = client; showDetailSheet.value = true }
 
+// ── Share-link / post-create modal ──────────────────────────────────────────
+// Single modal serves two flows:
+//   mode='share'        — Actions-button → generate one-time URL for an
+//                          existing client
+//   mode='post-create'  — after createClient → show the new client + the
+//                          freshly-issued share URL + quick action shortcuts
+const shareModal = ref({
+  show: false,
+  mode: 'share',     // 'share' | 'post-create'
+  client: null,
+  url: '',
+  expiresAt: null,   // ISO string
+  loading: false,
+  error: '',
+  copied: false,
+})
+// 1-Hz tick so the "expires in mm:ss" counter stays current without polling
+const _shareModalNow = ref(Date.now())
+let _shareTickTimer = null
+
+const shareModalTimeLeft = computed(() => {
+  if (!shareModal.value.expiresAt) return ''
+  const ms = new Date(shareModal.value.expiresAt).getTime() - _shareModalNow.value
+  if (ms <= 0) return '0:00'
+  const total = Math.floor(ms / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+})
+const shareModalIsExpired = computed(() => {
+  if (!shareModal.value.expiresAt) return false
+  return Date.now() > new Date(shareModal.value.expiresAt).getTime()
+})
+
+async function openShareModal(client, mode = 'share') {
+  shareModal.value = {
+    show: true, mode, client,
+    url: '', expiresAt: null,
+    loading: true, error: '', copied: false,
+  }
+  if (!_shareTickTimer) {
+    _shareTickTimer = setInterval(() => { _shareModalNow.value = Date.now() }, 1000)
+  }
+  try {
+    const { data } = await clientsApi.createShareLink(client.id)
+    shareModal.value.url        = data.url
+    shareModal.value.expiresAt  = data.expires_at
+  } catch (err) {
+    shareModal.value.error = err.response?.data?.detail || err.message || String(err)
+  } finally {
+    shareModal.value.loading = false
+  }
+}
+
+async function generateShareLink(client) {
+  await openShareModal(client, 'share')
+}
+
+function closeShareModal() {
+  shareModal.value.show = false
+  if (_shareTickTimer) { clearInterval(_shareTickTimer); _shareTickTimer = null }
+}
+
+async function copyShareUrl() {
+  if (!shareModal.value.url) return
+  try {
+    await navigator.clipboard.writeText(shareModal.value.url)
+    shareModal.value.copied = true
+    setTimeout(() => { shareModal.value.copied = false }, 2200)
+  } catch (e) { /* clipboard blocked — user can select-all */ }
+}
+
+// ── Just-created highlight ──────────────────────────────────────────────────
+// Single-slot highlight: only ONE client at a time gets the soft glow. If a
+// second client is created within the 60 s window, the highlight transfers
+// to it and the previous row fades back to normal immediately. This matches
+// the operator's intuition — the badge marks "the latest one I just made".
+const highlightedClientId = ref(null)
+let _highlightTimer = null
+
+function highlightJustCreated(clientId) {
+  // Reset any prior timer — the latest created always wins.
+  if (_highlightTimer) { clearTimeout(_highlightTimer); _highlightTimer = null }
+  highlightedClientId.value = clientId
+  // Pin to first page so the just-pinned-to-top row is actually visible
+  // (no scrolling, no "where is it?" panic).
+  currentPage.value = 1
+  _highlightTimer = setTimeout(() => {
+    highlightedClientId.value = null
+    _highlightTimer = null
+  }, 60_000)
+}
+
 // Edit modal
 const showEditModal = ref(false)
 const editingClient = ref(null)
@@ -639,10 +808,26 @@ const filteredClients = computed(() => {
   return result
 })
 
-const totalPages = computed(() => Math.max(1, Math.ceil(filteredClients.value.length / pageSize)))
+// Pin a just-created client to the very top of the list while it's still
+// highlighted (60-second window). Once the highlight expires, sorting
+// reverts to whatever the user picked. Pinning happens AFTER filtering
+// so a freshly-created client that doesn't match the active search/filter
+// still doesn't appear (we don't want to override an explicit filter —
+// just save the operator a scroll within results that match).
+const orderedClients = computed(() => {
+  const list = filteredClients.value
+  const hid = highlightedClientId.value
+  if (!hid) return list
+  const idx = list.findIndex(c => c.id === hid)
+  if (idx <= 0) return list
+  const pinned = list[idx]
+  return [pinned, ...list.slice(0, idx), ...list.slice(idx + 1)]
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(orderedClients.value.length / pageSize)))
 const pagedClients = computed(() => {
   const start = (currentPage.value - 1) * pageSize
-  return filteredClients.value.slice(start, start + pageSize)
+  return orderedClients.value.slice(start, start + pageSize)
 })
 
 const allPageSelected = computed(() =>
@@ -799,15 +984,31 @@ async function createClient() {
   creating.value = true
   createError.value = ''
   try {
-    await store.createClient(newClient.value)
+    const created = await store.createClient(newClient.value)
     showCreateModal.value = false
     newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false }
     await store.fetchClients()
+    // Mark the new client as highlighted in the table for ~60 s, and
+    // pop the post-create modal with a fresh share link + quick actions.
+    if (created && created.id != null) {
+      highlightJustCreated(created.id)
+      // Fetch the up-to-date row from the freshly-refreshed list so the
+      // modal has the same data the table is showing (server name,
+      // formatted IPs, etc).
+      const fresh = store.clients.find(c => c.id === created.id) || created
+      await openShareModal(fresh, 'post-create')
+    }
   } catch (err) {
     createError.value = err.response?.data?.detail || err.message
   } finally {
     creating.value = false
   }
+}
+
+function serverNameFor(client) {
+  if (!client) return ''
+  const s = servers.value.find(x => x.id === client.server_id)
+  return s ? s.name : ''
 }
 
 function getServerProtocol(serverId) {
@@ -1124,5 +1325,254 @@ const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(), livePollI
   background-color: var(--vxy-selected-bg, var(--vxy-hover-bg)) !important;
   --bs-table-active-bg: var(--vxy-selected-bg, var(--vxy-hover-bg));
   --bs-table-bg: var(--vxy-selected-bg, var(--vxy-hover-bg));
+}
+
+/* ── Just-created row highlight (1.5.67+) ──────────────────────────────────
+   Row glows green for ~60 s after a new client is added. Single-slot —
+   if another client is created within the window, the highlight transfers
+   to the new one. The animation is a soft fade-in immediately on render
+   plus a slow gradient pulse so the operator's eye lands on the new row
+   without screaming. */
+.clients-table tr.client-row--just-created,
+.clients-table tr.client-row--just-created td {
+  background-color: rgba(40, 167, 69, 0.10) !important;
+  --bs-table-bg: rgba(40, 167, 69, 0.10);
+  animation: client-row-just-created 60s ease-out forwards;
+  position: relative;
+}
+.clients-table tr.client-row--just-created td:first-child {
+  box-shadow: inset 3px 0 0 0 #28a745;
+}
+@keyframes client-row-just-created {
+  0%   { background-color: rgba(40, 167, 69, 0.22); }
+  6%   { background-color: rgba(40, 167, 69, 0.18); }
+  92%  { background-color: rgba(40, 167, 69, 0.10); }
+  100% { background-color: rgba(40, 167, 69, 0.04); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clients-table tr.client-row--just-created,
+  .clients-table tr.client-row--just-created td {
+    animation: none;
+    background-color: rgba(40, 167, 69, 0.10) !important;
+  }
+}
+
+/* ── Share-link / post-create modal ──────────────────────────────────────── */
+.share-modal { z-index: 1080; }
+.share-modal-dialog { max-width: 540px; }
+.share-modal-header {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--bs-border-color, rgba(0, 0, 0, 0.08));
+}
+.share-modal-title-block { flex: 1; min-width: 0; }
+.share-modal-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #1e7a34;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.share-modal-eyebrow .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #28a745;
+  box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.55);
+  animation: ou-pulse 2s ease-out infinite;
+}
+.share-modal-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--bs-secondary-color, #6c757d);
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.share-modal-meta .mdi { font-size: 0.92rem; opacity: 0.6; margin-right: 3px; }
+.share-modal-meta-sep { opacity: 0.4; }
+.share-modal-body { padding: 20px; }
+
+.share-link-card {
+  background: rgba(13, 110, 253, 0.04);
+  border: 1px solid rgba(13, 110, 253, 0.18);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.share-link-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.share-link-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  color: var(--bs-body-color);
+}
+.share-link-label .mdi { font-size: 1rem; color: #0d6efd; }
+.share-link-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 3px 10px;
+  background: rgba(13, 110, 253, 0.10);
+  border: 1px solid rgba(13, 110, 253, 0.20);
+  border-radius: 999px;
+  color: #0a58ca;
+}
+.share-link-countdown.low { background: rgba(220, 53, 69, 0.10); border-color: rgba(220, 53, 69, 0.25); color: #b02a37; }
+.share-link-expired {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #dc3545;
+}
+.share-link-loading { color: var(--bs-secondary-color, #6c757d); font-size: 0.92rem; padding: 6px 0; }
+.share-link-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.share-link-input {
+  flex: 1;
+  font-size: 0.84rem;
+  background: var(--bs-body-bg);
+  border-color: rgba(0, 0, 0, 0.10);
+}
+.share-link-copy-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.18s ease;
+}
+.share-link-copy-btn.is-copied { background: #28a745; border-color: #28a745; }
+.share-link-copy-btn .mdi { font-size: 1rem; }
+.share-link-hint {
+  font-size: 0.78rem;
+  color: var(--bs-secondary-color, #6c757d);
+  margin-top: 8px;
+}
+
+.share-quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.share-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 0.92rem;
+  border-radius: 10px;
+}
+.share-quick-btn .mdi { font-size: 1.1rem; }
+@media (max-width: 500px) {
+  .share-quick-actions { grid-template-columns: 1fr; }
+  .share-link-row { flex-direction: column; }
+  .share-link-copy-btn { width: 100%; justify-content: center; }
+  .share-modal-meta { font-size: 0.78rem; }
+}
+
+@keyframes ou-pulse {
+  0%   { box-shadow: 0 0 0 0    rgba(40, 167, 69, 0.55); }
+  70%  { box-shadow: 0 0 0 8px  rgba(40, 167, 69, 0);    }
+  100% { box-shadow: 0 0 0 0    rgba(40, 167, 69, 0);    }
+}
+
+/* Dark theme — applied via the panel's manual theme toggle (data-theme="dark"
+   on <html>). The earlier prefers-color-scheme block was dead code because
+   the panel doesn't follow the OS, it has its own toggle. Result: light-mode
+   colours leaked onto the dark canvas — input greys disappeared, the
+   light-blue card became a flat gray patch, the muted helper text was
+   invisible. Rewriting against [data-theme="dark"] makes everything readable. */
+
+/* Modal chrome — make the dialog itself match the panel's dark surface so
+   it doesn't look like a white sheet pasted onto a dark page. */
+[data-theme="dark"] .share-modal .modal-content {
+  background: var(--vxy-card-bg, #1f232a);
+  color: #e9ecef;
+  border: 1px solid var(--vxy-border, rgba(255, 255, 255, 0.10));
+}
+[data-theme="dark"] .share-modal-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+[data-theme="dark"] .share-modal .modal-footer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+[data-theme="dark"] .share-modal .btn-close { filter: invert(0.92); opacity: 0.85; }
+
+/* Header text — the eyebrow stays green-on-dark, but the meta line
+   ("server · IP") must be lighter to be visible. */
+[data-theme="dark"] .share-modal-eyebrow { color: #4ddf6e; }
+[data-theme="dark"] .share-modal-meta { color: #adb5bd; }
+
+/* The link card — bump background and border alpha so it visibly stands
+   apart from the modal body, and lift the helper text. */
+[data-theme="dark"] .share-link-card {
+  background: rgba(13, 110, 253, 0.10);
+  border-color: rgba(99, 132, 253, 0.32);
+}
+[data-theme="dark"] .share-link-label { color: #e9ecef; }
+[data-theme="dark"] .share-link-label .mdi { color: #93b5ff; }
+[data-theme="dark"] .share-link-countdown {
+  background: rgba(99, 132, 253, 0.18);
+  border-color: rgba(99, 132, 253, 0.35);
+  color: #93b5ff;
+}
+[data-theme="dark"] .share-link-countdown.low {
+  background: rgba(220, 53, 69, 0.20);
+  border-color: rgba(220, 53, 69, 0.40);
+  color: #f1aeb5;
+}
+[data-theme="dark"] .share-link-loading,
+[data-theme="dark"] .share-link-hint { color: #adb5bd; }
+[data-theme="dark"] .share-link-expired { color: #f1aeb5; }
+
+/* The URL input itself — was the worst offender, white-bg on dark page. */
+[data-theme="dark"] .share-link-input {
+  background: var(--vxy-input-bg, #14171c);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e9ecef;
+}
+[data-theme="dark"] .share-link-input::selection {
+  background: rgba(99, 132, 253, 0.40);
+  color: #fff;
+}
+
+/* Quick action buttons — Bootstrap outline-secondary becomes too dim
+   on dark; bump border + hover state. */
+[data-theme="dark"] .share-quick-btn {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #e9ecef;
+}
+[data-theme="dark"] .share-quick-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.30);
+  color: #fff;
+}
+
+/* Belt-and-suspenders: keep prefers-color-scheme too for OS-dark + default
+   theme attribute scenarios. Same selectors, slightly less detail. */
+@media (prefers-color-scheme: dark) {
+  .share-link-card { background: rgba(13, 110, 253, 0.08); border-color: rgba(99, 132, 253, 0.25); }
+  .share-link-input { background: #2b2f33; border-color: rgba(255, 255, 255, 0.10); color: #e9ecef; }
 }
 </style>

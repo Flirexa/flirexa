@@ -393,6 +393,16 @@ export default {
     totalUsers: 'Всего',
   },
   clients: {
+    shareLinkTitle: 'Получить ссылку на 10 минут',
+    shareModal: {
+      created: 'Клиент создан',
+      linkLabel: 'Временная ссылка на скачивание',
+      generating: 'Генерируется ссылка…',
+      copied: 'Скопировано',
+      expired: 'Истекла',
+      hint: 'Отправьте эту ссылку клиенту — он скачает .conf без авторизации. Срок жизни ограничен, истекает автоматически.',
+      viewConfig: 'Конфиг / QR',
+    },
     qrHintAmneziaVpn: 'для основного приложения AmneziaVPN (Scan QR)',
     qrHintWg: 'для приложений WireGuard или AmneziaWG (lite)',
     searchPlaceholder: 'Поиск клиентов...',

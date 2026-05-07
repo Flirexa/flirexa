@@ -393,6 +393,16 @@ export default {
     totalUsers: 'Total',
   },
   clients: {
+    shareLinkTitle: 'Obtener enlace de 10 minutos',
+    shareModal: {
+      created: 'Cliente creado',
+      linkLabel: 'Enlace de descarga temporal',
+      generating: 'Generando enlace…',
+      copied: 'Copiado',
+      expired: 'Expirado',
+      hint: 'Envíe este enlace al cliente — descargará el .conf sin iniciar sesión. Caduca automáticamente.',
+      viewConfig: 'Config / QR',
+    },
     qrHintAmneziaVpn: 'para la aplicación principal AmneziaVPN (escanear QR)',
     qrHintWg: 'para las aplicaciones WireGuard o AmneziaWG (lite)',
     searchPlaceholder: 'Buscar clientes...',
