@@ -8,6 +8,41 @@
       </div>
     </div>
 
+    <!-- ── Unreachable-agent banner ─────────────────────────────
+         Surfaces servers whose agent circuit-breaker is open. The breaker
+         opens after 3 consecutive ConnectTimeouts, and while it's open the
+         backend short-circuits agent calls — which means panel pages stay
+         fast, but the user has no idea WHY their server "looks fine but
+         doesn't respond". This banner makes the cause + the one-click fix
+         (Switch to SSH) explicit. -->
+    <div v-if="brokenAgents.length" class="agent-breaker-banner">
+      <div class="agent-breaker-banner__icon"><i class="mdi mdi-alert-circle-outline"></i></div>
+      <div class="agent-breaker-banner__body">
+        <div class="agent-breaker-banner__title">
+          {{ $tc('servers.agentBannerTitle', brokenAgents.length, { count: brokenAgents.length }) }}
+        </div>
+        <div class="agent-breaker-banner__text">
+          {{ $t('servers.agentBannerBody', { names: brokenAgents.map(s => s.name).join(', ') }) }}
+        </div>
+        <ul class="agent-breaker-banner__list">
+          <li v-for="bs in brokenAgents" :key="bs.id">
+            <strong>{{ bs.name }}</strong>
+            <span class="agent-breaker-banner__since">
+              · {{ formatBreakerSince(bs.agent_breaker?.opened_seconds_ago) }}
+            </span>
+            <button class="btn btn-sm btn-warning ms-2"
+              @click="switchAgentToSsh(bs)" :disabled="breakerActing[bs.id]">
+              <i class="mdi mdi-swap-horizontal me-1"></i>{{ $t('servers.agentSwitchToSsh') || 'Switch to SSH' }}
+            </button>
+            <button class="btn btn-sm btn-outline-secondary ms-1"
+              @click="retryAgentNow(bs)" :disabled="breakerActing[bs.id]">
+              <i class="mdi mdi-refresh me-1"></i>{{ $t('servers.agentRetryNow') || 'Retry now' }}
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+
     <!-- ── Server grid ──────────────────────────────────────── -->
     <div v-if="store.servers.length" class="srv-grid" @click="openMenuId = null">
       <div v-for="server in store.servers" :key="server.id" class="srv-card">
@@ -24,9 +59,14 @@
               <span v-else-if="server.server_type === 'hysteria2'" class="srv-proto srv-proto--hy2"><i class="mdi mdi-web me-1"></i>HY2</span>
               <span v-else-if="server.server_type === 'tuic'" class="srv-proto srv-proto--tuic"><i class="mdi mdi-web me-1"></i>TUIC</span>
               <span v-if="server.is_default" class="srv-proto srv-proto--default"><i class="mdi mdi-star me-1"></i>Default</span>
-              <button v-if="server.agent_mode === 'agent'" class="srv-agent-badge" @click.stop="openAgentMenu(server)" title="Manage agent">
+              <button v-if="server.agent_mode === 'agent'"
+                class="srv-agent-badge"
+                :class="{ 'srv-agent-badge--down': server.agent_breaker?.open }"
+                @click.stop="openAgentMenu(server)"
+                :title="server.agent_breaker?.open ? ($t('servers.agentUnreachable') || 'Agent unreachable') : 'Manage agent'">
                 <i class="mdi mdi-robot-outline"></i>
                 <span v-if="checkingStatus[server.id]" class="spinner-border spinner-border-sm" style="width:.6em;height:.6em;border-width:1.5px"></span>
+                <i v-else-if="server.agent_breaker?.open" class="mdi mdi-alert-circle text-danger" style="font-size:.6em"></i>
                 <i v-else-if="agentStatuses[server.id]" :class="agentStatuses[server.id].healthy ? 'mdi mdi-circle text-success' : 'mdi mdi-circle text-danger'" style="font-size:.6em"></i>
               </button>
               <span v-else-if="server.is_remote" class="srv-agent-badge">SSH</span>
@@ -1340,6 +1380,52 @@ function isOnline(s) { return s.status === 'ONLINE' || s.status === 'online' }
 function clientPct(s) { return s.max_clients ? Math.round((s.total_clients || 0) / s.max_clients * 100) : 0 }
 function toggleMenu(id) { openMenuId.value = openMenuId.value === id ? null : id }
 function menuAction(fn) { openMenuId.value = null; fn() }
+
+// ── Broken-agent banner ────────────────────────────────────
+// Servers whose agent circuit-breaker is open (>=3 consecutive
+// ConnectTimeouts). Drives the page-top banner that nudges the user toward
+// Switch-to-SSH / Retry-now so a dead box stops being a mystery.
+const brokenAgents = computed(() =>
+  (store.servers || []).filter(s => s.agent_breaker?.open)
+)
+const breakerActing = reactive({})
+
+function formatBreakerSince(seconds) {
+  if (seconds == null) return ''
+  const s = Math.floor(seconds)
+  if (s < 60) return t('servers.agentSinceSeconds', { seconds: s })
+  return t('servers.agentSinceMinutes', { minutes: Math.floor(s / 60) })
+}
+
+async function switchAgentToSsh(server) {
+  if (!server) return
+  breakerActing[server.id] = true
+  try {
+    await serversApi.switchAgentMode(server.id, 'ssh')
+    // The server tile flipping from "agent" to "ssh" + the banner item
+    // disappearing is enough confirmation; no toast needed.
+    await store.fetchServers()
+  } catch (err) {
+    alert((err.response?.data?.detail || err.message))
+  } finally {
+    breakerActing[server.id] = false
+  }
+}
+
+async function retryAgentNow(server) {
+  if (!server) return
+  breakerActing[server.id] = true
+  try {
+    await serversApi.resetAgentBreaker(server.id)
+    // Probe the agent once so the next /servers refresh reflects the result.
+    try { await serversApi.checkAgentStatus(server.id) } catch (_) { /* surface via banner */ }
+    await store.fetchServers()
+  } catch (err) {
+    alert((err.response?.data?.detail || err.message))
+  } finally {
+    breakerActing[server.id] = false
+  }
+}
 
 const showAddModal = ref(false)
 const addError = ref('')
@@ -2824,6 +2910,78 @@ onUnmounted(() => {
 }
 .srv-agent-badge:hover { background: rgba(115,103,240,.18); }
 [data-theme="dark"] .srv-agent-badge { background: rgba(115,103,240,.18); }
+
+/* Open circuit-breaker — agent is unreachable. The red wash plus the alert
+   icon should be impossible to miss when scanning the server grid. */
+.srv-agent-badge--down {
+  background: rgba(234, 84, 85, 0.14);
+  color: #d04848;
+  animation: srv-agent-pulse 2.4s ease-in-out infinite;
+}
+.srv-agent-badge--down:hover { background: rgba(234, 84, 85, 0.22); }
+[data-theme="dark"] .srv-agent-badge--down {
+  background: rgba(234, 84, 85, 0.22);
+  color: #ff7d7d;
+}
+@keyframes srv-agent-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 84, 85, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(234, 84, 85, 0.18); }
+}
+
+/* ── Unreachable-agent banner ─────────────────────────────
+   Sits above the server grid; one line per dead agent with two action
+   buttons (Switch to SSH / Retry now). Uses the page's warning palette. */
+.agent-breaker-banner {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  margin: 0 0 18px;
+  background: rgba(255, 159, 67, 0.10);
+  border: 1px solid rgba(255, 159, 67, 0.35);
+  border-left: 4px solid #ff9f43;
+  border-radius: 6px;
+  color: var(--bs-body-color);
+}
+.agent-breaker-banner__icon {
+  font-size: 1.4rem;
+  color: #ff9f43;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.agent-breaker-banner__body { flex: 1; min-width: 0; }
+.agent-breaker-banner__title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.agent-breaker-banner__text {
+  font-size: .92em;
+  opacity: 0.85;
+  margin-bottom: 8px;
+}
+.agent-breaker-banner__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.agent-breaker-banner__list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.agent-breaker-banner__since {
+  font-size: .85em;
+  opacity: 0.7;
+  margin-right: 6px;
+}
+[data-theme="dark"] .agent-breaker-banner {
+  background: rgba(255, 159, 67, 0.12);
+  border-color: rgba(255, 159, 67, 0.30);
+}
 
 /* ── Status badge ─────────────────────────────────────── */
 .srv-status {

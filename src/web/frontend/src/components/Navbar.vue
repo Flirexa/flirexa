@@ -49,6 +49,20 @@
         <i :class="system.theme === 'dark' ? 'mdi mdi-weather-sunny' : 'mdi mdi-weather-night'"></i>
       </button>
 
+      <!-- Unreachable agent indicator — links to /servers where the banner
+           lives. Only renders when the servers store has at least one server
+           with an open circuit-breaker, so we don't add chrome for the
+           healthy case. -->
+      <router-link
+        v-if="brokenAgentCount > 0"
+        to="/servers"
+        class="topbar-icon-btn topbar-agent-down-btn"
+        :title="$t('servers.agentBannerTitle', { count: brokenAgentCount })"
+      >
+        <i class="mdi mdi-server-network-off"></i>
+        <span class="topbar-agent-down-count">{{ brokenAgentCount }}</span>
+      </router-link>
+
       <!-- Update available — only when a newer version is on the channel -->
       <router-link
         v-if="updateBadge.available"
@@ -85,6 +99,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSystemStore } from '../stores/system'
+import { useServersStore } from '../stores/servers'
 import api from '../api'
 
 defineEmits(['open-donate'])
@@ -92,7 +107,18 @@ defineEmits(['open-donate'])
 const route = useRoute()
 const router = useRouter()
 const system = useSystemStore()
+const serversStore = useServersStore()
 const { locale, t } = useI18n()
+
+// Live count of agents whose circuit-breaker is open. Drives the red
+// "agent unreachable" pill in the top bar — visible from every page so the
+// user can spot the cause of any panel slowness without first navigating
+// to /servers. The count is reactive on the shared Pinia store; whichever
+// page last called fetchServers() seeds it (the Servers view always does
+// on mount, and the live-poll there refreshes it on every tick).
+const brokenAgentCount = computed(() =>
+  (serversStore.servers || []).filter(s => s.agent_breaker?.open).length
+)
 
 const langOpen = ref(false)
 const userMenuOpen = ref(false)
@@ -131,19 +157,32 @@ async function refreshUpdateBadge() {
   }
 }
 
-function _refreshOnFocus() { if (!document.hidden) refreshUpdateBadge() }
+function _refreshOnFocus() { if (!document.hidden) { refreshUpdateBadge(); refreshAgentBreakerCount() } }
 
 // Refresh whenever the user navigates between admin pages — every route change
 // is a chance to surface a freshly-published version without waiting up to 60s.
-watch(() => route.fullPath, () => refreshUpdateBadge())
+watch(() => route.fullPath, () => { refreshUpdateBadge(); refreshAgentBreakerCount() })
+
+// Keep the broken-agent count fresh on every page. Servers.vue maintains
+// the store on its own when the user is on /servers; elsewhere we top up
+// every 30s so the indicator surfaces while the user is on Dashboard or
+// Clients without making them visit Servers first.
+let _serversTimer = null
+async function refreshAgentBreakerCount() {
+  if (serversStore.loading) return
+  try { await serversStore.fetchServers() } catch (_) { /* silent — surfacing is best-effort */ }
+}
 
 onMounted(() => {
   refreshUpdateBadge()
+  refreshAgentBreakerCount()
   _updateBadgeTimer = setInterval(refreshUpdateBadge, 60 * 1000)
+  _serversTimer = setInterval(refreshAgentBreakerCount, 30 * 1000)
   document.addEventListener('visibilitychange', _refreshOnFocus)
 })
 onBeforeUnmount(() => {
   if (_updateBadgeTimer) clearInterval(_updateBadgeTimer)
+  if (_serversTimer) clearInterval(_serversTimer)
   document.removeEventListener('visibilitychange', _refreshOnFocus)
 })
 
@@ -195,4 +234,25 @@ function refreshData() { window.location.reload() }
   box-shadow: 0 0 0 2px var(--vxy-bg, #fff);
 }
 .vxy-dropdown-menu--right { right: 0; left: auto; }
+
+.topbar-agent-down-btn {
+  position: relative;
+  color: #ef4444;
+}
+.topbar-agent-down-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  font-size: .62rem;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  border-radius: 7px;
+  background: #ef4444;
+  color: #fff;
+  box-shadow: 0 0 0 2px var(--vxy-bg, #fff);
+}
 </style>

@@ -221,6 +221,13 @@ export const serversApi = {
   installAgent: (id, port = 8001) => api.post(`/servers/${id}/install-agent`, { port }, { timeout: 300000 }),
   checkAgentStatus: (id) => api.get(`/agent/${id}/status`),
   uninstallAgent: (id) => api.post(`/agent/${id}/uninstall`, {}, { timeout: 120000 }),
+  // Switch the server's mode without uninstalling the agent — useful when the
+  // agent is unreachable (firewall, dead box) and we want to fall back to SSH
+  // immediately to clear panel-wide lag, then come back to agent mode later.
+  switchAgentMode: (id, mode) => api.post(`/agent/${id}/switch-mode`, null, { params: { mode }, timeout: 30000 }),
+  // Force-clear the in-memory circuit-breaker for this server's agent.
+  // Backs the "Retry now" button on the unreachable-agent banner.
+  resetAgentBreaker: (id) => api.post(`/servers/${id}/agent/breaker/reset`, {}, { timeout: 10000 }),
   backup: (id) => api.get(`/servers/${id}/backup`, { responseType: 'blob' }),
   restore: (id, file) => {
     const form = new FormData()
