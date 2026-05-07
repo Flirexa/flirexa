@@ -4,6 +4,16 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.78 — 2026-05-08
+
+Expand-pool validation relaxed: pool overlap is now only blocked between servers on the **same physical machine** (same `ssh_host` value, or both panel-local). Two WireGuard servers on different boxes don't share a kernel routing table, so their pools can overlap without breaking anything — each box NATs its own range to the internet independently.
+
+The previous strict check was treating any two servers with overlapping pools as a conflict, even when the servers were on completely separate VPS instances. Surfaced when a real prod had three servers with identical /24 pools across three different machines, all of which the operator wanted to expand — validation refused all of them. With this relax, the check now only fires for true same-machine collisions where both interfaces would compete for the same kernel routes.
+
+End-to-end re-tested on a production setup: a remote agent-mode server, /24 → /20, peers reconnected on the next handshake cycle, no client disconnects beyond the brief expected window.
+
+---
+
 ## v1.5.77 — 2026-05-07
 
 A bundle of operator-facing additions and a stack of bug fixes shaken out of a real prod incident on the new Expand Address Pool feature.

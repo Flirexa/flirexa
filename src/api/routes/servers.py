@@ -1876,15 +1876,26 @@ async def expand_address_pool(
                     "suggested": str(suggested) if suggested.supernet_of(cur_net) else None},
         )
 
-    # 4. No conflict with other servers' pools
+    # 4. No conflict with other servers' pools — but ONLY when they live
+    # on the same physical machine. Two WG servers on different boxes
+    # don't share a kernel routing table, so their pools can overlap
+    # without breaking anything (each box NATs its own /24 to the
+    # internet independently). The original strict check was treating a
+    # remote agent at IP-A as if it conflicted with a remote agent at
+    # IP-B — which it doesn't, technically. Same machine = same kernel =
+    # real route conflict, that we still block.
+    own_host = (server.ssh_host or "").strip()
     other_pools = (
-        db.query(Server.id, Server.name, Server.address_pool_ipv4)
+        db.query(Server.id, Server.name, Server.address_pool_ipv4, Server.ssh_host)
         .filter(Server.id != server_id)
         .filter(Server.address_pool_ipv4.isnot(None))
         .all()
     )
-    for other_id, other_name, other_pool in other_pools:
+    for other_id, other_name, other_pool, other_host in other_pools:
         if not other_pool:
+            continue
+        # Different machine → no kernel-level conflict, skip.
+        if (other_host or "").strip() != own_host:
             continue
         try:
             other_net = ipaddress.IPv4Network(other_pool, strict=False)
@@ -1895,8 +1906,11 @@ async def expand_address_pool(
                 status_code=409,
                 detail={"error": "pool_conflict",
                         "message": f"New pool {new_net} overlaps with server "
-                                   f"'{other_name}' (#{other_id}) which uses {other_net}. "
-                                   "Two servers can't share an address range.",
+                                   f"'{other_name}' (#{other_id}) which uses {other_net} "
+                                   f"on the same machine. Two interfaces on the "
+                                   "same box can't share an address range — kernel "
+                                   "routes would collide. Pick a non-overlapping CIDR "
+                                   "or move that server to a different host first.",
                         "conflicting_server_id": other_id,
                         "conflicting_server_name": other_name,
                         "conflicting_pool": str(other_net)},
