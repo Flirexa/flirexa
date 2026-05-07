@@ -173,7 +173,7 @@ def _enrich_handshakes(clients: list, db: Session):
 # ============================================================================
 
 @router.get("")
-async def list_clients(
+def list_clients(
     server_id: Optional[int] = Query(None, description="Filter by server ID"),
     enabled_only: bool = Query(False, description="Only show enabled clients"),
     limit: int = Query(500, ge=1, le=500, description="Max items to return"),
@@ -181,12 +181,17 @@ async def list_clients(
     db: Session = Depends(get_db)
 ):
     """
-    Get list of all clients with pagination
+    Get list of all clients with pagination.
 
     - **server_id**: Optional filter by server
     - **enabled_only**: Only return enabled clients
     - **limit**: Max items per page (1-500, default 50)
     - **offset**: Items to skip (default 0)
+
+    Declared as `def`: body uses sync SQLAlchemy plus `_enrich_handshakes`
+    (which talks to WG over agent/SSH). With `async def` the whole event
+    loop blocked while any of those fired, so /clients piled up behind
+    /servers and /bandwidth on busy panels with multiple servers.
     """
     query = db.query(Client)
 
