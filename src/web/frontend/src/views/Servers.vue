@@ -77,6 +77,7 @@
                 <button class="srv-menu__item" @click="menuAction(() => openRenameModal(server))"><i class="mdi mdi-pencil-outline me-1"></i>{{ $t('servers.rename') || 'Rename (display)' }}</button>
                 <template v-if="server.server_category !== 'proxy'">
                   <div class="srv-menu__sep"></div>
+                  <button class="srv-menu__item" @click="menuAction(() => openExpandPool(server))"><i class="mdi mdi-arrow-expand-horizontal me-1"></i>{{ $t('servers.expandPool') || 'Expand address pool' }}</button>
                   <button class="srv-menu__item" @click="menuAction(() => openExportKeypair(server))"><i class="mdi mdi-key-outline me-1"></i>{{ $t('servers.exportKeypair') || 'Export keypair' }}</button>
                   <button class="srv-menu__item" @click="menuAction(() => openMigrateClients(server))"><i class="mdi mdi-account-switch-outline me-1"></i>{{ $t('servers.migrateClients') || 'Migrate clients' }}</button>
                 </template>
@@ -1014,6 +1015,85 @@
       </div>
     </div>
     <div class="modal-backdrop fade show" v-if="showRenameModal"></div>
+
+    <!-- ════════ Expand Address Pool Modal ════════ -->
+    <div class="modal fade" :class="{ show: showExpandPoolModal }"
+         :style="{ display: showExpandPoolModal ? 'block' : 'none' }" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="mdi mdi-arrow-expand-horizontal me-1"></i>{{ $t('servers.expandPool') || 'Expand address pool' }}
+            </h5>
+            <button type="button" class="btn-close" @click="closeExpandPool"></button>
+          </div>
+          <div class="modal-body" v-if="expandPoolServer">
+            <div class="expand-pool-server">
+              <i class="mdi mdi-server-network"></i>
+              <strong>{{ expandPoolServer.name }}</strong>
+            </div>
+
+            <div class="row g-2 mb-3 expand-pool-grid">
+              <div class="col-12 col-sm-6">
+                <div class="text-muted small">{{ $t('servers.expandPool_current') || 'Current pool' }}</div>
+                <div class="font-monospace fw-semibold">{{ expandPoolServer.address_pool_ipv4 }}</div>
+                <div class="text-muted small">{{ expandPoolCurrentHosts }} hosts</div>
+              </div>
+              <div class="col-12 col-sm-6">
+                <div class="text-muted small">{{ $t('servers.expandPool_existingClients') || 'Existing clients' }}</div>
+                <div class="font-monospace fw-semibold">{{ expandPoolServer.total_clients ?? '?' }}</div>
+                <div class="text-muted small">{{ $t('servers.expandPool_keepIPs') || 'keep their IPs' }}</div>
+              </div>
+            </div>
+
+            <label class="form-label fw-semibold">{{ $t('servers.expandPool_newCidr') || 'New address pool (CIDR)' }}</label>
+            <div class="input-group">
+              <input type="text" class="form-control font-monospace" v-model="expandPoolInput"
+                     placeholder="10.0.0.0/20" :disabled="expandingPool" @keyup.enter="submitExpandPool" />
+            </div>
+            <div class="form-text">
+              {{ $t('servers.expandPool_hint') || 'Pick a wider CIDR (smaller prefix length) that contains the current pool. Common: /24 → /20 = 4094 hosts, /20 → /16 = 65534 hosts.' }}
+            </div>
+
+            <div class="expand-pool-presets mt-2">
+              <button v-for="p in expandPoolPresets" :key="p" type="button"
+                      class="btn btn-outline-secondary btn-sm" :disabled="expandingPool"
+                      @click="expandPoolInput = p">{{ p }}</button>
+            </div>
+
+            <div v-if="expandPoolError" class="alert alert-danger mt-3 py-2 small mb-0">
+              {{ expandPoolError }}
+              <div v-if="expandPoolSuggested" class="mt-1">
+                <button type="button" class="btn btn-sm btn-outline-warning"
+                        @click="expandPoolInput = expandPoolSuggested; expandPoolError = ''; expandPoolSuggested = ''">
+                  Use {{ expandPoolSuggested }}
+                </button>
+              </div>
+            </div>
+            <div v-if="expandPoolResult" class="alert alert-success mt-3 py-2 small mb-0">
+              <strong>{{ $t('servers.expandPool_done') || 'Done.' }}</strong>
+              {{ expandPoolResult.old_pool }} → {{ expandPoolResult.new_pool }}.
+              {{ expandPoolResult.host_capacity }} hosts available.
+              <span v-if="!expandPoolResult.interface_bounced" class="text-warning d-block mt-1">
+                <i class="mdi mdi-alert-outline"></i>
+                {{ $t('servers.expandPool_bounceWarn') || 'Database updated, but the interface didn\'t bounce cleanly. Restart the server from the menu when convenient.' }}
+              </span>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" @click="closeExpandPool" :disabled="expandingPool">
+              {{ expandPoolResult ? ($t('common.close') || 'Close') : ($t('common.cancel') || 'Cancel') }}
+            </button>
+            <button v-if="!expandPoolResult" type="button" class="btn btn-warning btn-sm"
+                    @click="submitExpandPool" :disabled="expandingPool || !expandPoolInput">
+              <span v-if="expandingPool" class="spinner-border spinner-border-sm me-1"></span>
+              {{ $t('servers.expandPool_apply') || 'Expand pool' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade show" v-if="showExpandPoolModal"></div>
 
     <!-- ════════ Export Keypair Modal ════════ -->
     <div v-if="exportKeypairServer" class="modal fade show" style="display:block" tabindex="-1">
@@ -2279,6 +2359,89 @@ async function saveDisplayName() {
   }
 }
 
+// --- Expand address pool (grow CIDR without disrupting current clients) ---
+
+const showExpandPoolModal = ref(false)
+const expandPoolServer = ref(null)
+const expandPoolInput = ref('')
+const expandPoolError = ref('')
+const expandPoolSuggested = ref('')
+const expandPoolResult = ref(null)
+const expandingPool = ref(false)
+
+const expandPoolCurrentHosts = computed(() => {
+  if (!expandPoolServer.value || !expandPoolServer.value.address_pool_ipv4) return '?'
+  const m = String(expandPoolServer.value.address_pool_ipv4).match(/\/(\d+)$/)
+  if (!m) return '?'
+  const prefix = parseInt(m[1], 10)
+  const total = Math.pow(2, 32 - prefix)
+  return Math.max(0, total - 2).toLocaleString()
+})
+
+// Suggested presets that progressively widen common pool sizes. Filtered
+// at render time to ones STRICTLY wider than the current pool.
+const expandPoolPresets = computed(() => {
+  if (!expandPoolServer.value) return []
+  const cur = String(expandPoolServer.value.address_pool_ipv4 || '')
+  const m = cur.match(/^(\d+)\.(\d+)\.(\d+)\.\d+\/(\d+)$/)
+  if (!m) return []
+  const [, a, b, c, p] = m
+  const curPrefix = parseInt(p, 10)
+  // Build candidates by zeroing the appropriate octets and dropping the prefix.
+  const candidates = []
+  if (curPrefix > 20) candidates.push(`${a}.${b}.${c & 0xf0 ? c : 0}.0/20`.replace(/\.\d+\.\d+\.0\/20$/, m => {
+    // canonicalise third octet to its /20 boundary
+    const c3 = parseInt(c, 10) & 0xf0
+    return `.${b}.${c3}.0/20`
+  }))
+  // Simpler: just suggest /20, /16, /12 anchored at the current /a.b.0.0
+  if (curPrefix > 20) candidates.push(`${a}.${b}.0.0/20`)
+  if (curPrefix > 16) candidates.push(`${a}.${b}.0.0/16`)
+  if (curPrefix > 12) candidates.push(`${a}.0.0.0/12`)
+  // De-dupe
+  return [...new Set(candidates)]
+})
+
+function openExpandPool(server) {
+  expandPoolServer.value = server
+  expandPoolInput.value = ''
+  expandPoolError.value = ''
+  expandPoolSuggested.value = ''
+  expandPoolResult.value = null
+  showExpandPoolModal.value = true
+}
+function closeExpandPool() {
+  showExpandPoolModal.value = false
+  // Don't clear `expandPoolServer` here — Vue's transition still references
+  // it during the fade-out. It gets overwritten on next open.
+}
+
+async function submitExpandPool() {
+  if (!expandPoolServer.value || !expandPoolInput.value.trim()) return
+  expandingPool.value = true
+  expandPoolError.value = ''
+  expandPoolSuggested.value = ''
+  try {
+    const { data } = await serversApi.expandPool(
+      expandPoolServer.value.id,
+      expandPoolInput.value.trim()
+    )
+    expandPoolResult.value = data
+    // Refresh server list so the new pool shows everywhere
+    await store.fetchServers()
+  } catch (err) {
+    const detail = err.response?.data?.detail
+    if (detail && typeof detail === 'object') {
+      expandPoolError.value = detail.message || JSON.stringify(detail)
+      if (detail.suggested) expandPoolSuggested.value = detail.suggested
+    } else {
+      expandPoolError.value = detail || err.message || String(err)
+    }
+  } finally {
+    expandingPool.value = false
+  }
+}
+
 // --- Export keypair (for cloning a server with the same WG identity) ---
 
 function openExportKeypair(server) {
@@ -3157,4 +3320,14 @@ details[open] .srv-details__chevron { transform: rotate(180deg); }
   background: #283046;
   box-shadow: 0 -1px 0 rgba(255,255,255,0.06);
 }
+.expand-pool-server { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(13, 110, 253, 0.06); border-radius: 8px; margin-bottom: 14px; font-size: 0.92rem; }
+.expand-pool-server .mdi { color: #0d6efd; opacity: 0.8; }
+.expand-pool-grid > div { padding: 10px 12px; background: rgba(0, 0, 0, 0.025); border-radius: 8px; }
+.expand-pool-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.expand-pool-presets .btn { font-family: 'JetBrains Mono', 'Menlo', monospace; font-size: 0.78rem; padding: 3px 10px; }
+
+[data-theme="dark"] .expand-pool-server { background: rgba(99, 132, 253, 0.10); }
+[data-theme="dark"] .expand-pool-server .mdi { color: #93b5ff; }
+[data-theme="dark"] .expand-pool-grid > div { background: rgba(255, 255, 255, 0.04); }
+[data-theme="dark"] .expand-pool-grid > div .text-muted { color: #adb5bd !important; }
 </style>

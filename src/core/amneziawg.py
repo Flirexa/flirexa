@@ -169,12 +169,25 @@ class AmneziaWGManager(WireGuardManager):
         except Exception:
             return False
 
+    def _awgquick_target(self) -> str:
+        """Argument for `awg-quick {up,down,save}`.
+
+        When config_path is set to a non-default location (e.g. our installer
+        puts AWG configs under /opt/amneziawg/config/), awg-quick won't find
+        it via the bare interface name — its default lookup is
+        /etc/amnezia/<iface>.conf. Pass the explicit path so it works
+        regardless of where the config lives.
+        """
+        if self.config_path:
+            return self.config_path
+        return self.interface
+
     def start_interface(self) -> bool:
         if self.is_interface_up():
             logger.info(f"[AWG] Interface {self.interface} already up")
             return True
         try:
-            self._run_cmd(["awg-quick", "up", self.interface])
+            self._run_cmd(["awg-quick", "up", self._awgquick_target()])
             logger.info(f"[AWG] Started interface {self.interface}")
             return True
         except subprocess.CalledProcessError as e:
@@ -183,10 +196,20 @@ class AmneziaWGManager(WireGuardManager):
 
     def stop_interface(self) -> bool:
         try:
-            self._run_cmd(["awg-quick", "down", self.interface])
+            self._run_cmd(["awg-quick", "down", self._awgquick_target()])
             logger.info(f"[AWG] Stopped interface {self.interface}")
             return True
         except subprocess.CalledProcessError as e:
+            # awg-quick can exit non-zero on a PostDown quirk (e.g. an
+            # iptables rule already removed by another process, or a stale
+            # `ip route del` line) AFTER the interface itself is gone.
+            # If the kernel no longer shows the interface, the teardown
+            # achieved its goal and we treat it as success — the alternative
+            # is reporting "stop failed" while clients see the interface
+            # vanish anyway, which is what burned us during 1.5.73 testing.
+            if not self.is_interface_up():
+                logger.info(f"[AWG] {self.interface} is down despite awg-quick exit ({e.returncode}) — treating as success")
+                return True
             logger.error(f"[AWG] Failed to stop interface: {e.stderr}")
             return False
 

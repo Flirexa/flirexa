@@ -511,6 +511,13 @@ export default {
   clients: {
     shareLinkTitle: 'Get a 10-minute share link',
     shareModal: {
+      copyFallback: 'Browser blocked clipboard access (panel served over HTTP). The link is selected — press Ctrl+C / ⌘C to copy it.',
+      downloadConfig: 'Download config',
+      showQR: 'Show QR',
+      hideQR: 'Hide QR',
+      qrLoading: 'Generating QR…',
+      qrAlt: 'WireGuard config QR',
+      qrHint: 'Scan with the WireGuard app to import directly.',
       created: 'Client created',
       linkLabel: 'Time-limited download link',
       generating: 'Generating link…',
@@ -569,6 +576,15 @@ export default {
 
   // Servers
   servers: {
+    expandPool: 'Expand address pool',
+    expandPool_current: 'Current pool',
+    expandPool_existingClients: 'Existing clients',
+    expandPool_keepIPs: 'keep their IPs',
+    expandPool_newCidr: 'New address pool (CIDR)',
+    expandPool_hint: 'Pick a wider CIDR (smaller prefix length) that contains the current pool. Common: /24 → /20 = 4094 hosts, /20 → /16 = 65534 hosts.',
+    expandPool_apply: 'Expand pool',
+    expandPool_done: 'Done.',
+    expandPool_bounceWarn: 'Database updated, but the interface didn\'t bounce cleanly. Restart the server from the menu when convenient.',
     ipv4OnlyHint: 'Strips the IPv6 Address line from generated client configs. Useful where IPv6 isn\'t fully tunneled and could leak DNS.',
     ipv4OnlyLabel: 'IPv4 only (no IPv6 in client configs)',
     count: '{count} server(s)',
