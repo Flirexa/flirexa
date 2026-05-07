@@ -208,7 +208,13 @@ def _run_alembic_migrations() -> None:
         command.upgrade(alembic_cfg, "head")
         log.info("Alembic migrations applied successfully")
     except Exception as e:
-        log.warning("Alembic migration failed (non-fatal, app will still start): %s", e)
+        # Log the FULL traceback at ERROR level. The previous "warning + str(e)"
+        # made post-update Alembic mismatches invisible: smoke checks still
+        # detected the version-skew and triggered rollbacks, but operators
+        # had no idea WHY the migration failed. With the traceback in
+        # journalctl, the next failure is at most a `journalctl -u …
+        # | grep "Alembic migration failed"` away.
+        log.error("Alembic migration failed (non-fatal, app will still start): %s", e, exc_info=True)
 
 
 def init_db() -> None:

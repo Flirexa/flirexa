@@ -4,6 +4,29 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.70 — 2026-05-07
+
+A bundle of operator-facing polish for the Clients page and Online Users page, plus a critical update-pipeline fix flushed out by a prod incident on 1.5.67.
+
+### Added — Clients page
+
+- **One-click 10-minute share link.** New action button (link icon, info-coloured) on every client row generates a public, time-limited URL the operator can paste into Telegram or any chat — the customer downloads their `.conf` from that URL with no panel login. Default lifetime 10 minutes (configurable 1 minute–1 hour via the API). Tokens are tracked in a dedicated audit table with first-use timestamp and IP.
+- **Post-create modal.** Creating a new client now pops a modal showing the new client's name, server, IP, the freshly-issued share link with a live countdown, plus an Edit shortcut. No more searching the list.
+- **Just-created highlight that pins to the top.** While a row is glowing (60 s after creation), it sits at position 0 of the list regardless of the active sort, and the table jumps to page 1 so the new row is actually on screen. After the highlight expires, sorting reverts to whatever the user picked. Single-slot — if you create a second client during the window, the highlight transfers to it; the previous one fades back to normal immediately.
+
+### Fixed
+
+- **Update pipeline no longer auto-rolls-back on idempotent failures.** Migrations now skip `CREATE TABLE` / `CREATE INDEX` operations when the target already exists, so a partially-applied previous attempt doesn't trap the next install in a permanent rollback loop. Surfaced by a real prod incident: a transient migration crash left an orphan table behind, every subsequent `apply` hit the same crash, the post-update health check saw the Alembic revision mismatch, and triggered a rollback that didn't fully clean up. The cycle stopped being self-healing.
+- **Auto-update silent-failure fixed.** The auto-apply path in `auto_check.py` was importing a function from the wrong module (`is_newer` from `.manager` instead of `.checker`), which silently broke every auto-apply attempt for who-knows-how-long. Manual "Apply update" was unaffected, which is why nobody had noticed.
+- **Alembic migration failures now log a full traceback at ERROR level** instead of a one-line WARNING that swallowed the root cause. The next failure will tell you exactly which migration choked and on which row.
+- **Dark theme contrast pass** on the new Online Users page, the Live indicator pill + interval picker, and the share-link modal. The previous dark CSS was gated on `prefers-color-scheme`, but the panel uses a manual `[data-theme="dark"]` attribute toggle instead — the OS-dark gate never fired, so muted text was rendering at light-mode contrast on a dark background and ended up effectively invisible. All dark variants now ship via the actual selector the panel uses.
+
+### Build tooling
+
+- **`push_test.sh` auto-bumps the patch number** when the current `VERSION` is already on the test channel. Closes a footgun from earlier this week — re-uploading a tarball under the same version number is silently a no-op for any panel that already pulled it, so "I shipped a fix" felt like nothing changed. Use `--in-place` if you really want to overwrite the existing test build (rare). Refusal on stable now suggests the next-likely version in the error message.
+
+---
+
 ## v1.5.66 — 2026-05-06
 
 A dedicated **Online Users** page in the main navigation — a live, read-only monitor of who's currently connected to your VPN, with per-client real-time speeds. Shipped together with a calmer Dashboard.

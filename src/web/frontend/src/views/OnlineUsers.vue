@@ -560,19 +560,83 @@ onMounted(refresh)
 }
 .ou-card-traffic .mdi { opacity: 0.6; }
 
-/* Dark theme */
+/* Dark theme — applied via the panel's manual theme toggle (data-theme="dark"
+   on <html>), NOT prefers-color-scheme. The earlier prefers-color-scheme
+   block was DEAD CODE because the app sets the theme attribute manually,
+   so muted text was rendering at light-mode contrast on a dark background
+   and ended up basically invisible. */
+[data-theme="dark"] .ou-page,
+[data-theme="dark"] .ou-title,
+[data-theme="dark"] .ou-empty-title { color: #e9ecef; }
+
+/* Lighter muted greys — Bootstrap's gray-400 (#ced4da) reads cleanly on
+   the panel's dark surface; gray-500 (#adb5bd) for slightly less
+   important text. Anything dimmer than #adb5bd disappears. */
+[data-theme="dark"] .ou-sub,
+[data-theme="dark"] .ou-empty-hint,
+[data-theme="dark"] .ou-server-name,
+[data-theme="dark"] .ou-mono,
+[data-theme="dark"] .ou-time,
+[data-theme="dark"] .ou-traffic,
+[data-theme="dark"] .ou-card-meta,
+[data-theme="dark"] .ou-card-time,
+[data-theme="dark"] .ou-card-traffic { color: #adb5bd; }
+
+[data-theme="dark"] .ou-counter-lbl { color: #ced4da; }
+
+/* "0 connected" pill when nobody is online — was unreadable charcoal-on-charcoal */
+[data-theme="dark"] .ou-counter:not(.has-online) {
+  background: rgba(173, 181, 189, 0.10);
+  border-color: rgba(173, 181, 189, 0.20);
+}
+[data-theme="dark"] .ou-counter:not(.has-online) .ou-counter-num { color: #ced4da; }
+[data-theme="dark"] .ou-counter.has-online {
+  background: rgba(40, 167, 69, 0.18);
+  border-color: rgba(40, 167, 69, 0.35);
+}
+[data-theme="dark"] .ou-counter.has-online .ou-counter-num { color: #4ddf6e; }
+
+/* Per-server chips — blue glow on dark works only if both fg and bg are bumped */
+[data-theme="dark"] .ou-server-chip {
+  background: rgba(99, 132, 253, 0.14);
+  border-color: rgba(99, 132, 253, 0.30);
+  color: #93b5ff;
+}
+
+/* Cards / table — borrow the surface colour from the panel's theme tokens
+   when present, fallback to a hard value matching the rest of the panel.  */
+[data-theme="dark"] .ou-table-wrap,
+[data-theme="dark"] .ou-card {
+  background: var(--vxy-card-bg, #1f232a);
+  border-color: var(--vxy-border, rgba(255, 255, 255, 0.08));
+}
+[data-theme="dark"] .ou-table th {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  color: #adb5bd;   /* the small-caps column headers were bordering invisible */
+}
+[data-theme="dark"] .ou-table td { border-bottom-color: rgba(255, 255, 255, 0.06); }
+[data-theme="dark"] .ou-table tr:hover td { background: rgba(99, 132, 253, 0.05); }
+
+[data-theme="dark"] .ou-empty {
+  background: rgba(255, 255, 255, 0.025);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+[data-theme="dark"] .ou-card-traffic,
+[data-theme="dark"] .ou-card-speed { border-top-color: rgba(255, 255, 255, 0.08); }
+
+/* Speed arrows: green/blue scaled up so the cell pops out of the row */
+[data-theme="dark"] .ou-speed-down { color: #4ade80; }
+[data-theme="dark"] .ou-speed-up   { color: #60a5fa; }
+[data-theme="dark"] .ou-speed-idle { color: #6c757d; }
+
+/* Belt-and-suspenders: also keep the prefers-color-scheme variant so
+   browsers in OS-dark with default theme=light still get readable greys.
+   Same selectors at media level — duplicated, but small. */
 @media (prefers-color-scheme: dark) {
-  .ou-counter:not(.has-online) { background: rgba(173, 181, 189, 0.08); }
-  .ou-counter.has-online .ou-counter-num { color: #4ddf6e; }
-  .ou-server-chip { background: rgba(99, 132, 253, 0.10); border-color: rgba(99, 132, 253, 0.25); color: #7da3ff; }
-  .ou-table-wrap, .ou-card { background: #1f232a; border-color: rgba(255, 255, 255, 0.08); }
-  .ou-table th { background: rgba(255, 255, 255, 0.03); border-bottom-color: rgba(255, 255, 255, 0.06); }
-  .ou-table td { border-bottom-color: rgba(255, 255, 255, 0.04); }
-  .ou-table tr:hover td { background: rgba(99, 132, 253, 0.04); }
-  .ou-empty { background: rgba(255, 255, 255, 0.02); border-color: rgba(255, 255, 255, 0.10); }
-  .ou-card-traffic, .ou-card-speed { border-top-color: rgba(255, 255, 255, 0.06); }
-  .ou-speed-down { color: #4ade80; }
-  .ou-speed-up   { color: #60a5fa; }
+  .ou-sub, .ou-empty-hint, .ou-server-name, .ou-mono,
+  .ou-time, .ou-traffic, .ou-card-meta, .ou-card-time, .ou-card-traffic { color: #adb5bd; }
+  .ou-counter-lbl { color: #ced4da; }
 }
 
 /* Tighter spacing on phones */

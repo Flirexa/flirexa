@@ -207,20 +207,28 @@ const vClickOutside = {
 .picker-opt.selected { background: rgba(40, 167, 69, 0.10); color: #1e7a34; font-weight: 500; }
 .picker-opt .check { font-size: 0.95rem; }
 
-/* Dark theme */
+/* Dark theme — panel uses [data-theme="dark"] (manual toggle), so the
+   prefers-color-scheme variant alone left this component looking like
+   a white pill on a dark page. */
+[data-theme="dark"] .live-indicator.is-live { background: rgba(40, 167, 69, 0.18); color: #4ddf6e; }
+[data-theme="dark"] .live-indicator.is-paused { background: rgba(173, 181, 189, 0.12); color: #ced4da; }
+[data-theme="dark"] .live-indicator.is-off { background: rgba(173, 181, 189, 0.08); color: #adb5bd; }
+[data-theme="dark"] .live-indicator:focus-visible { outline-color: rgba(99, 132, 253, 0.6); }
+
+[data-theme="dark"] .picker {
+  background: var(--vxy-card-bg, #2b2f33);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  color: #e9ecef;
+}
+[data-theme="dark"] .picker-title { color: #adb5bd; }
+[data-theme="dark"] .picker-opt { color: #e9ecef; }
+[data-theme="dark"] .picker-opt:hover { background: rgba(255, 255, 255, 0.07); }
+[data-theme="dark"] .picker-opt.selected { background: rgba(40, 167, 69, 0.18); color: #4ddf6e; }
+
+/* Belt-and-suspenders for OS-dark with default light-theme attribute */
 @media (prefers-color-scheme: dark) {
   .live-indicator.is-live { background: rgba(40, 167, 69, 0.18); color: #4ddf6e; }
-  .live-indicator.is-paused { background: rgba(173, 181, 189, 0.10); color: #adb5bd; }
-  .live-indicator.is-off { background: rgba(173, 181, 189, 0.06); color: #868e96; }
-  .picker {
-    background: #2b2f33;
-    border-color: rgba(255, 255, 255, 0.10);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-    color: #e9ecef;
-  }
-  .picker-title { color: #adb5bd; }
-  .picker-opt:hover { background: rgba(255, 255, 255, 0.06); }
-  .picker-opt.selected { background: rgba(40, 167, 69, 0.18); color: #4ddf6e; }
 }
 
 @media (prefers-reduced-motion: reduce) {
