@@ -228,6 +228,13 @@ class WireGuardManager:
             logger.info(f"Stopped WireGuard interface {self.interface}")
             return True
         except subprocess.CalledProcessError as e:
+            # wg-quick can exit non-zero on PostDown cleanup quirks (e.g. an
+            # iptables rule already removed) AFTER the interface itself is
+            # gone. Treat "iface no longer up" as success — the teardown
+            # achieved its goal even if the script returned non-zero.
+            if not self.is_interface_up():
+                logger.info(f"{self.interface} is down despite wg-quick exit ({e.returncode}) — treating as success")
+                return True
             logger.error(f"Failed to stop interface: {e.stderr}")
             return False
 

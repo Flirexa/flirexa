@@ -563,15 +563,45 @@
                 <div class="share-link-hint">
                   {{ $t('clients.shareModal.hint') || 'Send this link to the customer — they download the .conf without logging in. Expires automatically.' }}
                 </div>
+                <div v-if="shareModal.copyError" class="share-copy-fallback">
+                  <i class="mdi mdi-information-outline"></i>
+                  {{ $t('clients.shareModal.copyFallback') || 'Browser blocked clipboard access (panel served over HTTP). The link is selected — press Ctrl+C / ⌘C to copy it.' }}
+                </div>
               </template>
             </div>
 
-            <!-- Quick actions (post-create only — Edit shortcut after a fresh add) -->
-            <div v-if="shareModal.client && shareModal.mode === 'post-create'" class="share-quick-actions">
-              <button class="btn btn-outline-secondary share-quick-btn" @click="editClient(shareModal.client); closeShareModal()">
+            <!-- Quick actions: download .conf + QR. Both work from inside the
+                 modal so the operator doesn't have to close it and find the
+                 row again. -->
+            <div v-if="shareModal.client && !shareModal.loading && !shareModal.error" class="share-quick-actions">
+              <button class="btn btn-outline-secondary share-quick-btn" :disabled="shareModal.downloading" @click="downloadConfigFromShare">
+                <span v-if="shareModal.downloading" class="spinner-border spinner-border-sm"></span>
+                <i v-else class="mdi mdi-tray-arrow-down"></i>
+                <span>{{ $t('clients.shareModal.downloadConfig') || 'Download config' }}</span>
+              </button>
+              <button class="btn btn-outline-secondary share-quick-btn" :class="{ active: shareModal.showQR }" @click="toggleShareQR">
+                <i :class="shareModal.showQR ? 'mdi mdi-chevron-up' : 'mdi mdi-qrcode'"></i>
+                <span>{{ shareModal.showQR ? ($t('clients.shareModal.hideQR') || 'Hide QR') : ($t('clients.shareModal.showQR') || 'Show QR') }}</span>
+              </button>
+              <button v-if="shareModal.mode === 'post-create'" class="btn btn-outline-secondary share-quick-btn" @click="editClient(shareModal.client); closeShareModal()">
                 <i class="mdi mdi-pencil-outline"></i>
                 <span>{{ $t('common.edit') || 'Edit' }}</span>
               </button>
+            </div>
+
+            <!-- QR — inline expand below the buttons. Loaded lazily on first
+                 click. Useful when the operator wants the customer to scan
+                 it on the spot rather than send the link. -->
+            <div v-if="shareModal.showQR" class="share-qr-block">
+              <div v-if="shareModal.qrLoading" class="share-qr-loading">
+                <span class="spinner-border spinner-border-sm me-2"></span>
+                {{ $t('clients.shareModal.qrLoading') || 'Generating QR…' }}
+              </div>
+              <div v-else-if="shareModal.qrError" class="alert alert-danger py-2 small mb-0">{{ shareModal.qrError }}</div>
+              <div v-else-if="shareModal.qrSrc" class="share-qr-wrap">
+                <img :src="shareModal.qrSrc" :alt="$t('clients.shareModal.qrAlt') || 'WireGuard config QR'" class="share-qr-img" />
+                <div class="share-qr-hint">{{ $t('clients.shareModal.qrHint') || 'Scan with the WireGuard app to import directly.' }}</div>
+              </div>
             </div>
           </div>
           <div class="modal-footer">
@@ -664,6 +694,13 @@ const shareModal = ref({
   loading: false,
   error: '',
   copied: false,
+  copyError: false,  // clipboard refused — show "select & Ctrl+C" hint
+  downloading: false,
+  // QR (lazy — only loaded on first click, then kept until modal closes)
+  showQR: false,
+  qrLoading: false,
+  qrError: '',
+  qrSrc: '',     // object URL pointing at the QR PNG blob
 })
 // 1-Hz tick so the "expires in mm:ss" counter stays current without polling
 const _shareModalNow = ref(Date.now())
@@ -684,10 +721,16 @@ const shareModalIsExpired = computed(() => {
 })
 
 async function openShareModal(client, mode = 'share') {
+  // Revoke any QR object URL from a previous session before resetting state.
+  if (shareModal.value.qrSrc) {
+    try { URL.revokeObjectURL(shareModal.value.qrSrc) } catch (_) {}
+  }
   shareModal.value = {
     show: true, mode, client,
     url: '', expiresAt: null,
-    loading: true, error: '', copied: false,
+    loading: true, error: '', copied: false, copyError: false,
+    downloading: false,
+    showQR: false, qrLoading: false, qrError: '', qrSrc: '',
   }
   if (!_shareTickTimer) {
     _shareTickTimer = setInterval(() => { _shareModalNow.value = Date.now() }, 1000)
@@ -710,15 +753,115 @@ async function generateShareLink(client) {
 function closeShareModal() {
   shareModal.value.show = false
   if (_shareTickTimer) { clearInterval(_shareTickTimer); _shareTickTimer = null }
+  // Free any lazily-loaded QR blob so it doesn't sit in memory forever.
+  if (shareModal.value.qrSrc) {
+    try { URL.revokeObjectURL(shareModal.value.qrSrc) } catch (_) {}
+    shareModal.value.qrSrc = ''
+  }
+}
+
+async function toggleShareQR() {
+  // Collapse if already open — toggle button.
+  if (shareModal.value.showQR) {
+    shareModal.value.showQR = false
+    return
+  }
+  shareModal.value.showQR = true
+  // Already loaded — just expand.
+  if (shareModal.value.qrSrc) return
+  shareModal.value.qrLoading = true
+  shareModal.value.qrError = ''
+  try {
+    const c = shareModal.value.client
+    if (isProxyClient(c)) {
+      // Proxy clients (Hysteria2 / TUIC) — the existing /qrcode endpoint
+      // also handles them and returns a PNG of the connection URI.
+    }
+    const { data } = await clientsApi.getQR(c.id)
+    shareModal.value.qrSrc = URL.createObjectURL(data)
+  } catch (e) {
+    shareModal.value.qrError = e.response?.data?.detail || e.message || String(e)
+    shareModal.value.showQR = false
+  } finally {
+    shareModal.value.qrLoading = false
+  }
 }
 
 async function copyShareUrl() {
   if (!shareModal.value.url) return
+  const text = shareModal.value.url
+  let ok = false
+
+  // Modern Clipboard API — only available in secure contexts (HTTPS or
+  // localhost). Plain HTTP panels (e.g. http://server-ip:10086 with no
+  // nginx in front) get `navigator.clipboard === undefined` and the old
+  // single-try implementation silently failed: button never flipped to
+  // "Copied", nothing landed on the clipboard, operator was puzzled.
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text)
+      ok = true
+    } catch (_) { /* fall through to execCommand path */ }
+  }
+
+  // Fallback: hidden textarea + document.execCommand("copy"). Deprecated
+  // but still works in every current browser AND in non-secure contexts.
+  if (!ok) {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.top = '0'
+    ta.style.left = '0'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    try { ok = document.execCommand('copy') } catch (_) { ok = false }
+    document.body.removeChild(ta)
+  }
+
+  // Last resort: select the input itself so the operator can press Ctrl+C
+  // manually. Use a separate copyError field (NOT the modal-level error)
+  // so the URL stays visible — error replaces the link card otherwise and
+  // there's nothing to copy from.
+  if (!ok) {
+    const input = document.querySelector('.share-modal .share-link-input')
+    if (input) { try { input.focus(); input.select() } catch (_) {} }
+    shareModal.value.copyError = true
+    setTimeout(() => { shareModal.value.copyError = false }, 8000)
+    return
+  }
+
+  shareModal.value.copied = true
+  setTimeout(() => { shareModal.value.copied = false }, 2200)
+}
+
+// Same flow as the standalone "Config" Action button, but triggered
+// from inside the share modal so the operator doesn't have to close
+// it and find the row again.
+async function downloadConfigFromShare() {
+  if (!shareModal.value.client) return
+  shareModal.value.downloading = true
   try {
-    await navigator.clipboard.writeText(shareModal.value.url)
-    shareModal.value.copied = true
-    setTimeout(() => { shareModal.value.copied = false }, 2200)
-  } catch (e) { /* clipboard blocked — user can select-all */ }
+    const c = shareModal.value.client
+    const { data, headers } = await clientsApi.getConfigDownload(c.id)
+    const ext = (headers['content-disposition'] || '').match(/\.([a-z0-9]+)"?$/i)?.[1]
+                || (isProxyClient(c) ? 'json' : 'conf')
+    const safeName = (c.name || 'client').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48) || 'client'
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${safeName}.${ext}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1500)
+  } catch (e) {
+    shareModal.value.error = 'Download failed: ' + (e.response?.data?.detail || e.message || String(e))
+  } finally {
+    shareModal.value.downloading = false
+  }
 }
 
 // ── Just-created highlight ──────────────────────────────────────────────────
@@ -1468,11 +1611,30 @@ const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(), livePollI
   color: var(--bs-secondary-color, #6c757d);
   margin-top: 8px;
 }
+.share-copy-fallback {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 193, 7, 0.10);
+  border: 1px solid rgba(255, 193, 7, 0.35);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #856404;
+  line-height: 1.45;
+}
+.share-copy-fallback .mdi { font-size: 1rem; opacity: 0.85; flex-shrink: 0; margin-top: 1px; }
 
 .share-quick-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 8px;
+}
+.share-quick-btn.active {
+  background: rgba(13, 110, 253, 0.08);
+  border-color: rgba(13, 110, 253, 0.40);
+  color: #0a58ca;
 }
 .share-quick-btn {
   display: inline-flex;
@@ -1484,11 +1646,47 @@ const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(), livePollI
   border-radius: 10px;
 }
 .share-quick-btn .mdi { font-size: 1.1rem; }
+.share-qr-block {
+  margin-top: 14px;
+  padding: 16px;
+  background: rgba(13, 110, 253, 0.04);
+  border: 1px solid rgba(13, 110, 253, 0.18);
+  border-radius: 12px;
+  text-align: center;
+}
+.share-qr-loading {
+  color: var(--bs-secondary-color, #6c757d);
+  font-size: 0.92rem;
+  padding: 18px 0;
+}
+.share-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.share-qr-img {
+  display: block;
+  width: 220px;
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+  padding: 10px;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.10);
+}
+.share-qr-hint {
+  font-size: 0.82rem;
+  color: var(--bs-secondary-color, #6c757d);
+  max-width: 280px;
+}
+
 @media (max-width: 500px) {
   .share-quick-actions { grid-template-columns: 1fr; }
   .share-link-row { flex-direction: column; }
   .share-link-copy-btn { width: 100%; justify-content: center; }
   .share-modal-meta { font-size: 0.78rem; }
+  .share-qr-img { width: 200px; }
 }
 
 @keyframes ou-pulse {
@@ -1544,6 +1742,11 @@ const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(), livePollI
 }
 [data-theme="dark"] .share-link-loading,
 [data-theme="dark"] .share-link-hint { color: #adb5bd; }
+[data-theme="dark"] .share-copy-fallback {
+  background: rgba(255, 193, 7, 0.14);
+  border-color: rgba(255, 193, 7, 0.35);
+  color: #ffd966;
+}
 [data-theme="dark"] .share-link-expired { color: #f1aeb5; }
 
 /* The URL input itself — was the worst offender, white-bg on dark page. */
@@ -1568,6 +1771,21 @@ const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(), livePollI
   border-color: rgba(255, 255, 255, 0.30);
   color: #fff;
 }
+[data-theme="dark"] .share-quick-btn.active {
+  background: rgba(99, 132, 253, 0.18);
+  border-color: rgba(99, 132, 253, 0.40);
+  color: #93b5ff;
+}
+
+/* QR block on dark: lift the card surface so it visibly sits inside
+   the modal, keep the QR-image background white (PNG is dark-on-light
+   so flipping it would break scannability). */
+[data-theme="dark"] .share-qr-block {
+  background: rgba(13, 110, 253, 0.10);
+  border-color: rgba(99, 132, 253, 0.30);
+}
+[data-theme="dark"] .share-qr-loading,
+[data-theme="dark"] .share-qr-hint { color: #adb5bd; }
 
 /* Belt-and-suspenders: keep prefers-color-scheme too for OS-dark + default
    theme attribute scenarios. Same selectors, slightly less detail. */

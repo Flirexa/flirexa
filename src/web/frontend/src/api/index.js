@@ -1,18 +1,44 @@
 import axios from 'axios'
 
+// Global default timeout. The original 15 s was too tight for any
+// endpoint that fans out to remote agents (e.g. /clients pulls live
+// handshake state from every WG/AmneziaWG server, /servers/N/bandwidth
+// hits the agent's /stats). With multiple servers — especially if one
+// is slow but circuit-breaker-skipped — the cumulative latency drifts
+// past 15 s on a normal day, triggering the "Request timed out" toast
+// even when the request would have succeeded a couple of seconds later.
+// 30 s sits comfortably above the slowest realistic fan-out path while
+// still surfacing genuine network failures within a reasonable window.
+// Endpoints that can take much longer (server install, restart, etc.)
+// still set their own explicit per-call timeout below.
 const api = axios.create({
   baseURL: '/api/v1',
-  timeout: 15000,
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
 })
 
-// Request interceptor for auth token
+// Background-poll context counter. Composables that fire requests on a
+// timer (Live auto-refresh on Clients / Online Users) bracket each tick
+// with `setBackgroundPoll(true/false)` so any axios call originating from
+// within that tick is marked silent — error toasts on background polls
+// would scream once per cycle on a slow link, even when the panel is
+// otherwise fine.
+let _backgroundPollDepth = 0
+function setBackgroundPoll(on) {
+  _backgroundPollDepth += on ? 1 : -1
+  if (_backgroundPollDepth < 0) _backgroundPollDepth = 0
+}
+
+// Request interceptor for auth token + silent-poll flag
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('sb_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  if (_backgroundPollDepth > 0 && config.silent === undefined) {
+    config.silent = true
   }
   return config
 })
@@ -121,11 +147,17 @@ api.interceptors.response.use(
         _isRefreshing = false
       }
     } else if (error.response?.status >= 500) {
-      showErrorToast('Server error. Please try again later.')
+      if (!originalRequest?.silent) showErrorToast('Server error. Please try again later.')
     } else if (!error.response && error.code === 'ECONNABORTED') {
-      showErrorToast('Request timed out. Check your connection.')
+      // Background poll loops (Live indicator on Clients/Online Users,
+      // Dashboard auto-refresh, etc.) re-fire on a schedule and would
+      // generate a "Request timed out" toast every cycle on a slow link.
+      // The composable / page sets `config.silent = true` for those, so
+      // they degrade quietly: the next tick will succeed if the agent
+      // catches up, no operator action needed.
+      if (!originalRequest?.silent) showErrorToast('Request timed out. Check your connection.')
     } else if (!error.response) {
-      showErrorToast('Network error. Check your connection.')
+      if (!originalRequest?.silent) showErrorToast('Network error. Check your connection.')
     }
     return Promise.reject(error)
   }
@@ -151,6 +183,9 @@ export const clientsApi = {
   enable: (id) => api.post(`/clients/${id}/enable`),
   disable: (id) => api.post(`/clients/${id}/disable`),
   getConfig: (id) => api.get(`/clients/${id}/config`),
+  // Returns the .conf as a blob — use for browser-triggered file download
+  // (the JSON `getConfig` is for in-app rendering / QR code generation).
+  getConfigDownload: (id) => api.get(`/clients/${id}/config/download`, { responseType: 'blob' }),
   getQR: (id, format) => api.get(`/clients/${id}/qrcode${format ? '?format=' + format : ''}`, { responseType: 'blob' }),
   getPeerDevices: (id) => api.get(`/clients/${id}/peer-devices`),
   setTrafficLimit: (id, data) => api.post(`/clients/${id}/traffic-limit`, data),
@@ -196,6 +231,7 @@ export const serversApi = {
   reconcile: (id) => api.post(`/servers/${id}/reconcile`),
   getKeypair: (id) => api.get(`/servers/${id}/keypair`),
   migrateClients: (id, payload) => api.post(`/servers/${id}/migrate-clients`, payload, { timeout: 180000 }),
+  expandPool: (id, new_cidr) => api.post(`/servers/${id}/expand-pool`, { new_cidr }, { timeout: 60000 }),
   getBootstrapLogs: (taskId, since = 0) => api.get(`/servers/bootstrap/${taskId}`, { params: { since } }),
   installProxy: (id, data, opts = {}) => api.post(`/servers/${id}/install-proxy`, data, { timeout: 300000, ...opts }),
   installAwg: (id, data, opts = {}) => api.post(`/servers/${id}/install-awg`, data, { timeout: 300000, ...opts }),
@@ -367,5 +403,8 @@ export const healthApi = {
   getComponentHistory: (name, eventsLimit = 50) => api.get(`/health/components/${name}/history`, { params: { events_limit: eventsLimit } }),
   getServerHistory: (id, eventsLimit = 50) => api.get(`/health/servers/${id}/history`, { params: { events_limit: eventsLimit } }),
 }
+
+// Exported so composables (useLivePoll) can bracket their tick calls.
+export { setBackgroundPoll }
 
 export default api

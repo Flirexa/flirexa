@@ -38,8 +38,16 @@ _UPDATE_SERVER_URL = os.getenv(
 
 # Separate connect and read timeouts for better diagnostics
 # Keep combined timeout well under the frontend's 15s axios timeout
-_CONNECT_TIMEOUT = 5.0    # seconds to establish connection
-_READ_TIMEOUT    = 8.0    # seconds to read response
+# Connect/read timeouts for the manifest fetch. The pre-1.5.77 values
+# (5s/8s) were too tight for cross-region paths to flirexa.biz/global-
+# connection.site — DNS + TLS handshake on a cold connection from some
+# DCs can spike past 5s during transient route flaps, surfacing as
+# "Update server connection timeout — check network connectivity" in the
+# panel even though everything is healthy a moment later. Bumped to give
+# the connection a realistic margin while still keeping total fail-fast
+# well under the panel's 30s axios envelope.
+_CONNECT_TIMEOUT = 10.0   # seconds to establish connection
+_READ_TIMEOUT    = 15.0   # seconds to read response
 _MAX_MANIFEST_BYTES = 64 * 1024   # 64KB — manifests are small JSON files
 _MAX_PACKAGE_BYTES = int(os.getenv("UPDATE_MAX_PACKAGE_BYTES", str(512 * 1024 * 1024)))
 

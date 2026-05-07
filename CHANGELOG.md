@@ -4,6 +4,47 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.77 — 2026-05-07
+
+A bundle of operator-facing additions and a stack of bug fixes shaken out of a real prod incident on the new Expand Address Pool feature.
+
+### Added — Servers
+
+- **Expand address pool from the UI.** A new menu entry on each WireGuard / AmneziaWG server card opens a modal that grows the pool to a wider CIDR. Validates that the new range strictly contains the old one (no client gets orphaned), refuses overlap with another server's pool, regenerates the WG config and bounces the interface so the new mask is live in-kernel. Existing clients keep their IPs and reconnect within seconds.
+
+### Added — Clients page
+
+- **Time-limited share link** on every client row. Generates a `/share/<token>` URL valid for 10 minutes (configurable up to 1 hour) that the operator can hand to a customer in any chat — they download their `.conf` from the link without logging in. Tokens are stored in a dedicated audit table with first-use timestamp and IP.
+- **Post-create modal.** Adding a client now pops a modal showing the new client's details, a freshly-issued share link with a live countdown, plus quick shortcuts to download the config or show a QR code.
+- **Just-created highlight that pins to the top.** New rows glow green at row 0 of the list for ~60 s regardless of the active sort, then drop back into normal order. Single-slot — if you create a second client during the window, the highlight transfers to the latest.
+- **Robust clipboard fallback.** The share modal's Copy button now uses `navigator.clipboard` first, then `document.execCommand` for HTTP-served panels, then selects the URL with a hint to press Ctrl+C / ⌘C as the last resort.
+
+### Fixed — agent + panel bounce reliability
+
+- **Address line on regenerated server configs no longer hardcodes /24.** The pre-1.5.77 generator emitted `Address = X.X.X.1/24` regardless of the actual pool prefix, which silently broke any non-/24 pool. Surfaced when Expand Pool tried /20 in production. Now uses the real prefix from the server's stored pool.
+- **`AmneziaWGManager` start/stop now pass the explicit config_path to `awg-quick`.** On installs that put the AWG config at a non-default location, the bare-interface argument made `awg-quick` fail to find the config and return non-zero. Stop/Start buttons in the UI silently failed for AWG agents in this state. Fix is end-to-end: panel-side and agent-side variants both pass the path now.
+- **`wg-quick` / `awg-quick` non-zero exit on PostDown is no longer fatal when the interface is actually down.** Bringing an interface down can leave the script with a non-zero exit code if a stale iptables rule or `ip route del` line trips on cleanup, even after the link itself is gone. The previous code reported "stop failed" and refused to bring the interface back up — leaving customers disconnected. Now we re-check the kernel: if the link is gone, the teardown achieved its goal.
+- **`agent.py` `is_interface_up()` no longer raises HTTP 500 on a down interface.** It was using the strict `run_cmd` helper which raised on any non-zero exit, and `wg show` exits non-zero when the interface doesn't exist — so the very function whose job was to answer "is the interface up?" blew up the moment the answer was "no". Now returns False cleanly.
+- **`agent.py` `/interface/up` and `/interface/down` are tolerant of wg-quick non-zero exit when the kernel state is already correct.** Same PostDown / PostUp cleanup story as the panel-side fix, applied to the agent's HTTP endpoints. The expand-pool agent-path bounce now succeeds reliably.
+
+### Fixed — UI
+
+- **"Request timed out — check your connection" toast no longer fires for every background poll cycle.** The global axios timeout was raised from 15 s to 30 s (covers fan-out latency to multiple agents), and `useLivePoll` now bracket every tick with a `silent` flag so request failures from background polls degrade quietly. User-driven request failures still surface as before.
+- **`Update server connection timeout` no longer fires on healthy networks during transient DNS / TLS handshake spikes.** Connect timeout for the manifest fetch raised from 5 s → 10 s, read timeout 8 s → 15 s. Total still well under the panel's axios envelope.
+- **Online Users dark theme now actually applies.** The `prefers-color-scheme: dark` block was dead code because the panel uses a manual `[data-theme="dark"]` attribute toggle. Same fix applied to the Live indicator pill, the share-link modal, the migration modal, and the just-created highlight.
+- **Live indicator removed from the Dashboard.** Headline counters load once on mount and stay put — no flicker, no constant polling. The world map's location markers still refresh every 30 s as before. Live monitoring lives on the dedicated Online Users page now.
+
+### Build tooling
+
+- **`push_test.sh` auto-bumps the patch number** when the current `VERSION` is already on the test channel. Closes a footgun where a re-uploaded same-version tarball was a silent no-op for any panel that already pulled it. Use `--in-place` if you really want the legacy overwrite behaviour. Stable refusal now suggests the next-likely version in the error message.
+
+### Tests
+
+- 20 cases in `test_lifetime_protected.py` continue to pin the lifetime-protected license model behaviour.
+- 3 cases in `test_bootstrap.py::TestUninstallPreservesDataPlane` continue to guard the agent-uninstall data-plane preservation contract.
+
+---
+
 ## v1.5.70 — 2026-05-07
 
 A bundle of operator-facing polish for the Clients page and Online Users page, plus a critical update-pipeline fix flushed out by a prod incident on 1.5.67.

@@ -1774,6 +1774,255 @@ async def migrate_clients_between_servers(
     }
 
 
+class ExpandPoolRequest(BaseModel):
+    """Request to grow a server's IPv4 address pool to a wider CIDR."""
+    new_cidr: str = Field(..., description="New IPv4 network in CIDR form, e.g. '10.0.0.0/20'")
+
+
+@router.post("/{server_id}/expand-pool")
+async def expand_address_pool(
+    server_id: int,
+    payload: ExpandPoolRequest,
+    db: Session = Depends(get_db),
+):
+    """Grow the WG server's IPv4 address pool without disrupting existing
+    clients.
+
+    Safety contract — every check has to pass before we touch anything:
+      1. New CIDR parses cleanly as an IPv4 network (strict=False so
+         bare host bits are forgiven, but we re-derive the canonical
+         network address before saving).
+      2. New network is STRICTLY WIDER (smaller prefix length) than the
+         current pool. Refusing same-or-narrower keeps this endpoint
+         purely additive — there's no scenario where a narrower pool
+         doesn't risk orphaning a client.
+      3. New network CONTAINS the current pool entirely. The current
+         pool's network address must fall inside the new one. This is
+         what guarantees every existing client IP stays valid.
+      4. No conflict with any OTHER server's pool. Two overlapping pools
+         on different servers would let a client IP be routable to two
+         places — broken setup. We ignore the current server itself when
+         looking for conflicts.
+      5. Server is wireguard / amneziawg (proxy servers don't have a pool).
+
+    On success: DB updated, server config regenerated, interface bounced
+    so the new in-kernel rules pick up the wider mask. Existing peers
+    keep their IPs and reconnect within seconds (one handshake cycle).
+    """
+    import ipaddress
+
+    server = db.query(Server).filter(Server.id == server_id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    server_type = getattr(server, "server_type", "wireguard") or "wireguard"
+    server_category = getattr(server, "server_category", "vpn") or "vpn"
+    if server_category == "proxy" or server_type in ("hysteria2", "tuic"):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "wrong_server_type",
+                    "message": "Address pools only apply to WireGuard / AmneziaWG servers."},
+        )
+
+    # 1. Parse + canonicalise
+    try:
+        new_net = ipaddress.IPv4Network(payload.new_cidr.strip(), strict=False)
+    except (ValueError, ipaddress.AddressValueError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_cidr",
+                    "message": f"'{payload.new_cidr}' is not a valid IPv4 network: {e}"},
+        )
+
+    canonical_new = f"{new_net.network_address}/{new_net.prefixlen}"
+
+    # 2. Parse current pool — must be valid for the comparisons below
+    try:
+        cur_net = ipaddress.IPv4Network(server.address_pool_ipv4 or "", strict=False)
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "current_pool_invalid",
+                    "message": f"Server's stored pool '{server.address_pool_ipv4}' is not parseable. "
+                               "Contact support — this row needs manual repair."},
+        )
+
+    # 3. Strictly wider AND contains old
+    if new_net.prefixlen >= cur_net.prefixlen:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "not_wider",
+                    "message": f"New /{new_net.prefixlen} is the same size or narrower than the current "
+                               f"/{cur_net.prefixlen}. This endpoint only expands. Pick a smaller "
+                               "prefix length (e.g. /20 to grow a /24, /16 to grow a /20)."},
+        )
+    if not new_net.supernet_of(cur_net):
+        # Walking the canonical-form alternative the operator probably meant
+        # gives them a useful nudge: "you wrote 10.0.1.0/20 which canonicalises
+        # to 10.0.0.0/20 — was that what you intended?"
+        suggested = ipaddress.ip_network(
+            f"{cur_net.network_address}/{new_net.prefixlen}", strict=False
+        )
+        hint = ""
+        if suggested.supernet_of(cur_net):
+            hint = (f" Did you mean {suggested}? That keeps your existing "
+                    f"{cur_net} inside the new range.")
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "does_not_contain_current",
+                    "message": f"{new_net} doesn't contain the current pool {cur_net}. "
+                               "All existing client IPs must fall inside the new range." + hint,
+                    "current": str(cur_net),
+                    "suggested": str(suggested) if suggested.supernet_of(cur_net) else None},
+        )
+
+    # 4. No conflict with other servers' pools
+    other_pools = (
+        db.query(Server.id, Server.name, Server.address_pool_ipv4)
+        .filter(Server.id != server_id)
+        .filter(Server.address_pool_ipv4.isnot(None))
+        .all()
+    )
+    for other_id, other_name, other_pool in other_pools:
+        if not other_pool:
+            continue
+        try:
+            other_net = ipaddress.IPv4Network(other_pool, strict=False)
+        except Exception:
+            continue
+        if new_net.overlaps(other_net):
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "pool_conflict",
+                        "message": f"New pool {new_net} overlaps with server "
+                                   f"'{other_name}' (#{other_id}) which uses {other_net}. "
+                                   "Two servers can't share an address range.",
+                        "conflicting_server_id": other_id,
+                        "conflicting_server_name": other_name,
+                        "conflicting_pool": str(other_net)},
+            )
+
+    # 5. All checks passed — commit DB change
+    old_cidr = server.address_pool_ipv4
+    server.address_pool_ipv4 = canonical_new
+    db.commit()
+    db.refresh(server)
+    logger.info(
+        "expand-pool: server_id={} {} → {}",
+        server_id, old_cidr, canonical_new,
+    )
+
+    # 6. Regenerate config + bounce interface so kernel picks up the new
+    # mask on the WG-quick interface address line. Existing peers keep
+    # their IPs (they're inside the new pool by construction).
+    config_pushed = False
+    interface_bounced = False
+    push_error = None
+    try:
+        from ...core.management import ManagementCore
+        core = ManagementCore(db)
+        new_cfg = core.servers.generate_server_config(server_id)
+        if not new_cfg:
+            raise RuntimeError("generate_server_config returned None")
+
+        # Push to remote (agent or SSH) — this writes /etc/wireguard/<iface>.conf
+        # AND bounces the interface so the new pool/mask are live in-kernel.
+        if server.ssh_host:
+            from ...core.remote_adapter import RemoteServerAdapter
+            adapter = RemoteServerAdapter(
+                server=server,
+                interface=server.interface,
+                config_path=server.config_path,
+            )
+            try:
+                # RemoteServerAdapter exposes the file-write op as
+                # write_config_file (not write_config — the latter doesn't
+                # exist and a typo here would cost us a retry on prod).
+                if not adapter.write_config_file(new_cfg):
+                    raise RuntimeError(
+                        f"Failed to push regenerated config to {server.ssh_host}; "
+                        "agent may be unreachable. DB has new pool but the box hasn't seen it."
+                    )
+                config_pushed = True
+                # Bounce: stop then start so PostDown/PostUp iptables rules
+                # are torn down and re-created against the new pool. Both
+                # legs are checked — a silent failure here means the
+                # kernel keeps the OLD pool while the DB believes it
+                # applied, the worst kind of inconsistency.
+                stop_ok = adapter.stop_interface()
+                if not stop_ok:
+                    raise RuntimeError(
+                        f"stop_interface failed on remote {server.ssh_host} ({server.interface}); "
+                        "DB has new pool but kernel did not pick it up. "
+                        "SSH in and run `wg-quick down {iface} && wg-quick up {iface}` to apply."
+                    )
+                start_ok = adapter.start_interface()
+                if not start_ok:
+                    raise RuntimeError(
+                        f"start_interface failed on remote {server.ssh_host}; "
+                        "interface is currently down."
+                    )
+                interface_bounced = True
+            finally:
+                adapter.close()
+        else:
+            # Local-server path
+            cfg_path = server.config_path or f"/etc/wireguard/{server.interface}.conf"
+            from pathlib import Path as _P
+            _P(cfg_path).write_text(new_cfg)
+            config_pushed = True
+            if server_type == "amneziawg":
+                from ...core.amneziawg import AmneziaWGManager
+                mgr = AmneziaWGManager(interface=server.interface, config_path=cfg_path)
+            else:
+                from ...core.wireguard import WireGuardManager
+                mgr = WireGuardManager(interface=server.interface, config_path=cfg_path)
+            try:
+                # Bounce: stop (best-effort) → start. Verify both, don't
+                # claim success on a failed stop. If stop fails AND iface
+                # is still up, start_interface bails with "already up" and
+                # the kernel keeps the OLD pool — silent failure mode that
+                # bit prod hard during 1.5.73 testing.
+                stop_ok = True
+                if mgr.is_interface_up():
+                    stop_ok = mgr.stop_interface()
+                if not stop_ok:
+                    raise RuntimeError(
+                        f"stop_interface failed on {server.interface}; "
+                        "kernel still has the old pool. The DB has the new "
+                        "pool — manually run `awg-quick down {iface} && "
+                        "awg-quick up {iface}` on the box to apply."
+                    )
+                start_ok = mgr.start_interface()
+                if not start_ok:
+                    raise RuntimeError(
+                        f"start_interface failed on {server.interface}; "
+                        "interface is now down. Bring it back up manually."
+                    )
+                interface_bounced = True
+            finally:
+                if hasattr(mgr, "close"):
+                    try: mgr.close()
+                    except Exception: pass
+    except Exception as e:
+        push_error = str(e)
+        logger.error("expand-pool: config push/bounce failed for server_id={}: {}",
+                     server_id, e)
+
+    # If config push or bounce failed but DB change succeeded, the operator
+    # gets a clear partial-success response. The DB is the source of truth
+    # and the next manual restart will sync the kernel state.
+    return {
+        "server_id":         server_id,
+        "old_pool":          old_cidr,
+        "new_pool":          canonical_new,
+        "host_capacity":     int(new_net.num_addresses) - 2,  # minus network + broadcast
+        "config_pushed":     config_pushed,
+        "interface_bounced": interface_bounced,
+        "warning":           push_error,
+    }
+
+
 @router.put("/{server_id}", response_model=ServerResponse)
 async def update_server(
     server_id: int,

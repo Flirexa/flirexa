@@ -1,4 +1,5 @@
 import { ref, watch, onMounted, onUnmounted, isRef, unref } from 'vue'
+import { setBackgroundPoll } from '../api'
 
 /**
  * Auto-refresh a callback at a configurable interval.
@@ -23,7 +24,14 @@ export function useLivePoll(callback, intervalMs = 15_000, options = {}) {
 
   const tick = async () => {
     if (pauseWhenHidden && document.visibilityState !== 'visible') return
-    try { await callback() } catch (e) { console.warn('[livePoll] callback failed:', e) }
+    // Mark any axios requests fired from this tick as background polls so
+    // the global error interceptor doesn't fire a "Request timed out" toast
+    // every cycle when one of the user's agents is being slow. The console
+    // warning on actual failures stays so we can diagnose if we need to.
+    setBackgroundPoll(true)
+    try { await callback() }
+    catch (e) { console.warn('[livePoll] callback failed:', e) }
+    finally { setBackgroundPoll(false) }
   }
 
   const start = () => {

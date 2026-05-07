@@ -756,7 +756,19 @@ class ServerManager:
                 "allowed_ips": allowed_ips,
             })
 
-        address = server.address_pool_ipv4.split("/")[0].rsplit(".", 1)[0] + ".1/24"
+        # Build the server's interface Address line — first usable host
+        # in the pool, with the pool's actual prefix length. The pre-1.5.74
+        # version hardcoded "/24" here, which silently broke any server
+        # whose pool wasn't /24 (the Expand Address Pool feature was the
+        # first place this surfaced because it's the only path that
+        # changes a prefix length post-creation).
+        pool_str = server.address_pool_ipv4 or "10.66.66.0/24"
+        if "/" in pool_str:
+            base, prefix = pool_str.split("/", 1)
+        else:
+            base, prefix = pool_str, "24"
+        network_part = base.rsplit(".", 1)[0]
+        address = f"{network_part}.1/{prefix}"
         if server.address_pool_ipv6:
             ipv6_addr = server.address_pool_ipv6.split("/")[0].rstrip(":") + "::1/64"
             address = f"{address},{ipv6_addr}"
