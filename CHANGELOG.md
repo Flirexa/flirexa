@@ -4,6 +4,25 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.79 — 2026-05-08
+
+Circuit-breaker hardening so a single permanently-dead agent in the operator's server list doesn't keep dragging the whole panel down with periodic re-probe attempts.
+
+### Changed
+
+- **Exponential backoff on the agent circuit breaker.** First trip stays at 60 s as before, but sustained failure (6+ in a row) extends the open-window to 5 minutes, then 30 minutes (9+), then 1 hour (15+). A successful call resets the counter and the agent is treated as healthy immediately. Surfaced when an operator left a decommissioned server in the panel — every 60 s the breaker re-opened, one stats fetch tried to connect to the dead agent, hit a connect-timeout, and the whole fan-out (Clients page, Online Users page, Dashboard) paused for that 5 s window. With backoff, a long-dead agent gets retried at most once per 30–60 minutes after the first 5 minutes, making its presence in the panel essentially free.
+- **Split connect/read timeouts on the agent client.** Connect is now a fixed 5 s (TCP handshake plus DNS — sub-second on healthy networks, 5 s catches reasonable WAN latency). Read stays at 30 s. Earlier the same value was used for both, so a connect-timeout to a dead agent could take up to the full 30 s, blocking a request worker for that long.
+
+### Why this matters
+
+Operators with multiple servers were seeing intermittent "Request timed out — check your connection" toasts and a generally laggy panel whenever one of the servers was unreachable. The fan-out path (handshake enrichment, bandwidth aggregation) had to talk to every server, and one slow agent meant the slowest determined the response time. With per-agent breaker state and shorter connect timeouts, the slowest healthy agent now sets the floor — dead ones contribute essentially zero overhead.
+
+### Logging
+
+Breaker state changes log only on threshold crossings (fails=3, 6, 9, 15) instead of every poll cycle. Quieter journal, easier to spot when an agent is genuinely degrading vs. routine flaps.
+
+---
+
 ## v1.5.78 — 2026-05-08
 
 Expand-pool validation relaxed: pool overlap is now only blocked between servers on the **same physical machine** (same `ssh_host` value, or both panel-local). Two WireGuard servers on different boxes don't share a kernel routing table, so their pools can overlap without breaking anything — each box NATs its own range to the internet independently.
