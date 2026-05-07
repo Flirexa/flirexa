@@ -311,14 +311,21 @@ class AgentInstallRequest(BaseModel):
 # ============================================================================
 
 @router.get("")
-async def list_servers(
+def list_servers(
     include_offline: bool = Query(True, description="Include offline servers"),
     limit: int = Query(100, ge=1, le=500, description="Max items to return"),
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     db: Session = Depends(get_db)
 ):
     """
-    Get list of all WireGuard servers with pagination
+    Get list of all WireGuard servers with pagination.
+
+    Declared as `def` (not `async def`) on purpose: the body uses synchronous
+    SQLAlchemy. With `async def`, every sync DB call would block the single
+    event loop and serialize concurrent requests — which is what made
+    Herbert's panel hang for 2-3s under fan-out (one /servers call running
+    behind 6 /bandwidth calls). FastAPI runs `def` handlers in a thread pool,
+    so concurrent fan-outs progress in parallel.
     """
     query = db.query(Server)
 
@@ -2163,7 +2170,7 @@ async def get_server_stats(
 
 
 @router.get("/{server_id}/bandwidth")
-async def get_server_bandwidth(
+def get_server_bandwidth(
     server_id: int,
     db: Session = Depends(get_db)
 ):
@@ -2171,6 +2178,10 @@ async def get_server_bandwidth(
     Get real-time bandwidth rates for a server.
     Call every 5 seconds for live monitoring.
     First call returns zero rates (baseline snapshot).
+
+    Declared as `def`: bandwidth fan-out (6 servers × every 5s) used to
+    serialize on the event loop because the body does sync HTTP/SSH calls.
+    Threadpool execution makes the per-server fetches parallel.
     """
     from ...core.bandwidth_monitor import BandwidthMonitor
 

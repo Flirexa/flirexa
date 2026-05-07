@@ -4,6 +4,20 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.81 — 2026-05-08
+
+Panel responsiveness fix for operators with multiple servers. The Servers and Clients pages would noticeably lag (2-3 seconds per request) on installs with 5+ servers because the hot-path API endpoints serialized on a single event loop. They now run in a thread pool, so concurrent fan-outs progress in parallel.
+
+### Fixed
+
+- **`/api/v1/servers`, `/api/v1/clients`, and `/api/v1/servers/{id}/bandwidth` no longer block the event loop.** These endpoints had been declared `async def` but used synchronous database and SSH/agent calls inside, which meant every request held the loop until done. With 6 servers, the live-poll fan-out (one /servers call + one /bandwidth per server) queued behind itself and the last request waited 2+ seconds. Now declared as `def` so FastAPI runs them in its thread pool — unrelated requests no longer wait on each other.
+
+### Why this matters
+
+If you have only one or two servers you may not have noticed; the queue depth was small enough to absorb. With 5+ servers the live-poll cycle alone was enough to keep the loop saturated, producing the "Request timed out" toasts you may have seen even on a perfectly healthy panel. After this update, the bandwidth fetches all start at the same instant and finish in parallel, and the badges/values populate in roughly the time of the slowest individual server rather than the sum of all of them.
+
+---
+
 ## v1.5.80 — 2026-05-08
 
 Make a broken agent obvious instead of silent. When an agent stops responding, the panel now surfaces the problem with a one-click recovery path.
