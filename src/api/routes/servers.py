@@ -162,6 +162,13 @@ class ServerResponse(BaseModel):
     is_remote: bool = False
     agent_mode: str = "ssh"  # "ssh" or "agent"
     agent_url: Optional[str] = None
+    # In-memory circuit-breaker state for this server's agent. Populated by
+    # ServerResponse.from_server() from src.core.agent_client._breaker_state.
+    # `null` when the server isn't in agent mode or has never failed.
+    # When set, panel UI shows a red "Agent unreachable" badge + a banner
+    # offering Switch-to-SSH / Retry-now so the user can clear the lag
+    # without trawling menus. See src/core/agent_client.py:get_breaker_state.
+    agent_breaker: Optional[Dict[str, object]] = None
     max_bandwidth_mbps: Optional[int] = None
     is_default: bool = False
     server_type: str = "wireguard"
@@ -190,6 +197,23 @@ class ServerResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @staticmethod
+    def _breaker_for(server) -> Optional[Dict[str, object]]:
+        """Return the live circuit-breaker view for this server, or None when
+        not applicable (SSH-only, no agent_url, or fresh state with zero fails).
+        We hide the all-clear case so the frontend can simply check
+        `server.agent_breaker?.open` without filtering empty objects."""
+        if (server.agent_mode or "ssh") != "agent" or not server.agent_url:
+            return None
+        try:
+            from ...core.agent_client import get_breaker_state
+            state = get_breaker_state(server.agent_url)
+        except Exception:
+            return None
+        if not state.get("open") and not state.get("fails"):
+            return None
+        return state
 
     @classmethod
     def from_server(cls, server, db=None):
@@ -222,6 +246,7 @@ class ServerResponse(BaseModel):
             is_remote=server.ssh_host is not None,
             agent_mode=server.agent_mode or "ssh",
             agent_url=server.agent_url,
+            agent_breaker=cls._breaker_for(server),
             max_bandwidth_mbps=server.max_bandwidth_mbps,
             is_default=getattr(server, 'is_default', False) or False,
             server_type=server_type,
@@ -2371,6 +2396,26 @@ async def get_agent_installation_status(
         response["status"] = "ssh_only"
 
     return response
+
+
+@router.post("/{server_id}/agent/breaker/reset")
+async def reset_agent_breaker(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """Force-clear the in-memory circuit breaker for this server's agent.
+    Backs the panel's "Retry now" button — after the user fixes a firewall
+    rule or restarts the agent, this lets the next call probe immediately
+    instead of waiting out the open-window backoff."""
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if (server.agent_mode or "ssh") != "agent" or not server.agent_url:
+        return {"reset": False, "reason": "not_in_agent_mode"}
+    from ...core.agent_client import reset_breaker
+    cleared = reset_breaker(server.agent_url)
+    return {"reset": cleared}
 
 
 @router.post("/{server_id}/install-agent", dependencies=[_multi_server_gate])

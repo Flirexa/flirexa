@@ -4,6 +4,24 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.80 — 2026-05-08
+
+Make a broken agent obvious instead of silent. When an agent stops responding, the panel now surfaces the problem with a one-click recovery path.
+
+### Added
+
+- **Top-bar warning indicator.** Red pill with a count of unreachable agents, visible from every page. Clicking jumps straight to the Servers page where the full banner lives. Refreshes on route change, on tab focus, and every 30 s in the background — so you'll spot a dead agent even if you're sitting on Dashboard.
+- **Unreachable-agent banner on the Servers page.** Lists every server whose agent circuit-breaker is open, how long it's been unreachable, and offers two buttons per row: **Switch to SSH mode** and **Retry now**. The text spells out *why* the panel feels slow ("requests to X time out") so the cause-and-effect is no longer guesswork.
+- **Red pulsing badge on affected server tiles.** The agent badge in the server card flips from blue to red and pulses when its breaker is open, making the bad server impossible to miss when scanning the grid.
+- **Backend: `agent_breaker` field on `GET /servers`.** Each server in agent mode now reports `{open, fails, opened_seconds_ago, reopens_in_seconds}`. Lets dashboards and integrations show breaker state without hitting a separate health endpoint.
+- **Backend: `POST /servers/{id}/agent/breaker/reset`.** Force-clears the in-memory breaker so the next request probes immediately. Backs the "Retry now" button — useful right after fixing a firewall rule or restarting the agent service.
+
+### Why this matters
+
+The 1.5.79 circuit breaker stopped a dead agent from dragging the whole panel down, but the user-facing symptom — "panel feels slow, occasional 'Request timed out' toasts, no clear cause" — was still there. Operators had to know to dig into Manage Agent menus to find the recovery options. With the banner and the top-bar pill, the diagnosis and the fix are surfaced together, in plain English: *which* server is unreachable, *for how long*, and a one-click switch to SSH mode that clears the lag instantly.
+
+---
+
 ## v1.5.79 — 2026-05-08
 
 Circuit-breaker hardening so a single permanently-dead agent in the operator's server list doesn't keep dragging the whole panel down with periodic re-probe attempts.
