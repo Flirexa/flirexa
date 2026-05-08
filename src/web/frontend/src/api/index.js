@@ -331,20 +331,32 @@ export const promoCodesApi = {
 
 // ===== System =====
 // ===== Backups =====
+// All backup endpoints unified under /backup/* in 1.5.83 — settings, storage,
+// and operations live in one place (backend src/api/routes/backup.py). The
+// old /system/backup-* paths were removed.
 export const backupApi = {
+  // Operations
   create: () => api.post('/backup/create', {}, { timeout: 300000 }),
   list: () => api.get('/backup/list'),
   verify: (backupId) => api.post(`/backup/verify/${backupId}`, {}, { timeout: 120000 }),
   restoreFull: (backupId, data = {}) => api.post(`/backup/restore/full/${backupId}`, data, { timeout: 300000 }),
   restoreDatabase: (backupId) => api.post(`/backup/restore/database/${backupId}`, {}, { timeout: 120000 }),
   restoreServer: (serverId, backupId) => api.post(`/backup/restore/server/${serverId}/${backupId}`, {}, { timeout: 120000 }),
+  // Both names exposed: the old `delete` for legacy callers, the more obvious
+  // `deleteBackup` to match the rest of the API where verbs are explicit.
   delete: (backupId) => api.delete(`/backup/${backupId}`),
-  getSettings: () => api.get('/system/backup-settings'),
-  saveSettings: (data) => api.post('/system/backup-settings', data),
-  mount: () => api.post('/system/backup-mount', {}, { timeout: 60000 }),
-  unmount: () => api.post('/system/backup-unmount'),
-  mountStatus: () => api.get('/system/backup-mount-status'),
-  testWrite: () => api.post('/system/backup-test-write'),
+  deleteBackup: (backupId) => api.delete(`/backup/${backupId}`),
+  // Settings
+  getSettings: () => api.get('/backup/settings'),
+  saveSettings: (data) => api.post('/backup/settings', data),
+  // Storage / mount
+  mount: () => api.post('/backup/storage/mount', {}, { timeout: 60000 }),
+  unmount: () => api.post('/backup/storage/unmount'),
+  storageStatus: () => api.get('/backup/storage/status'),
+  // Legacy alias kept so older calls from Settings.vue (pre-consolidation)
+  // do not throw if there is a build cache we missed.
+  mountStatus: () => api.get('/backup/storage/status'),
+  testWrite: () => api.post('/backup/storage/test-write'),
 }
 
 export const systemApi = {
