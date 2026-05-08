@@ -92,7 +92,7 @@ class DefaultServerResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/clients", response_model=CreateClientResponse)
-async def create_client(
+def create_client(
     data: CreateClientRequest,
     db: Session = Depends(get_db),
     _: str = Depends(verify_service_token),
@@ -140,7 +140,7 @@ async def create_client(
 
 
 @router.get("/clients/by-ids", response_model=List[ClientInfoResponse])
-async def get_clients_by_ids(
+def get_clients_by_ids(
     ids: str = Query(..., description="Comma-separated client IDs"),
     db: Session = Depends(get_db),
     _: str = Depends(verify_service_token),
@@ -253,7 +253,7 @@ async def get_client_qrcode(
 
 
 @router.put("/clients/{client_id}/limits")
-async def update_client_limits(
+def update_client_limits(
     client_id: int,
     data: UpdateLimitsRequest,
     db: Session = Depends(get_db),

@@ -89,7 +89,7 @@ async def get_top_consumers(
 
 
 @router.get("/clients", response_model=List[ClientOption])
-async def list_clients_for_rules(db: Session = Depends(get_db)):
+def list_clients_for_rules(db: Session = Depends(get_db)):
     """List all clients with server names for rule target selection."""
     from ...database.models import Client, Server
     clients = (
@@ -102,7 +102,7 @@ async def list_clients_for_rules(db: Session = Depends(get_db)):
 
 
 @router.get("/rules", response_model=List[RuleResponse])
-async def list_rules(db: Session = Depends(get_db)):
+def list_rules(db: Session = Depends(get_db)):
     """List all traffic auto-rules."""
     from ...database.models import Client, Server
     rules = db.query(TrafficRule).order_by(TrafficRule.id).all()
@@ -132,7 +132,7 @@ async def list_rules(db: Session = Depends(get_db)):
 
 
 @router.post("/rules", response_model=RuleResponse, status_code=201)
-async def create_rule(data: RuleCreate, db: Session = Depends(get_db)):
+def create_rule(data: RuleCreate, db: Session = Depends(get_db)):
     """Create a new traffic auto-rule."""
     # License enforcement: traffic_rules feature
     try:
@@ -181,7 +181,7 @@ async def create_rule(data: RuleCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/rules/{rule_id}", response_model=RuleResponse)
-async def update_rule(
+def update_rule(
     rule_id: int,
     data: RuleUpdate,
     db: Session = Depends(get_db)
@@ -213,7 +213,7 @@ async def update_rule(
 
 
 @router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: int, db: Session = Depends(get_db)):
+def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     """Delete a traffic auto-rule."""
     rule = db.query(TrafficRule).filter(TrafficRule.id == rule_id).first()
     if not rule:

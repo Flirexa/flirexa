@@ -87,14 +87,14 @@ async def list_permissions():
 
 
 @router.get("")
-async def list_admin_accounts(db: Session = Depends(get_db)):
+def list_admin_accounts(db: Session = Depends(get_db)):
     """List all admin panel accounts (admins + managers)"""
     users = db.query(AdminUser).order_by(AdminUser.created_at).all()
     return [_account_dict(u) for u in users]
 
 
 @router.post("", status_code=201)
-async def create_admin_account(data: CreateAdminAccountRequest, db: Session = Depends(get_db)):
+def create_admin_account(data: CreateAdminAccountRequest, db: Session = Depends(get_db)):
     """Create a new admin or manager account"""
     if data.role not in ("admin", "manager"):
         raise HTTPException(status_code=400, detail="role must be 'admin' or 'manager'")
@@ -137,7 +137,7 @@ async def create_admin_account(data: CreateAdminAccountRequest, db: Session = De
 
 
 @router.get("/{account_id}")
-async def get_admin_account(account_id: int, db: Session = Depends(get_db)):
+def get_admin_account(account_id: int, db: Session = Depends(get_db)):
     """Get admin account details"""
     admin = db.query(AdminUser).filter(AdminUser.id == account_id).first()
     if not admin:
@@ -146,7 +146,7 @@ async def get_admin_account(account_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{account_id}")
-async def update_admin_account(
+def update_admin_account(
     account_id: int, data: UpdateAdminAccountRequest, db: Session = Depends(get_db)
 ):
     """Update admin account"""
@@ -184,7 +184,7 @@ async def update_admin_account(
 
 
 @router.delete("/{account_id}")
-async def delete_admin_account(account_id: int, db: Session = Depends(get_db)):
+def delete_admin_account(account_id: int, db: Session = Depends(get_db)):
     """Delete admin account"""
     admin = db.query(AdminUser).filter(AdminUser.id == account_id).first()
     if not admin:

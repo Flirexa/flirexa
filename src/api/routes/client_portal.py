@@ -438,7 +438,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/auth/change-password")
-async def change_password(
+def change_password(
     data: ChangePasswordRequest,
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -524,7 +524,7 @@ class ResetPasswordRequest(BaseModel):
 
 
 @router.post("/auth/reset-password")
-async def reset_password(
+def reset_password(
     data: ResetPasswordRequest,
     db: Session = Depends(get_db)
 ):
@@ -637,7 +637,7 @@ async def get_subscription_plans(db: Session = Depends(get_db)):
 
 
 @router.post("/subscription/cancel")
-async def cancel_subscription(
+def cancel_subscription(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -708,7 +708,7 @@ async def get_dashboard_stats(
 
 
 @router.get("/dashboard/traffic-series")
-async def get_dashboard_traffic_series(
+def get_dashboard_traffic_series(
     range: str = Query("14d", pattern="^(7d|14d|30d|all)$"),
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -2006,7 +2006,7 @@ async def download_app():
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/servers")
-async def get_servers(
+def get_servers(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2118,7 +2118,7 @@ async def _sync_wg_after_payment(
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/referral")
-async def get_referral_info(
+def get_referral_info(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2159,7 +2159,7 @@ async def get_referral_info(
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/promo/validate")
-async def validate_promo_client(
+def validate_promo_client(
     data: dict,
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2196,7 +2196,7 @@ async def validate_promo_client(
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/subscription/auto-renew")
-async def toggle_auto_renew(
+def toggle_auto_renew(
     data: dict,
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2228,7 +2228,7 @@ class SupportReplyRequest(BaseModel):
 
 
 @router.post("/support/send")
-async def send_support_message(
+def send_support_message(
     data: SupportMessageRequest,
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2267,7 +2267,7 @@ async def send_support_message(
 
 
 @router.get("/support/messages")
-async def get_support_messages(
+def get_support_messages(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2318,7 +2318,7 @@ async def get_support_messages(
 
 
 @router.post("/support/{ticket_id}/reply")
-async def reply_to_support_ticket(
+def reply_to_support_ticket(
     ticket_id: int,
     data: SupportReplyRequest,
     user_id: int = Depends(get_current_user),
@@ -2368,7 +2368,7 @@ async def reply_to_support_ticket(
 
 
 @router.get("/support/unread-count")
-async def get_unread_support_count(
+def get_unread_support_count(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2390,7 +2390,7 @@ async def get_unread_support_count(
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/notifications")
-async def get_notifications(
+def get_notifications(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2419,7 +2419,7 @@ async def get_notifications(
 
 
 @router.post("/notifications/{notif_id}/read")
-async def mark_notification_read(
+def mark_notification_read(
     notif_id: int,
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -2461,7 +2461,7 @@ async def mark_notification_read(
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/subscription-link")
-async def get_subscription_link(
+def get_subscription_link(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2482,7 +2482,7 @@ async def get_subscription_link(
 
 
 @router.post("/subscription-link/regenerate")
-async def regenerate_subscription_link(
+def regenerate_subscription_link(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -2502,7 +2502,7 @@ async def regenerate_subscription_link(
 
 
 @router.get("/sub/{token}", tags=["Public"])
-async def get_subscription_config(
+def get_subscription_config(
     request: Request,
     token: str,
     db: Session = Depends(get_db)

@@ -207,7 +207,7 @@ async def get_bot_config(db: Session = Depends(get_db)):
 
 
 @router.post("/config")
-async def update_bot_config(config: BotConfigRequest, db: Session = Depends(get_db)):
+def update_bot_config(config: BotConfigRequest, db: Session = Depends(get_db)):
     """Update bot configuration — writes to .env and saves to SystemConfig"""
     env_updates = {}
     changes = {}

@@ -216,10 +216,15 @@ class ServerResponse(BaseModel):
         return state
 
     @classmethod
-    def from_server(cls, server, db=None):
-        total_clients = 0
-        if db:
-            total_clients = db.query(Client).filter(Client.server_id == server.id).count()
+    def from_server(cls, server, db=None, total_clients=None):
+        # `total_clients` may be pre-computed by the caller (avoids N+1 in
+        # list endpoints — see list_servers below). When None, fall back to a
+        # per-server COUNT — fine for single-server endpoints, expensive in
+        # a loop. Always pass it from list contexts.
+        if total_clients is None:
+            total_clients = 0
+            if db:
+                total_clients = db.query(Client).filter(Client.server_id == server.id).count()
 
         server_type = getattr(server, 'server_type', 'wireguard') or 'wireguard'
         server_category = getattr(server, 'server_category', None)
@@ -327,6 +332,7 @@ def list_servers(
     behind 6 /bandwidth calls). FastAPI runs `def` handlers in a thread pool,
     so concurrent fan-outs progress in parallel.
     """
+    from sqlalchemy import func as sa_func
     query = db.query(Server)
 
     if not include_offline:
@@ -335,11 +341,20 @@ def list_servers(
     total = query.count()
     servers = query.order_by(Server.name).offset(offset).limit(limit).all()
 
+    # Single grouped COUNT for ALL servers — was N+1 (one per server) which
+    # turned a 6-server panel into 7 sequential queries on the hot list path.
+    counts_rows = db.query(Client.server_id, sa_func.count(Client.id)) \
+                    .group_by(Client.server_id).all()
+    counts_by_sid = {sid: c for sid, c in counts_rows}
+
     return {
         "total": total,
         "limit": limit,
         "offset": offset,
-        "items": [ServerResponse.from_server(s, db=db) for s in servers]
+        "items": [
+            ServerResponse.from_server(s, db=db, total_clients=counts_by_sid.get(s.id, 0))
+            for s in servers
+        ],
     }
 
 
@@ -1605,7 +1620,7 @@ class MigrateClientsRequest(BaseModel):
 
 
 @router.post("/{server_id}/migrate-clients")
-async def migrate_clients_between_servers(
+def migrate_clients_between_servers(
     server_id: int,
     payload: MigrateClientsRequest,
     request: Request,
@@ -1812,7 +1827,7 @@ class ExpandPoolRequest(BaseModel):
 
 
 @router.post("/{server_id}/expand-pool")
-async def expand_address_pool(
+def expand_address_pool(
     server_id: int,
     payload: ExpandPoolRequest,
     db: Session = Depends(get_db),
@@ -2099,7 +2114,7 @@ async def update_server(
 
 
 @router.get("/{server_id}/delete-preview")
-async def delete_server_preview(
+def delete_server_preview(
     server_id: int,
     db: Session = Depends(get_db)
 ):
@@ -2707,7 +2722,7 @@ async def discover_server(
 # ============================================================================
 
 @router.get("/{server_id}/backup")
-async def backup_server(
+def backup_server(
     server_id: int,
     db: Session = Depends(get_db)
 ):
@@ -2873,7 +2888,7 @@ async def set_default_server(
 
 
 @router.post("/{server_id}/reconcile")
-async def reconcile_server(
+def reconcile_server(
     server_id: int,
     db: Session = Depends(get_db),
 ):

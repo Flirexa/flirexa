@@ -153,7 +153,7 @@ async def list_networks(
 
 
 @portal_router.post("/networks", status_code=201, summary="Create a corporate VPN network")
-async def create_network(
+def create_network(
     body: CreateNetworkRequest,
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -187,7 +187,7 @@ async def get_network(
 
 
 @portal_router.delete("/networks/{network_id}", status_code=204, summary="Delete network and all its sites")
-async def delete_network(
+def delete_network(
     network_id: int,
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -201,7 +201,7 @@ async def delete_network(
 
 
 @portal_router.post("/networks/{network_id}/sites", status_code=201, summary="Add a site to a network")
-async def add_site(
+def add_site(
     network_id: int,
     body: CreateSiteRequest,
     user_id: int = Depends(get_current_user),
@@ -236,7 +236,7 @@ async def add_site(
 
 
 @portal_router.patch("/networks/{network_id}/sites/{site_id}", summary="Update site configuration")
-async def update_site(
+def update_site(
     network_id: int,
     site_id: int,
     body: UpdateSiteRequest,
@@ -270,7 +270,7 @@ async def update_site(
     response_class=PlainTextResponse,
     summary="Download WireGuard config for a site",
 )
-async def download_site_config(
+def download_site_config(
     network_id: int,
     site_id: int,
     user_id: int = Depends(get_current_user),
@@ -299,7 +299,7 @@ async def download_site_config(
     "/networks/{network_id}/sites/{site_id}/regenerate-keys",
     summary="Regenerate WireGuard key pair for a site",
 )
-async def regenerate_site_keys(
+def regenerate_site_keys(
     network_id: int,
     site_id: int,
     user_id: int = Depends(get_current_user),
@@ -325,7 +325,7 @@ async def regenerate_site_keys(
     status_code=204,
     summary="Delete a site",
 )
-async def delete_site(
+def delete_site(
     network_id: int,
     site_id: int,
     user_id: int = Depends(get_current_user),
@@ -354,7 +354,7 @@ async def get_network_health(
 
 
 @portal_router.get("/networks/{network_id}/diagnostics", summary="Run full network diagnostics")
-async def run_diagnostics(
+def run_diagnostics(
     network_id: int,
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -385,7 +385,7 @@ async def get_relay_topology(
     "/networks/{network_id}/sites/{site_id}/relay",
     summary="Set or unset relay role for a site",
 )
-async def set_site_relay(
+def set_site_relay(
     network_id: int,
     site_id: int,
     body: SetRelayRequest,
@@ -455,7 +455,7 @@ async def admin_get_network(
 
 
 @admin_router.patch("/networks/{network_id}", summary="Update network status / notes")
-async def admin_update_network(
+def admin_update_network(
     network_id: int,
     body: AdminUpdateNetworkRequest,
     db: Session = Depends(get_db),
@@ -480,7 +480,7 @@ async def admin_update_network(
 
 
 @admin_router.patch("/networks/{network_id}/sites/{site_id}", summary="Update site status")
-async def admin_update_site(
+def admin_update_site(
     network_id: int,
     site_id: int,
     body: AdminUpdateSiteRequest,
@@ -507,7 +507,7 @@ async def admin_update_site(
     "/networks/{network_id}/sites/{site_id}/regenerate-keys",
     summary="Regenerate site keys (admin)",
 )
-async def admin_regenerate_keys(
+def admin_regenerate_keys(
     network_id: int,
     site_id: int,
     db: Session = Depends(get_db),
@@ -551,7 +551,7 @@ async def admin_download_config(
 
 
 @admin_router.get("/networks/{network_id}/diagnostics", summary="Run full diagnostics (admin)")
-async def admin_run_diagnostics(
+def admin_run_diagnostics(
     network_id: int,
     db: Session = Depends(get_db),
     admin: dict = Depends(get_current_admin),

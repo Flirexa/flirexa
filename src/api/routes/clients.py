@@ -396,7 +396,7 @@ async def get_map_data(db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.post("", response_model=ClientDetailResponse, status_code=201)
-async def create_client(
+def create_client(
     client_data: ClientCreate,
     db: Session = Depends(get_db)
 ):
@@ -515,7 +515,7 @@ async def update_client(
 
 
 @router.get("/{client_id}/delete-preview")
-async def delete_client_preview(
+def delete_client_preview(
     client_id: int,
     db: Session = Depends(get_db)
 ):
@@ -751,7 +751,7 @@ SHARE_LINK_MAX_TTL_SEC     = 3600  # 1 hour upper bound
 
 
 @router.post("/{client_id}/share-link")
-async def create_share_link(
+def create_share_link(
     client_id: int,
     request: Request,
     ttl_seconds: int = Query(SHARE_LINK_DEFAULT_TTL_SEC, ge=60, le=SHARE_LINK_MAX_TTL_SEC),

@@ -4,6 +4,27 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.82 — 2026-05-08
+
+The async-to-thread-pool migration that started in 1.5.81 (hot paths) extended to the rest of the API. Combined with a larger database connection pool and a fix for an N+1 query in the server list, the panel now stays fast even when many tabs are open and many users are working in parallel.
+
+### Changed
+
+- **129 API endpoints converted from `async def` to `def`.** This is the same fix as 1.5.81 but applied across the entire API surface (admin auth, app accounts, bots, client portal, clients, corporate, internal, payments, portal users, promo codes, servers, share, system, tariffs, traffic rules, updates). Anything that does synchronous SQLAlchemy or SSH/agent I/O without an `await` now runs in FastAPI's thread pool. The single event loop is no longer the bottleneck for any common request, so a slow query on one route does not stall every other route.
+- **Database connection pool grown.** Was 5 base + 10 overflow (max 15 connections). Now 20 base + 30 overflow (max 50). When most routes were on the event loop, 15 connections was plenty because only a few threads ever touched the DB at the same time. With the thread pool serving up to 40 concurrent requests, 15 became a hard ceiling that backed up under load. 50 keeps headroom under Postgres's default `max_connections=100` while removing the bottleneck.
+- **Connection pool now uses `pool_pre_ping=True`.** After a Postgres restart or network blip, the next handful of requests previously returned 500 because pooled connections were dead but unused. Pre-ping costs one round-trip per checkout in exchange for no first-request errors after recovery.
+- **Single grouped query for client counts on the server list.** `/api/v1/servers` was doing one extra `SELECT COUNT(*)` per server in the response, on top of the list itself. With 6 servers that meant 7 sequential DB queries for one request. Replaced with a single `GROUP BY` query, so it is now exactly 2 queries regardless of fleet size.
+
+### Added
+
+- **`scripts/audit_async_routes.py`.** Walks every route handler in `src/api/routes/` and fails if any is declared `async def` but has no `await` and uses sync I/O (SQLAlchemy, requests, subprocess). Run it from the repo root before committing or in CI to prevent the same class of slowness from creeping back in. Whitelists legitimate async patterns (websockets, file uploads, async-with).
+
+### Why this matters
+
+If you run more than two or three servers, or have more than one operator working in the panel at the same time, this is the release that makes things feel instant. The 1.5.81 fix unblocked the live-poll path on the Servers and Clients pages. 1.5.82 unblocks the rest: payments, support tickets, traffic rules, portal users, dashboards, settings. Combined with the larger DB pool, the panel now scales smoothly past the point where 1.5.80 visibly stuttered.
+
+---
+
 ## v1.5.81 — 2026-05-08
 
 Panel responsiveness fix for operators with multiple servers. The Servers and Clients pages would noticeably lag (2-3 seconds per request) on installs with 5+ servers because the hot-path API endpoints serialized on a single event loop. They now run in a thread pool, so concurrent fan-outs progress in parallel.

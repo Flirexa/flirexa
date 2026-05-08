@@ -39,7 +39,7 @@ def _build_config(client: Client, db: Session) -> str:
 
 
 @router.get("/share/{token}")
-async def download_shared_config(
+def download_shared_config(
     token: str,
     request: Request,
     db: Session = Depends(get_db),

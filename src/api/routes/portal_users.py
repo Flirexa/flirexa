@@ -248,7 +248,7 @@ def _enable_user_wg_clients(user_id: int, db: Session) -> int:
 # ============================================================================
 
 @router.get("")
-async def list_portal_users(
+def list_portal_users(
     search: Optional[str] = Query(None, description="Search by username/email"),
     tier: Optional[str] = Query(None, description="Filter by subscription tier"),
     status: Optional[str] = Query(None, description="Filter: active, banned, inactive"),
@@ -300,14 +300,14 @@ async def list_portal_users(
 
 
 @router.get("/tiers")
-async def get_available_tiers(db: Session = Depends(get_db)):
+def get_available_tiers(db: Session = Depends(get_db)):
     """Get available subscription tiers for filter dropdown"""
     plans = db.query(SubscriptionPlan).filter(SubscriptionPlan.is_active == True).order_by(SubscriptionPlan.display_order).all()
     return [{"tier": p.tier, "name": p.name} for p in plans]
 
 
 @router.post("/create-account")
-async def create_account(req: CreateAccountRequest, db: Session = Depends(get_db)):
+def create_account(req: CreateAccountRequest, db: Session = Depends(get_db)):
     """Admin: create a new portal user account with specified subscription tier"""
     mgr = SubscriptionManager(db)
 
@@ -354,7 +354,7 @@ async def create_account(req: CreateAccountRequest, db: Session = Depends(get_db
 
 
 @router.get("/stats/revenue", response_model=RevenueStats)
-async def get_revenue_stats(db: Session = Depends(get_db)):
+def get_revenue_stats(db: Session = Depends(get_db)):
     """Revenue and subscription statistics"""
     now = datetime.now(timezone.utc)
 
@@ -424,7 +424,7 @@ async def get_revenue_stats(db: Session = Depends(get_db)):
 
 
 @router.get("/payments")
-async def list_all_payments(
+def list_all_payments(
     status: Optional[str] = Query(None, description="Filter by status"),
     user_id: Optional[int] = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -461,7 +461,7 @@ async def list_all_payments(
 
 
 @router.post("/payments/{payment_id}/confirm")
-async def confirm_payment(payment_id: int, db: Session = Depends(get_db)):
+def confirm_payment(payment_id: int, db: Session = Depends(get_db)):
     """Manually confirm a pending payment"""
     payment = db.query(ClientPortalPayment).filter(ClientPortalPayment.id == payment_id).first()
     if not payment:
@@ -480,7 +480,7 @@ async def confirm_payment(payment_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/payments/{payment_id}/reject")
-async def reject_payment(payment_id: int, db: Session = Depends(get_db)):
+def reject_payment(payment_id: int, db: Session = Depends(get_db)):
     """Reject a pending payment"""
     payment = db.query(ClientPortalPayment).filter(ClientPortalPayment.id == payment_id).first()
     if not payment:
@@ -497,7 +497,7 @@ async def reject_payment(payment_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/payments/{payment_id}")
-async def delete_payment(payment_id: int, db: Session = Depends(get_db)):
+def delete_payment(payment_id: int, db: Session = Depends(get_db)):
     """Delete a payment record"""
     payment = db.query(ClientPortalPayment).filter(ClientPortalPayment.id == payment_id).first()
     if not payment:
@@ -518,7 +518,7 @@ async def delete_payment(payment_id: int, db: Session = Depends(get_db)):
 # --- CSV EXPORT ---
 
 @router.get("/export/users")
-async def export_users_csv(
+def export_users_csv(
     search: Optional[str] = Query(None),
     tier: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -573,7 +573,7 @@ async def export_users_csv(
 
 
 @router.get("/export/payments")
-async def export_payments_csv(
+def export_payments_csv(
     status: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
@@ -609,7 +609,7 @@ async def export_payments_csv(
 # --- DASHBOARD STATS ---
 
 @router.get("/stats/dashboard")
-async def get_dashboard_stats(db: Session = Depends(get_db)):
+def get_dashboard_stats(db: Session = Depends(get_db)):
     """Extended stats for admin dashboard"""
     now = datetime.now(timezone.utc)
 
@@ -665,7 +665,7 @@ async def get_dashboard_stats(db: Session = Depends(get_db)):
 # --- CHARTS DATA ---
 
 @router.get("/stats/charts")
-async def get_chart_data(db: Session = Depends(get_db)):
+def get_chart_data(db: Session = Depends(get_db)):
     """Time-series and distribution data for dashboard charts"""
     now = datetime.now(timezone.utc)
 
@@ -721,7 +721,7 @@ async def get_chart_data(db: Session = Depends(get_db)):
 # --- BROADCAST ---
 
 @router.post("/broadcast")
-async def broadcast_message(data: BroadcastRequest, db: Session = Depends(get_db)):
+def broadcast_message(data: BroadcastRequest, db: Session = Depends(get_db)):
     """Send a Telegram message to all (or filtered) portal users"""
     query = db.query(ClientUser).filter(ClientUser.telegram_id.isnot(None))
     if data.only_active:
@@ -751,7 +751,7 @@ async def broadcast_message(data: BroadcastRequest, db: Session = Depends(get_db
 # --- SUPPORT MESSAGES (Admin side) ---
 
 @router.get("/support-messages")
-async def list_support_messages(
+def list_support_messages(
     status: Optional[str] = Query(None, description="Filter by status: open, answered, closed"),
     search: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
@@ -808,7 +808,7 @@ async def list_support_messages(
 
 
 @router.get("/support-messages/unread-count")
-async def get_support_unread_total(db: Session = Depends(get_db)):
+def get_support_unread_total(db: Session = Depends(get_db)):
     """Get total unread support messages for admin badge"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -821,7 +821,7 @@ async def get_support_unread_total(db: Session = Depends(get_db)):
 
 
 @router.get("/support-messages/{ticket_id}")
-async def get_support_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def get_support_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """Get a support ticket with all replies"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -869,7 +869,7 @@ class AdminReplyRequest(BaseModel):
 
 
 @router.post("/support-messages/{ticket_id}/reply")
-async def reply_to_ticket(ticket_id: int, data: AdminReplyRequest, db: Session = Depends(get_db)):
+def reply_to_ticket(ticket_id: int, data: AdminReplyRequest, db: Session = Depends(get_db)):
     """Admin replies to a support ticket"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -905,7 +905,7 @@ async def reply_to_ticket(ticket_id: int, data: AdminReplyRequest, db: Session =
 
 
 @router.post("/support-messages/{ticket_id}/close")
-async def close_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def close_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """Close a support ticket"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -922,7 +922,7 @@ async def close_ticket(ticket_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/support-messages/{ticket_id}/reopen")
-async def reopen_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def reopen_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """Reopen a closed support ticket"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -939,7 +939,7 @@ async def reopen_ticket(ticket_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/support-messages/{ticket_id}")
-async def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """Delete a support ticket and all its replies"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -961,7 +961,7 @@ async def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.get("/{user_id}")
-async def get_portal_user(user_id: int, db: Session = Depends(get_db)):
+def get_portal_user(user_id: int, db: Session = Depends(get_db)):
     """Get detailed info about a portal user"""
     user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
     if not user:
@@ -1029,7 +1029,7 @@ async def get_portal_user(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{user_id}")
-async def update_portal_user(user_id: int, data: UserUpdateRequest, db: Session = Depends(get_db)):
+def update_portal_user(user_id: int, data: UserUpdateRequest, db: Session = Depends(get_db)):
     """Ban/unban or activate/deactivate a portal user"""
     user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
     if not user:
@@ -1073,7 +1073,7 @@ async def update_portal_user(user_id: int, data: UserUpdateRequest, db: Session 
 # ============================================================================
 
 @router.post("/{user_id}/grant-subscription")
-async def grant_subscription(user_id: int, data: GrantSubscriptionRequest, db: Session = Depends(get_db)):
+def grant_subscription(user_id: int, data: GrantSubscriptionRequest, db: Session = Depends(get_db)):
     """Grant or upgrade subscription for a user"""
     user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
     if not user:
@@ -1114,7 +1114,7 @@ async def grant_subscription(user_id: int, data: GrantSubscriptionRequest, db: S
 
 
 @router.post("/{user_id}/extend-subscription")
-async def extend_subscription(user_id: int, data: ExtendSubscriptionRequest, db: Session = Depends(get_db)):
+def extend_subscription(user_id: int, data: ExtendSubscriptionRequest, db: Session = Depends(get_db)):
     """Extend user's subscription by N days"""
     user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
     if not user:
@@ -1133,7 +1133,7 @@ async def extend_subscription(user_id: int, data: ExtendSubscriptionRequest, db:
 
 
 @router.post("/{user_id}/cancel-subscription")
-async def cancel_subscription(user_id: int, db: Session = Depends(get_db)):
+def cancel_subscription(user_id: int, db: Session = Depends(get_db)):
     """Cancel user's subscription"""
     user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
     if not user:
@@ -1158,7 +1158,7 @@ async def cancel_subscription(user_id: int, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.post("/{user_id}/reset-traffic")
-async def reset_user_traffic(user_id: int, db: Session = Depends(get_db)):
+def reset_user_traffic(user_id: int, db: Session = Depends(get_db)):
     """Reset traffic counters for a portal user's subscription"""
     user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
     if not user:
@@ -1199,7 +1199,7 @@ async def reset_user_traffic(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{user_id}")
-async def delete_portal_user(user_id: int, db: Session = Depends(get_db)):
+def delete_portal_user(user_id: int, db: Session = Depends(get_db)):
     """Delete a portal user and unlink their WG clients"""
     user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
     if not user:

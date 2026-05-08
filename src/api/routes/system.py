@@ -142,7 +142,7 @@ async def get_operational_mode(db: Session = Depends(get_db)):
 
 
 @router.get("/logs", response_model=List[AuditLogResponse])
-async def get_audit_logs(
+def get_audit_logs(
     action: Optional[str] = Query(None, description="Filter by action type"),
     target_type: Optional[str] = Query(None, description="Filter by target type"),
     limit: int = Query(100, ge=1, le=1000),
@@ -226,7 +226,7 @@ async def get_system_info(db: Session = Depends(get_db)):
 
 
 @router.get("/health")
-async def health_check(
+def health_check(
     db: Session = Depends(get_db)
 ):
     """
@@ -384,7 +384,7 @@ async def get_activation_info():
 
 
 @router.get("/license")
-async def get_license_status(db: Session = Depends(get_db)):
+def get_license_status(db: Session = Depends(get_db)):
     """Get current license status with usage counters and activation info."""
     from ...modules.license.manager import get_license_manager
     from ...database.models import Client, Server
@@ -1497,7 +1497,7 @@ async def get_web_access_settings():
 
 
 @router.post("/web-access")
-async def apply_web_access_settings(data: WebAccessSettingsUpdate):
+def apply_web_access_settings(data: WebAccessSettingsUpdate):
     mode = data.setup_mode
     portal_domain = (data.client_portal_domain or "").strip()
     admin_domain = (data.admin_panel_domain or "").strip()
@@ -1589,7 +1589,7 @@ def _update_env_file(env_path: str, updates: dict):
 
 
 @router.get("/notification-settings")
-async def get_notification_settings(db: Session = Depends(get_db)):
+def get_notification_settings(db: Session = Depends(get_db)):
     """Get notification settings"""
     from ...database.models import SystemConfig
     keys = [
@@ -1609,7 +1609,7 @@ async def get_notification_settings(db: Session = Depends(get_db)):
 
 
 @router.post("/notification-settings")
-async def update_notification_settings(data: dict, db: Session = Depends(get_db)):
+def update_notification_settings(data: dict, db: Session = Depends(get_db)):
     """Update notification settings"""
     from ...database.models import SystemConfig
     allowed_keys = [
@@ -1668,7 +1668,7 @@ BACKUP_DEFAULTS = {
 
 
 @router.get("/backup-settings")
-async def get_backup_settings(db: Session = Depends(get_db)):
+def get_backup_settings(db: Session = Depends(get_db)):
     """Get all backup configuration from SystemConfig"""
     from ...database.models import SystemConfig
     rows = db.query(SystemConfig).filter(SystemConfig.key.in_(BACKUP_CONFIG_KEYS)).all()
@@ -1719,7 +1719,7 @@ def _validate_mount_options(options: str) -> str:
 
 
 @router.post("/backup-settings")
-async def update_backup_settings(data: dict, db: Session = Depends(get_db)):
+def update_backup_settings(data: dict, db: Session = Depends(get_db)):
     """Update backup settings in SystemConfig"""
     from ...database.models import SystemConfig
 
@@ -1771,7 +1771,7 @@ async def update_backup_settings(data: dict, db: Session = Depends(get_db)):
 
 
 @router.post("/backup-mount", dependencies=[_auto_backup_gate])
-async def mount_network_storage(db: Session = Depends(get_db)):
+def mount_network_storage(db: Session = Depends(get_db)):
     """Mount network storage using saved settings"""
     from ...database.models import SystemConfig
     import subprocess
@@ -1833,7 +1833,7 @@ async def mount_network_storage(db: Session = Depends(get_db)):
 
 
 @router.post("/backup-unmount", dependencies=[_auto_backup_gate])
-async def unmount_network_storage(db: Session = Depends(get_db)):
+def unmount_network_storage(db: Session = Depends(get_db)):
     """Unmount network storage"""
     from ...database.models import SystemConfig
     import subprocess
@@ -1853,7 +1853,7 @@ async def unmount_network_storage(db: Session = Depends(get_db)):
 
 
 @router.get("/backup-mount-status")
-async def get_mount_status(db: Session = Depends(get_db)):
+def get_mount_status(db: Session = Depends(get_db)):
     """Check if network storage is mounted"""
     from ...database.models import SystemConfig
     import subprocess
@@ -1871,7 +1871,7 @@ async def get_mount_status(db: Session = Depends(get_db)):
 
 
 @router.post("/backup-test-write", dependencies=[_auto_backup_gate])
-async def test_backup_write(db: Session = Depends(get_db)):
+def test_backup_write(db: Session = Depends(get_db)):
     """Test write access to the backup directory"""
     from ...database.models import SystemConfig
 
@@ -1922,7 +1922,7 @@ class SendNotificationRequest(BaseModel):
 
 
 @router.post("/notifications/send")
-async def send_notification(data: SendNotificationRequest, db: Session = Depends(get_db)):
+def send_notification(data: SendNotificationRequest, db: Session = Depends(get_db)):
     """Send a push notification to a user or broadcast to all"""
     from ...database.models import PushNotification
 
@@ -1940,7 +1940,7 @@ async def send_notification(data: SendNotificationRequest, db: Session = Depends
 
 
 @router.get("/notifications/list")
-async def list_notifications(
+def list_notifications(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db)
 ):

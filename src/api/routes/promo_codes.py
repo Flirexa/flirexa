@@ -127,7 +127,7 @@ def _serialize_promo_code(promo: PromoCode) -> dict:
 # ============================================================================
 
 @router.get("")
-async def list_promo_codes(
+def list_promo_codes(
     search: Optional[str] = Query(None, description="Search by code (partial match)"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     limit: int = Query(50, ge=1, le=200),
@@ -153,7 +153,7 @@ async def list_promo_codes(
 
 
 @router.get("/stats", response_model=PromoCodeStats)
-async def get_promo_code_stats(db: Session = Depends(get_db)):
+def get_promo_code_stats(db: Session = Depends(get_db)):
     """Stats: total codes, active codes, total uses, top used codes"""
     total_codes = db.query(func.count(PromoCode.id)).scalar() or 0
 
@@ -191,7 +191,7 @@ async def get_promo_code_stats(db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-async def create_promo_code(data: PromoCodeCreate, db: Session = Depends(get_db)):
+def create_promo_code(data: PromoCodeCreate, db: Session = Depends(get_db)):
     """Create a new promo code. Code is uppercased; auto-generated if not provided."""
     if data.code:
         code = data.code.strip().upper()
@@ -234,7 +234,7 @@ async def create_promo_code(data: PromoCodeCreate, db: Session = Depends(get_db)
 
 
 @router.put("/{code_id}")
-async def update_promo_code(code_id: int, data: PromoCodeUpdate, db: Session = Depends(get_db)):
+def update_promo_code(code_id: int, data: PromoCodeUpdate, db: Session = Depends(get_db)):
     """Update a promo code (is_active, max_uses, expires_at, discount_value)"""
     promo = db.query(PromoCode).filter(PromoCode.id == code_id).first()
     if not promo:
@@ -261,7 +261,7 @@ async def update_promo_code(code_id: int, data: PromoCodeUpdate, db: Session = D
 
 
 @router.delete("/{code_id}")
-async def delete_promo_code(code_id: int, db: Session = Depends(get_db)):
+def delete_promo_code(code_id: int, db: Session = Depends(get_db)):
     """Delete a promo code"""
     promo = db.query(PromoCode).filter(PromoCode.id == code_id).first()
     if not promo:
@@ -276,7 +276,7 @@ async def delete_promo_code(code_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/validate")
-async def validate_promo_code(data: PromoCodeValidateRequest, db: Session = Depends(get_db)):
+def validate_promo_code(data: PromoCodeValidateRequest, db: Session = Depends(get_db)):
     """
     Validate a promo code for use.
 

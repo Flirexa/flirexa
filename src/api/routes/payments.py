@@ -93,7 +93,7 @@ class InvoiceResponse(BaseModel):
 # ============================================================================
 
 @router.get("/plans", response_model=List[PlanResponse])
-async def list_plans(
+def list_plans(
     active_only: bool = Query(True),
     db: Session = Depends(get_db)
 ):
@@ -107,7 +107,7 @@ async def list_plans(
 
 
 @router.post("/plans", response_model=PlanResponse, status_code=201)
-async def create_plan(
+def create_plan(
     plan_data: PlanCreate,
     db: Session = Depends(get_db)
 ):
@@ -139,7 +139,7 @@ async def create_plan(
 
 
 @router.get("/plans/{plan_id}", response_model=PlanResponse)
-async def get_plan(
+def get_plan(
     plan_id: int,
     db: Session = Depends(get_db)
 ):
@@ -153,7 +153,7 @@ async def get_plan(
 
 
 @router.delete("/plans/{plan_id}")
-async def delete_plan(
+def delete_plan(
     plan_id: int,
     db: Session = Depends(get_db)
 ):
@@ -175,7 +175,7 @@ async def delete_plan(
 # ============================================================================
 
 @router.get("", response_model=List[PaymentResponse])
-async def list_payments(
+def list_payments(
     status: Optional[str] = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
@@ -196,7 +196,7 @@ async def list_payments(
 
 
 @router.post("/invoice", response_model=InvoiceResponse, status_code=201)
-async def create_invoice(
+def create_invoice(
     invoice_data: InvoiceCreate,
     db: Session = Depends(get_db)
 ):
@@ -236,7 +236,7 @@ async def create_invoice(
 
 
 @router.get("/{payment_id}", response_model=PaymentResponse)
-async def get_payment(
+def get_payment(
     payment_id: int,
     db: Session = Depends(get_db)
 ):
@@ -250,7 +250,7 @@ async def get_payment(
 
 
 @router.post("/{payment_id}/check")
-async def check_payment(
+def check_payment(
     payment_id: int,
     db: Session = Depends(get_db)
 ):
@@ -270,7 +270,7 @@ async def check_payment(
 
 
 @router.post("/{payment_id}/confirm")
-async def confirm_payment(
+def confirm_payment(
     payment_id: int,
     tx_hash: Optional[str] = Query(None),
     db: Session = Depends(get_db)
@@ -299,7 +299,7 @@ async def confirm_payment(
 
 
 @router.post("/{payment_id}/cancel")
-async def cancel_payment(
+def cancel_payment(
     payment_id: int,
     db: Session = Depends(get_db)
 ):
