@@ -4,6 +4,16 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.88 — 2026-05-08
+
+Favicon now matches the brand logo. Both admin and client portal ship with `flirexa-logo.png` as the favicon, so the browser tab icon and the in-app logo are visually identical.
+
+### Changed
+
+- **Favicon = brand logo.** Replaces the previous SVG mark in both `admin` and `client portal` with the same PNG used for the in-app logo. If you set a custom favicon via Settings → Branding, that override still wins.
+
+---
+
 ## v1.5.87 — 2026-05-08
 
 Reverts the favicon change from 1.5.86. Operators who had their own branding configured did not appreciate the default favicon being swapped on them.
