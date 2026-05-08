@@ -1,6 +1,6 @@
 {
-  "name": "VPN Manager",
-  "short_name": "VPN Manager",
+  "name": "Flirexa VPN Studio",
+  "short_name": "Flirexa VPN Studio",
   "description": "WireGuard VPN Management Platform",
   "start_url": "/",
   "display": "standalone",

@@ -812,7 +812,7 @@
         <div class="row g-3 mb-3">
           <div class="col-md-6">
             <label class="form-label">{{ $t('settings.appName') }}</label>
-            <input type="text" class="form-control" v-model="brand.app_name" placeholder="VPN Manager" />
+            <input type="text" class="form-control" v-model="brand.app_name" placeholder="Flirexa VPN Studio" />
           </div>
           <div class="col-md-6">
             <label class="form-label">{{ $t('settings.companyName') }}</label>

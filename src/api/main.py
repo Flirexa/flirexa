@@ -75,7 +75,7 @@ async def lifespan(app: FastAPI):
 
     # Startup
     _start_time = time.time()
-    logger.info("EVENT:API_START VPN Manager API starting")
+    logger.info("EVENT:API_START Flirexa VPN Studio API starting")
 
     # Initialize database
     init_db()
@@ -266,7 +266,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logger.info("EVENT:API_STOP VPN Manager API shutting down")
+    logger.info("EVENT:API_STOP Flirexa VPN Studio API shutting down")
     for task in [_monitor_task, _backup_task, _license_validator_task, _heartbeat_task]:
         if task:
             task.cancel()
@@ -278,7 +278,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app(
-    title: str = "VPN Manager API",
+    title: str = "Flirexa VPN Studio API",
     version: str = "5.0.0",
     debug: bool = False,
 ) -> FastAPI:
@@ -822,7 +822,7 @@ def create_app(
         async def root():
             """Root endpoint (no frontend built yet)"""
             return {
-                "name": "VPN Manager API",
+                "name": "Flirexa VPN Studio API",
                 "version": version,
                 "docs": "/api/docs",
                 "note": "Run 'npm run build' in src/web/frontend/ to enable the web panel",

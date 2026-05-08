@@ -4,6 +4,17 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.86 — 2026-05-08
+
+Brand cleanup. The panel and client portal now ship with Flirexa branding by default — title, manifest, favicon, and OpenAPI doc title all read "Flirexa VPN Studio". The shared favicon is the bird-in-flight mark from flirexa.biz on a purple gradient, identical between admin and portal.
+
+### Changed
+
+- **Default app name is now "Flirexa VPN Studio"** across both frontends, the manifest.json files (PWA install name), the apple-mobile-web-app-title, and the OpenAPI `title`. The Settings → Branding override still works, so any operator who has set a custom app name will keep it.
+- **Default favicon is the Flirexa bird mark** (white silhouette in flight on purple-gradient ground). Admin panel and client portal serve the same SVG so the look is consistent across the two surfaces. The previous generic "S" placeholder is gone.
+
+---
+
 ## v1.5.85 — 2026-05-08
 
 End-to-end fixes for the backup restore path. Restore from a panel backup now works without manual intervention — earlier you had to stop services by hand or the restore would silently hang on database locks. Verified on a fresh stand: full create → mutate → restore → verify cycle, byte-for-byte recovery in three seconds.
