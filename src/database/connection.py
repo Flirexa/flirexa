@@ -47,12 +47,20 @@ if is_sqlite:
         echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     )
 else:
+    # Pool sizing tuned for FastAPI's default 40-thread threadpool.
+    # Earlier (5 + 10 overflow = 15 max) was fine when most route handlers
+    # were `async def` and only a few threads touched the DB; now nearly
+    # every request runs in the threadpool and wants its own connection.
+    # 20 + 30 = 50 max stays well under Postgres default max_connections=100.
+    # pool_pre_ping catches dead connections after Postgres restarts so the
+    # first request after a DB blip doesn't 500.
     engine = create_engine(
         DATABASE_URL,
-        pool_size=5,
-        max_overflow=10,
-        pool_timeout=30,
+        pool_size=20,
+        max_overflow=30,
+        pool_timeout=10,
         pool_recycle=1800,
+        pool_pre_ping=True,
         echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     )
 
@@ -70,12 +78,15 @@ try:
             echo=os.getenv("SQL_ECHO", "false").lower() == "true",
         )
     else:
+        # Match sync engine pool. Async path is used by background workers
+        # and websocket handlers, which can be just as concurrent as HTTP.
         async_engine = create_async_engine(
             ASYNC_DATABASE_URL,
-            pool_size=5,
-            max_overflow=10,
-            pool_timeout=30,
+            pool_size=20,
+            max_overflow=30,
+            pool_timeout=10,
             pool_recycle=1800,
+            pool_pre_ping=True,
             echo=os.getenv("SQL_ECHO", "false").lower() == "true",
         )
 

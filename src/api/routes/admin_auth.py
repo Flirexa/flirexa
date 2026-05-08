@@ -138,14 +138,14 @@ def _make_token_response(user: AdminUser, db: Session) -> dict:
 # ============================================================================
 
 @router.get("/setup-status")
-async def setup_status(db: Session = Depends(get_db)):
+def setup_status(db: Session = Depends(get_db)):
     """Check if initial setup is needed (no admin users exist)."""
     count = db.query(AdminUser).count()
     return {"needs_setup": count == 0}
 
 
 @router.post("/setup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def setup(data: SetupRequest, request: Request, db: Session = Depends(get_db)):
+def setup(data: SetupRequest, request: Request, db: Session = Depends(get_db)):
     """
     Initial admin setup. Only works when no admin users exist.
     Creates the first admin account.
@@ -349,7 +349,7 @@ class RefreshRequest(BaseModel):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
+def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     """Get a new access token using a refresh token."""
     payload = verify_refresh_token(data.refresh_token)
 
@@ -377,7 +377,7 @@ async def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me")
-async def get_me(
+def get_me(
     credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
     db: Session = Depends(get_db)
 ):
@@ -405,7 +405,7 @@ async def get_me(
 
 
 @router.post("/change-password")
-async def change_password(
+def change_password(
     data: ChangePasswordRequest,
     credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
     db: Session = Depends(get_db)
@@ -434,7 +434,7 @@ async def change_password(
 
 
 @router.post("/create-admin", status_code=status.HTTP_201_CREATED)
-async def create_admin(
+def create_admin(
     data: CreateAdminRequest,
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
@@ -494,7 +494,7 @@ async def create_admin(
 
 
 @router.get("/admins")
-async def list_admins(
+def list_admins(
     credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
     db: Session = Depends(get_db)
 ):
@@ -524,7 +524,7 @@ async def list_admins(
 
 
 @router.delete("/admins/{admin_id}")
-async def delete_admin(
+def delete_admin(
     admin_id: int,
     credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
     db: Session = Depends(get_db)

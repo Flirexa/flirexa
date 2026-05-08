@@ -239,7 +239,7 @@ async def check_updates(db: Session = Depends(get_db)):
 # ── GET /updates/history ───────────────────────────────────────────────────────
 
 @router.get("/history")
-async def update_history(
+def update_history(
     limit: int = 20,
     db: Session = Depends(get_db),
 ):
@@ -268,7 +268,7 @@ async def update_log(update_id: int, db: Session = Depends(get_db)):
 # ── GET /updates/manifest/{version} ───────────────────────────────────────────
 
 @router.get("/manifest/{version}")
-async def get_manifest(version: str, db: Session = Depends(get_db)):
+def get_manifest(version: str, db: Session = Depends(get_db)):
     """Return the stored manifest JSON for a specific update version."""
     rec = (
         db.query(UpdateHistory)
@@ -484,7 +484,7 @@ class ChannelRequest(BaseModel):
 
 
 @router.post("/channel")
-async def set_update_channel(req: ChannelRequest, db: Session = Depends(get_db)):
+def set_update_channel(req: ChannelRequest, db: Session = Depends(get_db)):
     if req.channel not in ("stable", "test"):
         raise HTTPException(status_code=400, detail="channel must be 'stable' or 'test'")
     from src.database.models import SystemConfig
@@ -523,7 +523,7 @@ class AutoApplyRequest(BaseModel):
 
 
 @router.post("/auto-apply")
-async def set_auto_apply(req: AutoApplyRequest, db: Session = Depends(get_db)):
+def set_auto_apply(req: AutoApplyRequest, db: Session = Depends(get_db)):
     from src.database.models import SystemConfig
     cfg = db.query(SystemConfig).filter_by(key="updates_auto_apply").first()
     val = "true" if req.enabled else "false"
@@ -567,7 +567,7 @@ def _detect_service_prefix() -> str:
 
 
 @router.post("/restart")
-async def restart_services():
+def restart_services():
     """
     Trigger a service restart to apply the last update.
     Spawns a detached bash process (sleep 2 + systemctl restart) and returns

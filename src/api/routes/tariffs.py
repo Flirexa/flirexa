@@ -111,7 +111,7 @@ class ReorderRequest(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("")
-async def list_tariffs(
+def list_tariffs(
     active_only: bool = False,
     db: Session = Depends(get_db)
 ):
@@ -124,7 +124,7 @@ async def list_tariffs(
 
 
 @router.post("/reorder")
-async def reorder_tariffs(data: ReorderRequest, db: Session = Depends(get_db)):
+def reorder_tariffs(data: ReorderRequest, db: Session = Depends(get_db)):
     """Update display order for tariffs"""
     for item in data.items:
         tariff = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == item.id).first()
@@ -136,7 +136,7 @@ async def reorder_tariffs(data: ReorderRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/{tariff_id}")
-async def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
+def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
     """Get tariff by ID"""
     tariff = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tariff_id).first()
     if not tariff:
@@ -145,7 +145,7 @@ async def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
-async def create_tariff(data: TariffCreate, db: Session = Depends(get_db)):
+def create_tariff(data: TariffCreate, db: Session = Depends(get_db)):
     """Create a new tariff"""
     # Check tier uniqueness
     existing = db.query(SubscriptionPlan).filter(SubscriptionPlan.tier == data.tier).first()
@@ -184,7 +184,7 @@ async def create_tariff(data: TariffCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{tariff_id}")
-async def update_tariff(tariff_id: int, data: TariffUpdate, db: Session = Depends(get_db)):
+def update_tariff(tariff_id: int, data: TariffUpdate, db: Session = Depends(get_db)):
     """Update a tariff"""
     tariff = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tariff_id).first()
     if not tariff:
@@ -215,7 +215,7 @@ async def update_tariff(tariff_id: int, data: TariffUpdate, db: Session = Depend
 
 
 @router.delete("/{tariff_id}")
-async def delete_tariff(tariff_id: int, db: Session = Depends(get_db)):
+def delete_tariff(tariff_id: int, db: Session = Depends(get_db)):
     """Soft-delete a tariff (set is_active=False)"""
     tariff = db.query(SubscriptionPlan).filter(SubscriptionPlan.id == tariff_id).first()
     if not tariff:
