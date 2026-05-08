@@ -40,7 +40,11 @@ from src.database.models import Server, Client, AuditLog, AuditAction
 from src.database.connection import SessionLocal
 
 
-BACKUP_DIR = os.getenv("VMS_BACKUP_DIR", str(Path(__file__).parent.parent / "backups"))
+# Canonical default backup directory: <project_root>/backups (three .parent
+# climbs from this file at src/modules/backup_manager.py). Aligned with
+# src/api/scheduler.py so manual and scheduled backups land in the same
+# place when SystemConfig.backup_path is unset.
+BACKUP_DIR = os.getenv("VMS_BACKUP_DIR", str(Path(__file__).parent.parent.parent / "backups"))
 CURRENT_VERSION = "5.2"
 
 
@@ -210,26 +214,176 @@ class BackupManager:
 
     # ── Config helpers ────────────────────────────────────────────────────────
 
-    def _get_backup_dir(self) -> str:
-        """Get backup directory from DB config or env/default."""
+    def _get_storage_config(self) -> dict:
+        """Return the full backup-storage config from SystemConfig with sane
+        defaults. Used by _get_backup_dir, ensure_storage_ready, and the API
+        routes that report storage state to the UI."""
+        keys = [
+            "backup_storage_type", "backup_path", "backup_mount_point",
+            "backup_mount_type", "backup_mount_address",
+            "backup_mount_username", "backup_mount_password",
+            "backup_mount_options",
+        ]
+        cfg = {}
         try:
             from src.database.models import SystemConfig
-            rows = self.db.query(SystemConfig).filter(
-                SystemConfig.key.in_(["backup_storage_type", "backup_path", "backup_mount_point"])
-            ).all()
+            rows = self.db.query(SystemConfig).filter(SystemConfig.key.in_(keys)).all()
             cfg = {r.key: r.value for r in rows}
-            storage_type = cfg.get("backup_storage_type", "local")
-            if storage_type == "network":
-                mount_point = cfg.get("backup_mount_point")
-                if mount_point:
-                    return mount_point
-            else:
-                path = cfg.get("backup_path")
-                if path:
-                    return path
+            # Close the implicit read-only transaction immediately. SQLAlchemy
+            # with autocommit=False keeps the SELECT's snapshot open until
+            # commit/rollback, which means later pg_restore calls would
+            # deadlock waiting for our session to release locks on the same
+            # tables (system_config in particular). Rolling back is safe —
+            # we ran a SELECT, nothing to persist.
+            self.db.rollback()
         except Exception:
-            pass
-        return os.getenv("VMS_BACKUP_DIR", str(Path(__file__).parent.parent / "backups"))
+            try: self.db.rollback()
+            except Exception: pass
+        cfg.setdefault("backup_storage_type", "local")
+        # Default = <project_root>/backups. Three .parent climbs because this
+        # file lives at <project_root>/src/modules/backup_manager.py. The
+        # scheduler at src/api/scheduler.py uses the same depth, so both
+        # agree on the canonical path when SystemConfig.backup_path is unset.
+        # Until 1.5.83 BackupManager used .parent.parent (one too few),
+        # which made manual API backups land in src/backups/ while the
+        # scheduler wrote to <root>/backups/ — two directories on one host.
+        cfg.setdefault(
+            "backup_path",
+            os.getenv("VMS_BACKUP_DIR", str(Path(__file__).parent.parent.parent / "backups")),
+        )
+        cfg.setdefault("backup_mount_point", "/mnt/vpnmanager-backup")
+        cfg.setdefault("backup_mount_type", "smb")
+        return cfg
+
+    def _get_backup_dir(self) -> str:
+        """Resolve the directory where backups live, honoring storage_type.
+        Network mode returns the mount point; local mode returns the path.
+        Does NOT verify the path exists or that the mount is up — callers
+        that need a guaranteed-writable path should call ensure_storage_ready
+        first."""
+        cfg = self._get_storage_config()
+        if cfg["backup_storage_type"] == "network":
+            return cfg["backup_mount_point"]
+        return cfg["backup_path"]
+
+    @staticmethod
+    def is_path_mounted(path: str) -> bool:
+        """True if `path` is a real mount point (not just a regular dir).
+        Uses `mountpoint -q`; treats command failure as not-mounted."""
+        if not path:
+            return False
+        try:
+            r = subprocess.run(
+                ["mountpoint", "-q", path], capture_output=True, timeout=5
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
+
+    def ensure_storage_ready(self) -> dict:
+        """Make sure the backup target is writable. For local mode, mkdir.
+        For network mode: verify the mount is up; if not, attempt one
+        auto-mount using the saved credentials. Returns a status dict the
+        callers (route handlers, scheduler) can surface to the UI/logs.
+
+        Distinguishes the silent failure mode from before — a backup written
+        to an unmounted-but-existing-as-dir mount point used to land on the
+        local disk and look successful until you went to restore."""
+        cfg = self._get_storage_config()
+        target = self._get_backup_dir()
+        result = {"target": target, "storage_type": cfg["backup_storage_type"], "ready": False, "auto_mounted": False, "error": None}
+
+        if cfg["backup_storage_type"] == "local":
+            try:
+                os.makedirs(target, exist_ok=True)
+                result["ready"] = True
+            except OSError as exc:
+                result["error"] = f"could not create backup dir: {exc}"
+            return result
+
+        # Network mode: must be a real mount point before we accept it
+        if self.is_path_mounted(target):
+            result["ready"] = True
+            return result
+
+        # Try one auto-mount with stored credentials
+        try:
+            self._mount_network_storage(cfg)
+            if self.is_path_mounted(target):
+                result["ready"] = True
+                result["auto_mounted"] = True
+                return result
+            result["error"] = "mount command returned ok but path is not mounted"
+        except Exception as exc:
+            result["error"] = f"auto-mount failed: {exc}"
+        return result
+
+    def _mount_network_storage(self, cfg: dict) -> None:
+        """Run mount(8) with NFS or CIFS using credentials in DB. Password
+        goes through a 0600 credentials file rather than the command line so
+        it does not appear in `ps aux` or journalctl. Caller verifies success
+        via is_path_mounted."""
+        mount_point = cfg["backup_mount_point"]
+        address = cfg.get("backup_mount_address", "")
+        if not address:
+            raise RuntimeError("backup_mount_address is empty")
+        os.makedirs(mount_point, exist_ok=True)
+        options = cfg.get("backup_mount_options", "").strip()
+
+        if cfg.get("backup_mount_type") == "nfs":
+            cmd = ["mount", "-t", "nfs"]
+            if options:
+                cmd += ["-o", options]
+            cmd += [address, mount_point]
+            self._run_mount_cmd(cmd)
+            return
+
+        # CIFS / SMB — use credentials file instead of -o password=...
+        username = cfg.get("backup_mount_username", "") or ""
+        password = cfg.get("backup_mount_password", "") or ""
+        cred_file = None
+        opts_parts = []
+        try:
+            if username or password:
+                fd, cred_file = tempfile.mkstemp(prefix="vmsmount-", text=True)
+                os.fchmod(fd, 0o600)
+                with os.fdopen(fd, "w") as fh:
+                    if username:
+                        fh.write(f"username={username}\n")
+                    if password:
+                        fh.write(f"password={password}\n")
+                opts_parts.append(f"credentials={cred_file}")
+            if options:
+                opts_parts.append(options)
+            cmd = ["mount", "-t", "cifs"]
+            if opts_parts:
+                cmd += ["-o", ",".join(opts_parts)]
+            cmd += [address, mount_point]
+            self._run_mount_cmd(cmd)
+        finally:
+            # Always remove the credentials file once mount is done — kernel
+            # has already read it. Failing to clean it up would leave the
+            # password sitting on disk under /tmp.
+            if cred_file:
+                try:
+                    os.unlink(cred_file)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _run_mount_cmd(cmd: list[str]) -> None:
+        """Run mount/umount with a 30s ceiling. Surfaces stderr verbatim so
+        the operator sees the kernel's actual error (host unreachable, perm
+        denied, missing kernel module, etc.) instead of a generic 'failed'."""
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("mount command timed out after 30s")
+        except FileNotFoundError:
+            raise RuntimeError("mount command not found — is util-linux installed?")
+        if r.returncode != 0:
+            stderr = (r.stderr or "").strip()
+            raise RuntimeError(stderr or f"mount returned exit code {r.returncode}")
 
     def _get_retention_cfg(self) -> dict:
         """Return retention settings from DB or defaults."""
@@ -319,6 +473,18 @@ class BackupManager:
         Archive: vpnmanager-backup-YYYYMMDD-HHMMSS.tar.gz
         Returns metadata dict.
         """
+        # Verify the backup target is actually writable BEFORE we start. For
+        # network storage, this attempts one auto-mount with stored creds —
+        # otherwise a backup written to an unmounted-but-existing-as-dir
+        # mount point lands on the local disk and looks fine until restore.
+        ready = self.ensure_storage_ready()
+        if not ready["ready"]:
+            raise RuntimeError(
+                f"backup storage not ready ({ready['storage_type']}, target={ready['target']}): "
+                f"{ready.get('error') or 'unknown'}"
+            )
+        # Refresh in case auto-mount changed the resolved dir
+        self.backup_dir = self._get_backup_dir()
         os.makedirs(self.backup_dir, exist_ok=True)
 
         # Disk space guard: require at least 300 MB free
@@ -844,28 +1010,56 @@ class BackupManager:
 
     # ── Public: restore database only ─────────────────────────────────────────
 
-    def restore_database(self, backup_id: str) -> bool:
-        """Restore database from backup (supports both v1 dir and v2 tar.gz format)."""
+    def restore_database(self, backup_id: str, *, stop_services: bool = True) -> bool:
+        """Restore database from backup (supports both v1 dir and v2 tar.gz format).
+
+        With `stop_services=True` (the default), stops the panel services
+        before invoking pg_restore and restarts them after. This is required
+        in practice — running pg_restore --clean against a live database
+        deadlocks immediately because the API workers hold connections that
+        block DROP TABLE. Earlier versions left this responsibility to the
+        operator (manual `systemctl stop` before clicking Restore), which is
+        fragile. Pass stop_services=False only if you have already stopped
+        services through some other path (e.g. via the CLI in
+        single-process mode where the API is not running)."""
         backup_id = _sanitize_backup_id(backup_id)
 
+        # Resolve the dump path BEFORE stopping services — if the file is
+        # missing, we want to fail fast and leave the system untouched.
         if _is_new_format(backup_id):
             archive_path = self._archive_path(backup_id)
             if not os.path.isfile(archive_path):
                 raise FileNotFoundError(f"Archive not found: {archive_path}")
-            with tempfile.TemporaryDirectory() as tmpdir:
-                with tarfile.open(archive_path, "r:gz") as tar:
-                    tar.extractall(tmpdir, filter="data")
-                db_path = os.path.join(tmpdir, "backup", "database.sql.gz")
-                if not os.path.isfile(db_path):
-                    raise FileNotFoundError("database.sql.gz not found in archive")
-                self._restore_database_from_file(db_path)
         else:
-            # Legacy directory format
             backup_dir = os.path.join(self.backup_dir, f"backup_{backup_id}")
             dump_path = os.path.join(backup_dir, "database.sql.gz")
             if not os.path.isfile(dump_path):
                 raise FileNotFoundError(f"Database dump not found: {dump_path}")
-            self._restore_database_from_file(dump_path)
+
+        services_stopped = []
+        if stop_services:
+            try:
+                services_stopped = self._stop_services()
+            except Exception as exc:
+                logger.warning(f"Service stop failed (continuing anyway): {exc}")
+
+        try:
+            if _is_new_format(backup_id):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    with tarfile.open(archive_path, "r:gz") as tar:
+                        tar.extractall(tmpdir, filter="data")
+                    db_path = os.path.join(tmpdir, "backup", "database.sql.gz")
+                    if not os.path.isfile(db_path):
+                        raise FileNotFoundError("database.sql.gz not found in archive")
+                    self._restore_database_from_file(db_path)
+            else:
+                self._restore_database_from_file(dump_path)
+        finally:
+            if stop_services and services_stopped:
+                try:
+                    self._restart_services(services_stopped)
+                except Exception as exc:
+                    logger.error(f"Service restart failed: {exc}")
 
         try:
             audit = AuditLog(
@@ -1542,7 +1736,19 @@ class BackupManager:
             raise RuntimeError(f"pg_dump failed (rc={pg_dump.returncode}): {stderr}")
 
     def _restore_database_from_file(self, dump_path: str):
-        """gunzip | pg_restore from dump_path (.sql.gz)."""
+        """gunzip | pg_restore from dump_path (.sql.gz).
+
+        Releases our own session before invoking pg_restore so that any
+        previously-issued SELECT (e.g. from _get_storage_config) does not
+        hold locks on the tables pg_restore needs to DROP. Without this
+        rollback, restore deadlocks against itself."""
+        # Close any open transaction on our session — pg_restore needs DDL
+        # locks that conflict with read-snapshots held by SQLAlchemy's
+        # autocommit=False default.
+        try:
+            self.db.rollback()
+        except Exception:
+            pass
         pg = _get_pg_params()
         db_host = pg["host"]
         db_port = pg["port"]
@@ -1551,6 +1757,26 @@ class BackupManager:
 
         env = os.environ.copy()
         env["PGPASSWORD"] = pg["password"]
+
+        # Terminate any other connections to the target database so DROP
+        # TABLE inside pg_restore does not block on locks held by the
+        # operator's running services. _stop_services already handles the
+        # main case (panel API), but background workers, replication slots,
+        # admin connections, etc. can still hold sessions. The terminate
+        # call is best-effort: if it fails we still try the restore.
+        terminate_sql = (
+            "SELECT pg_terminate_backend(pid) "
+            "FROM pg_stat_activity "
+            f"WHERE datname = '{db_name}' AND pid <> pg_backend_pid()"
+        )
+        try:
+            subprocess.run(
+                ["psql", "-h", db_host, "-p", db_port, "-U", db_user,
+                 "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", terminate_sql],
+                env=env, capture_output=True, text=True, timeout=10,
+            )
+        except Exception as exc:
+            logger.debug(f"pg_terminate_backend best-effort failed: {exc}")
 
         gunzip = subprocess.Popen(
             ["gunzip", "-c", dump_path],

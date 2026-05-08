@@ -619,191 +619,14 @@
       </div>
     </div>
 
-    <!-- Backup Control Center -->
+    <!-- Backup — moved to dedicated /backup page in 1.5.83 -->
     <h4 class="mb-4 settings-page__section-title">{{ $t('settings.backupsTitle') }}</h4>
-
-    <div class="card mb-4 border-primary">
+    <div class="card mb-4">
       <div class="card-body">
-        <!-- Stat Mini-Cards -->
-        <div class="row g-3 mb-4">
-          <div class="col-md-4">
-            <div class="border rounded p-3 text-center" :class="bkCfg.backup_enabled === 'true' ? 'border-success bg-success bg-opacity-10' : 'border-secondary bg-secondary bg-opacity-10'">
-              <div class="fw-bold" :class="bkCfg.backup_enabled === 'true' ? 'text-success' : 'text-secondary'">
-                {{ bkCfg.backup_enabled === 'true' ? '● ' + $t('settings.backupEnabled') : '○ ' + $t('settings.backupDisabled') }}
-              </div>
-              <div class="text-muted small">{{ $t('settings.backupStatus') }}</div>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="border rounded p-3 text-center">
-              <div class="fw-bold">{{ nextBackupLabel }}</div>
-              <div class="text-muted small">{{ $t('settings.nextBackup') }}</div>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="border rounded p-3 text-center">
-              <div class="fw-bold">{{ backups.length }}</div>
-              <div class="text-muted small">{{ $t('settings.totalBackups') }}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Schedule Section -->
-        <div class="border-top pt-3 mb-3">
-          <h6 class="text-muted mb-3">{{ $t('settings.scheduleTitle') }}</h6>
-          <div class="row g-3 align-items-end">
-            <div class="col-md-4">
-              <label class="form-label small">{{ $t('settings.frequency') }}</label>
-              <select class="form-select form-select-sm" v-model="bkCfg.backup_interval_hours">
-                <option value="6">{{ $t('settings.every6h') }}</option>
-                <option value="12">{{ $t('settings.every12h') }}</option>
-                <option value="24">{{ $t('settings.every24h') }}</option>
-                <option value="48">{{ $t('settings.every48h') }}</option>
-                <option value="168">{{ $t('settings.weekly') }}</option>
-              </select>
-            </div>
-            <div class="col-md-3">
-              <label class="form-label small">{{ $t('settings.timeUtc') }}</label>
-              <select class="form-select form-select-sm" v-model="bkCfg.backup_hour_utc">
-                <option v-for="h in 24" :key="h-1" :value="String(h-1)">{{ String(h-1).padStart(2,'0') }}:00</option>
-              </select>
-            </div>
-            <div class="col-md-5">
-              <div class="d-flex align-items-center gap-3 settings-inline-switches">
-                <div class="form-check form-switch">
-                  <input class="form-check-input" type="checkbox" id="bkEnabled" :checked="bkCfg.backup_enabled === 'true'" @change="bkCfg.backup_enabled = $event.target.checked ? 'true' : 'false'" />
-                  <label class="form-check-label small" for="bkEnabled">{{ $t('settings.autoBackup') }}</label>
-                </div>
-                <div class="form-check form-switch">
-                  <input class="form-check-input" type="checkbox" id="bkCleanup" :checked="bkCfg.backup_auto_cleanup === 'true'" @change="bkCfg.backup_auto_cleanup = $event.target.checked ? 'true' : 'false'" />
-                  <label class="form-check-label small" for="bkCleanup">{{ $t('settings.autoCleanup') }}</label>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="row g-3 mt-1" v-if="bkCfg.backup_auto_cleanup === 'true'">
-            <div class="col-md-4">
-              <label class="form-label small">{{ $t('settings.keepLast') }}</label>
-              <div class="input-group input-group-sm">
-                <input type="number" class="form-control" v-model="bkCfg.backup_retention_count" min="1" max="100" />
-                <span class="input-group-text">{{ $t('settings.backupsUnit') }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Storage Section -->
-        <div class="border-top pt-3 mb-3">
-          <h6 class="text-muted mb-3">{{ $t('settings.storageTitle') }}</h6>
-          <div class="d-flex gap-3 mb-3 settings-storage-choice">
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="storageType" id="stLocal" value="local" v-model="bkCfg.backup_storage_type" />
-              <label class="form-check-label" for="stLocal">{{ $t('settings.localPath') }}</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="storageType" id="stNetwork" value="network" v-model="bkCfg.backup_storage_type" />
-              <label class="form-check-label" for="stNetwork">{{ $t('settings.networkMount') }}</label>
-            </div>
-          </div>
-
-          <!-- Local Path -->
-          <div v-if="bkCfg.backup_storage_type === 'local'" class="row g-2 align-items-end">
-            <div class="col">
-              <label class="form-label small">{{ $t('settings.mountPath') }}</label>
-              <input type="text" class="form-control form-control-sm" v-model="bkCfg.backup_path" />
-            </div>
-            <div class="col-auto">
-              <button class="btn btn-outline-info btn-sm" @click="testBackupWrite" :disabled="bkTesting">{{ bkTesting ? '...' : $t('settings.testWrite') }}</button>
-            </div>
-            <div class="col-auto">
-              <button class="btn btn-primary btn-sm" @click="saveBackupSettings" :disabled="bkSaving">{{ bkSaving ? '...' : $t('common.save') }}</button>
-            </div>
-          </div>
-
-          <!-- Network Mount -->
-          <div v-if="bkCfg.backup_storage_type === 'network'">
-            <div class="row g-3 mb-3">
-              <div class="col-md-3">
-                <label class="form-label small">{{ $t('settings.type') }}</label>
-                <select class="form-select form-select-sm" v-model="bkCfg.backup_mount_type">
-                  <option value="smb">SMB/CIFS</option>
-                  <option value="nfs">NFS</option>
-                </select>
-              </div>
-              <div class="col-md-9">
-                <label class="form-label small">{{ $t('settings.address') }}</label>
-                <input type="text" class="form-control form-control-sm" v-model="bkCfg.backup_mount_address" :placeholder="bkCfg.backup_mount_type === 'nfs' ? '192.168.0.10:/backups' : '//192.168.0.10/backups'" />
-              </div>
-            </div>
-            <div class="row g-3 mb-3" v-if="bkCfg.backup_mount_type === 'smb'">
-              <div class="col-md-6">
-                <label class="form-label small">{{ $t('settings.smtpUser') }}</label>
-                <input type="text" class="form-control form-control-sm" v-model="bkCfg.backup_mount_username" placeholder="backup_user" />
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small">{{ $t('settings.smtpPass') }}</label>
-                <div class="input-group input-group-sm">
-                  <input :type="bkShowMountPass ? 'text' : 'password'" class="form-control" v-model="bkCfg.backup_mount_password" :placeholder="bkCfg.backup_mount_password_set ? $t('settings.unchanged') : 'password'" />
-                  <button class="btn btn-outline-secondary" type="button" @click="bkShowMountPass = !bkShowMountPass">{{ bkShowMountPass ? $t('common.hide') : $t('common.show') }}</button>
-                </div>
-              </div>
-            </div>
-            <div class="row g-3 mb-3">
-              <div class="col-md-6">
-                <label class="form-label small">{{ $t('settings.mountPoint') }}</label>
-                <input type="text" class="form-control form-control-sm" v-model="bkCfg.backup_mount_point" />
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small">{{ $t('settings.extraOptions') }}</label>
-                <input type="text" class="form-control form-control-sm" v-model="bkCfg.backup_mount_options" placeholder="vers=3.0,iocharset=utf8" />
-              </div>
-            </div>
-            <div class="d-flex gap-2 align-items-center settings-actions settings-actions--with-status">
-              <button class="btn btn-primary btn-sm" @click="saveBackupSettings" :disabled="bkSaving">{{ bkSaving ? '...' : $t('common.save') }}</button>
-              <button class="btn btn-outline-success btn-sm" @click="mountStorage" :disabled="bkMounting">{{ bkMounting ? '...' : $t('settings.mountBtn') }}</button>
-              <button class="btn btn-outline-warning btn-sm" @click="unmountStorage" :disabled="bkMounting">{{ $t('settings.unmountBtn') }}</button>
-              <button class="btn btn-outline-info btn-sm" @click="testBackupWrite" :disabled="bkTesting">{{ bkTesting ? '...' : $t('settings.testWrite') }}</button>
-              <span class="small ms-2" :class="bkMounted ? 'text-success' : 'text-secondary'">
-                {{ bkMounted ? '● ' + $t('settings.mounted') : '○ ' + $t('settings.notMounted') }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="bkAlert" class="alert py-2 small mt-3" :class="bkAlertType">{{ bkAlert }}</div>
-
-        <!-- Backup History -->
-        <div class="border-top pt-3 mt-3">
-          <div class="d-flex justify-content-between align-items-center mb-3 settings-card-header">
-            <h6 class="text-muted mb-0">{{ $t('settings.backupHistory') }}</h6>
-            <div class="d-flex gap-2 settings-actions settings-actions--compact">
-              <button class="btn btn-primary btn-sm" @click="createBackup" :disabled="backupCreating">
-                {{ backupCreating ? $t('settings.creating') : $t('settings.createNow') }}
-              </button>
-              <button class="btn btn-outline-secondary btn-sm" @click="loadBackups" :disabled="backupLoading">
-                {{ backupLoading ? '...' : $t('common.refresh') }}
-              </button>
-            </div>
-          </div>
-
-          <div v-if="backupAlert" class="alert py-2 small" :class="backupAlertType">{{ backupAlert }}</div>
-          <div v-if="backups.length === 0 && !backupLoading" class="text-muted small">{{ $t('settings.noBackups') }}</div>
-
-          <div v-for="b in backups" :key="b.backup_id" class="border rounded p-2 px-3 mb-2 d-flex justify-content-between align-items-center settings-backup-item">
-            <div>
-              <strong class="small">{{ b.backup_id }}</strong>
-              <span class="text-muted small ms-2">
-                {{ b.backup_size_mb || b.size_mb || '?' }} MB
-                <span v-if="b.server_count != null"> · {{ b.server_count }} srv</span>
-                <span v-if="b.client_count != null"> · {{ b.client_count }} cl</span>
-              </span>
-            </div>
-            <div class="d-flex gap-1 settings-actions settings-actions--compact">
-              <button class="btn btn-outline-warning btn-sm py-0 px-2" @click="restoreDatabase(b.backup_id)" :disabled="backupRestoring" :title="$t('settings.restoreDb')">{{ $t('settings.restoreDb') }}</button>
-              <button class="btn btn-outline-danger btn-sm py-0 px-2" @click="deleteBackup(b.backup_id)" :disabled="backupDeleting" title="Delete backup">✕</button>
-            </div>
-          </div>
-        </div>
+        <p class="mb-2"><i class="mdi mdi-information-outline me-1"></i>{{ $t('settings.backupsMovedHint') }}</p>
+        <router-link to="/backup" class="btn btn-primary btn-sm">
+          <i class="mdi mdi-database-outline me-1"></i>{{ $t('settings.openBackupSection') }}
+        </router-link>
       </div>
     </div>
 
@@ -1232,38 +1055,6 @@ export default {
         alert: '',
         alertType: 'alert-info',
       },
-      // Backups
-      backups: [],
-      backupCreating: false,
-      backupLoading: false,
-      backupRestoring: false,
-      backupDeleting: false,
-      backupAlert: '',
-      backupAlertType: 'alert-info',
-      // Backup Config
-      bkCfg: {
-        backup_enabled: 'true',
-        backup_interval_hours: '24',
-        backup_hour_utc: '3',
-        backup_retention_count: '7',
-        backup_auto_cleanup: 'true',
-        backup_storage_type: 'local',
-        backup_path: '/opt/vpnmanager/backups',
-        backup_mount_type: 'smb',
-        backup_mount_address: '',
-        backup_mount_username: '',
-        backup_mount_password: '',
-        backup_mount_password_set: false,
-        backup_mount_point: '/mnt/vpnmanager-backup',
-        backup_mount_options: '',
-      },
-      bkSaving: false,
-      bkTesting: false,
-      bkMounting: false,
-      bkMounted: false,
-      bkShowMountPass: false,
-      bkAlert: '',
-      bkAlertType: 'alert-info',
       health: null,
       healthChecking: false,
       healthAlert: '',
@@ -1320,17 +1111,9 @@ export default {
       if (!this.license.max_servers || this.license.max_servers >= 999999) return 0
       return Math.round((this.license.current_servers / this.license.max_servers) * 100)
     },
-    nextBackupLabel() {
-      if (this.bkCfg.backup_enabled !== 'true') return 'Disabled'
-      var h = String(this.bkCfg.backup_hour_utc || '3').padStart(2, '0')
-      var interval = this.bkCfg.backup_interval_hours || '24'
-      if (interval === '168') return h + ':00 UTC (weekly)'
-      if (interval === '24') return h + ':00 UTC (daily)'
-      return 'Every ' + interval + 'h from ' + h + ':00'
-    },
   },
   async mounted() {
-    await Promise.all([this.loadLicense(), this.loadPaymentSettings(), this.loadSmtpSettings(), this.loadNotifications(), this.loadBackups(), this.loadBackupSettings(), this.loadBranding(), this.loadWebAccessSettings()])
+    await Promise.all([this.loadLicense(), this.loadPaymentSettings(), this.loadSmtpSettings(), this.loadNotifications(), this.loadBranding(), this.loadWebAccessSettings()])
   },
   methods: {
     setTheme(k) { useSystemStore().setTheme(k) },
@@ -1928,112 +1711,6 @@ export default {
     },
 
     // Backup methods
-    async loadBackups() {
-      this.backupLoading = true
-      try {
-        var r = await backupApi.list()
-        this.backups = r.data.backups || []
-      } catch(e) { this.backups = [] }
-      finally { this.backupLoading = false }
-    },
-    async createBackup() {
-      if (!confirm('Create full system backup? This may take a minute.')) return
-      this.backupCreating = true; this.backupAlert = ''
-      try {
-        var r = await backupApi.create()
-        var m = r.data.manifest || {}
-        this.backupAlertType = 'alert-success'
-        this.backupAlert = `Backup created: ${m.backup_size_mb || '?'} MB, ${m.server_count || 0} servers, ${m.client_count || 0} clients`
-        await this.loadBackups()
-      } catch(e) {
-        this.backupAlertType = 'alert-danger'
-        this.backupAlert = e.response?.data?.detail || String(e.message || e)
-      }
-      finally { this.backupCreating = false }
-    },
-    async restoreDatabase(backupId) {
-      if (!confirm(`Restore database from backup "${backupId}"? This will OVERWRITE the current database!`)) return
-      if (!confirm('Are you absolutely sure? This action cannot be undone.')) return
-      this.backupRestoring = true; this.backupAlert = ''
-      try {
-        await backupApi.restoreDatabase(backupId)
-        this.backupAlertType = 'alert-success'
-        this.backupAlert = `Database restored from ${backupId}. Reload the page.`
-      } catch(e) {
-        this.backupAlertType = 'alert-danger'
-        this.backupAlert = e.response?.data?.detail || String(e.message || e)
-      }
-      finally { this.backupRestoring = false }
-    },
-
-    // Backup settings methods
-    async loadBackupSettings() {
-      try {
-        var r = await backupApi.getSettings()
-        Object.assign(this.bkCfg, r.data)
-        // Check mount status if network
-        if (this.bkCfg.backup_storage_type === 'network') {
-          try {
-            var ms = await backupApi.mountStatus()
-            this.bkMounted = ms.data.mounted
-          } catch(e) {}
-        }
-      } catch(e) {}
-    },
-    async saveBackupSettings() {
-      this.bkSaving = true; this.bkAlert = ''
-      try {
-        var payload = Object.assign({}, this.bkCfg)
-        delete payload.backup_mount_password_set
-        await backupApi.saveSettings(payload)
-        this.bkAlert = 'Settings saved'; this.bkAlertType = 'alert-success'
-        setTimeout(function() { this.bkAlert = '' }.bind(this), 3000)
-      } catch(e) { this.bkAlertType = 'alert-danger'; this.bkAlert = e.response?.data?.detail || String(e.message || e) }
-      finally { this.bkSaving = false }
-    },
-    async testBackupWrite() {
-      this.bkTesting = true; this.bkAlert = ''
-      try {
-        var r = await backupApi.testWrite()
-        this.bkAlert = r.data.message; this.bkAlertType = 'alert-success'
-      } catch(e) { this.bkAlertType = 'alert-danger'; this.bkAlert = e.response?.data?.detail || String(e.message || e) }
-      finally { this.bkTesting = false }
-    },
-    async mountStorage() {
-      this.bkMounting = true; this.bkAlert = ''
-      try {
-        // Save settings first
-        await this.saveBackupSettings()
-        var r = await backupApi.mount()
-        this.bkAlert = r.data.message; this.bkAlertType = 'alert-success'
-        this.bkMounted = true
-      } catch(e) { this.bkAlertType = 'alert-danger'; this.bkAlert = e.response?.data?.detail || String(e.message || e) }
-      finally { this.bkMounting = false }
-    },
-    async unmountStorage() {
-      this.bkMounting = true; this.bkAlert = ''
-      try {
-        var r = await backupApi.unmount()
-        this.bkAlert = r.data.message; this.bkAlertType = 'alert-success'
-        this.bkMounted = false
-      } catch(e) { this.bkAlertType = 'alert-danger'; this.bkAlert = e.response?.data?.detail || String(e.message || e) }
-      finally { this.bkMounting = false }
-    },
-    async deleteBackup(backupId) {
-      if (!confirm('Delete backup "' + backupId + '"?')) return
-      this.backupDeleting = true; this.backupAlert = ''
-      try {
-        await backupApi.deleteBackup(backupId)
-        this.backupAlertType = 'alert-success'
-        this.backupAlert = 'Backup ' + backupId + ' deleted'
-        await this.loadBackups()
-      } catch(e) {
-        this.backupAlertType = 'alert-danger'
-        this.backupAlert = e.response?.data?.detail || String(e.message || e)
-      }
-      finally { this.backupDeleting = false }
-    },
-
     // System methods
     async doHealthCheck() {
       this.healthChecking = true; this.healthAlert = ''

@@ -4,6 +4,52 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.85 — 2026-05-08
+
+End-to-end fixes for the backup restore path. Restore from a panel backup now works without manual intervention — earlier you had to stop services by hand or the restore would silently hang on database locks. Verified on a fresh stand: full create → mutate → restore → verify cycle, byte-for-byte recovery in three seconds.
+
+### Fixed
+
+- **`/backup/restore/database` no longer hangs on its own database connections.** Two interacting bugs caused `pg_restore --clean` to deadlock against the running panel: BackupManager held a stale read-transaction from `_get_storage_config` (because SQLAlchemy keeps a snapshot open with `autocommit=False`), and the panel's worker pool had additional connections still holding table locks. Now `_get_storage_config` rolls back its read immediately, and `_restore_database_from_file` terminates competing connections to the target database via `pg_terminate_backend` as a belt-and-braces step before invoking pg_restore.
+- **`restore_database` now stops services automatically.** It always needed to (without a stop, pg_restore deadlocks on table locks held by the API), but earlier versions left this to the operator. New default `stop_services=True` mirrors what `restore_full_system` already does. Pass `stop_services=False` only from a CLI context where the API is already not running. The full sequence is: stop api+worker+client-portal → run pg_restore → restart all three. Total downtime under 2 seconds in our stand test.
+
+### Why this matters
+
+Before this release, clicking Restore in the panel would hang or fail — and the failure mode was opaque (just a 500 error after a long timeout). The restore code was correct in isolation, but never tested end-to-end against a live panel. This is now verified on a real stand with the same database schema and SystemConfig population a customer would have.
+
+---
+
+## v1.5.84 — 2026-05-08
+
+Path mismatch fix that was producing two backup directories on a single host depending on which code path created the archive.
+
+### Fixed
+
+- **Manual backups now land in the same directory as scheduled backups.** `BackupManager._get_storage_config` was using a default of `<file>/../backups` (two `.parent` climbs), while the scheduler at `src/api/scheduler.py` was using `<file>/../../backups` (three `.parent` climbs). On an installed host, this meant manual API-triggered backups went to `<install>/src/backups/` while the nightly auto-backups went to `<install>/backups/`. Both defaults now resolve to `<install>/backups/`. `SystemConfig.backup_path` overrides this when set, so installs that explicitly configured a backup directory are unaffected.
+
+---
+
+## v1.5.83 — 2026-05-08
+
+Backup section consolidated into one place. Settings, schedule, storage, and the backup history list used to be split across two views (Settings and the standalone Backup page) with two different APIs and at least one broken button on the Settings copy. Now everything lives on the Backup page, with one API surface, fewer footguns, and a couple of real bugs fixed along the way.
+
+### Changed
+
+- **Single backup page.** The Backup view now contains the status overview (schedule status, storage type and free space, total backups, latest backup), the backups list with verify/restore/delete actions, the schedule form (frequency, time, retention, autocleanup), and the storage form (local path or network mount with credentials, mount, unmount, test write). The Settings page no longer has a duplicate copy — it just links across.
+- **Single backup API surface.** All backup endpoints now live under `/api/v1/backup/*` (settings + storage + operations). The previous `/api/v1/system/backup-*` endpoints were removed; the frontend's API client points everything to the new paths.
+
+### Fixed
+
+- **Network storage password no longer appears in `ps aux` or journalctl.** Mount commands previously passed the SMB password via `-o password=X`, which means anyone with read access to the process list or system journal could see it. Now we write a 0600 credentials file to a temp location, pass it as `-o credentials=/tmp/...`, and remove it after the kernel has read it.
+- **Backups silently landing on local disk when the network mount was down.** Previous behavior: if the mount point existed as a directory but was not actually mounted, `os.makedirs` and the tar write would succeed against the underlying local filesystem — a "successful backup" that you could not restore from on the network share. Now `BackupManager.create_full_backup` calls `ensure_storage_ready()` first, which verifies the mount via `mountpoint -q` and attempts one auto-mount with stored credentials before allowing the backup. A truly unmounted-but-existing-as-dir target now fails the backup outright with a clear error.
+- **Backup delete in the Settings duplicate UI was calling a method that did not exist.** The old code used `backupApi.deleteBackup`, but only `backupApi.delete` was exported. Clicks landed in a try/catch and silently produced an alert message — the backup itself stayed on disk. The Settings duplicate is removed; the working delete on the Backup page is the single path now.
+
+### Added
+
+- **Storage status endpoint with disk-usage information.** `GET /api/v1/backup/storage/status` returns the resolved target path, mount status (for network), used/free/total bytes, percent-used. Drives the new "free / total" badge on the Backup page so the operator sees the truth about disk pressure rather than guessing.
+
+---
+
 ## v1.5.82 — 2026-05-08
 
 The async-to-thread-pool migration that started in 1.5.81 (hot paths) extended to the rest of the API. Combined with a larger database connection pool and a fix for an N+1 query in the server list, the panel now stays fast even when many tabs are open and many users are working in parallel.
