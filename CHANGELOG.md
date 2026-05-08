@@ -4,6 +4,16 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.87 — 2026-05-08
+
+Reverts the favicon change from 1.5.86. Operators who had their own branding configured did not appreciate the default favicon being swapped on them.
+
+### Changed
+
+- **Favicon reverted to the previous mark.** `icon-192.svg` and `icon-512.svg` in both admin and client portal now match the pre-1.5.86 design. If you had a custom favicon configured via Settings → Branding, it continues to work as before.
+
+---
+
 ## v1.5.86 — 2026-05-08
 
 Brand cleanup. The panel and client portal now ship with Flirexa branding by default — title, manifest, favicon, and OpenAPI doc title all read "Flirexa VPN Studio". The shared favicon is the bird-in-flight mark from flirexa.biz on a purple gradient, identical between admin and portal.
