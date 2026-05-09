@@ -4,6 +4,17 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.89 — 2026-05-09
+
+Critical fix for license enforcement. On a FREE-tier install with multiple servers (where some are remote and share an `interface` name like `wg0` with the panel host's local interface), the suspension sweep was running `wg-quick down` locally for every "excess" server. If a remote wireguard server's interface field collided with the local one, this tore down the panel's own tunnel and dropped every connected client.
+
+### Fixed
+
+- **License enforcement now respects local-vs-remote dispatch.** `_stop_server_runtime` routes through `ServerManager.stop_server`, which uses `RemoteServerAdapter` for remote hosts. Stopping a remote server can no longer touch the local interface.
+- **State reconciler auto-recovers downed local interfaces.** When the periodic reconciler detects a local interface is down on a server expected to be ONLINE (and not deliberately stopped, suspended, or remote), it attempts `wg-quick up`. Rate-limited to one try every 5 minutes per server. Operators no longer have to SSH in to bring an interface back after an unexpected drop.
+
+---
+
 ## v1.5.88 — 2026-05-08
 
 Favicon now matches the brand logo. Both admin and client portal ship with `flirexa-logo.png` as the favicon, so the browser tab icon and the in-app logo are visually identical.
