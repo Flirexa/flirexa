@@ -25,7 +25,13 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from ..database.connection import SessionLocal
-from ..database.models import Server, Client, ServerStatus, ClientStatus
+from ..database.models import Server, Client, ServerStatus, ClientStatus, ServerLifecycleStatus
+
+
+# Rate-limit interface auto-recovery to one attempt per 5 minutes per server,
+# so a permanently broken interface doesn't get hammered every reconciler tick.
+_LAST_RECOVERY_ATTEMPT: Dict[int, datetime] = {}
+_RECOVERY_COOLDOWN_SECONDS = 300
 
 
 # ─── helpers ─────────────────────────────────────────────────────────────────
@@ -96,6 +102,39 @@ def _subnet_of_server(server: Server) -> Optional[ipaddress.IPv4Network]:
         return None
 
 
+def _try_recover_interface(server: Server, wgm, now: datetime) -> bool:
+    """
+    Attempt to bring a downed local interface back up. Returns True if a
+    recovery attempt was made (regardless of outcome — caller should re-check
+    is_interface_up to confirm). Returns False if recovery is being skipped
+    (rate-limited, suspended server, remote server, operator-stopped, etc).
+    """
+    if server.ssh_host or server.agent_url:
+        return False
+    if server.lifecycle_status == ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value:
+        return False
+    if server.lifecycle_status == ServerLifecycleStatus.OFFLINE.value:
+        # Operator deliberately stopped this server — don't second-guess them.
+        return False
+    if server.status == ServerStatus.OFFLINE:
+        return False
+
+    last = _LAST_RECOVERY_ATTEMPT.get(server.id)
+    if last and (now - last).total_seconds() < _RECOVERY_COOLDOWN_SECONDS:
+        return False
+    _LAST_RECOVERY_ATTEMPT[server.id] = now
+
+    logger.warning(
+        f"[RECONCILE] {server.name}: attempting auto-recovery of interface "
+        f"{server.interface} (was DOWN, server expected ONLINE)"
+    )
+    try:
+        wgm.start_interface()
+    except Exception as exc:
+        logger.error(f"[RECONCILE] {server.name}: auto-recovery raised: {exc}")
+    return True
+
+
 # ─── per-server reconciliation ────────────────────────────────────────────────
 
 def reconcile_server(server: Server, db: Session) -> Dict[str, Any]:
@@ -146,6 +185,15 @@ def reconcile_server(server: Server, db: Session) -> Dict[str, Any]:
                 result["issues"].append("interface_down")
                 result["drift_detected"] = True
                 logger.warning(f"[RECONCILE] {server.name}: interface {server.interface} is DOWN → DRIFTED")
+                if _try_recover_interface(server, wgm, now):
+                    interface_up = wgm.is_interface_up()
+                    if interface_up:
+                        result["reconciled"].append("interface_started")
+                        result["drift_detected"] = False
+                        result["issues"].remove("interface_down")
+                        live_peers = wgm.get_all_peers()
+                        live_pubkeys = {p.public_key for p in live_peers}
+                        logger.info(f"[RECONCILE] {server.name}: interface {server.interface} auto-recovered")
             else:
                 live_peers = wgm.get_all_peers()
                 live_pubkeys = {p.public_key for p in live_peers}

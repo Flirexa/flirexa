@@ -36,34 +36,24 @@ _FREE_QUOTA_TYPES = {"wireguard", "amneziawg"}
 def _stop_server_runtime(server: Server) -> None:
     """Best-effort: bring the interface / proxy service down.
 
-    We don't fail the whole sweep if a single stop call errors — the server
-    will still be marked SUSPENDED_NO_LICENSE in the DB, which prevents
-    re-start via the API. The systemd interface might keep running until the
-    box reboots, which is acceptable for graceful degradation.
+    Routes through ServerManager so local-vs-remote dispatch is handled the
+    same way as the rest of the codebase. Without this, a remote server whose
+    `interface` field collides with a local interface name (e.g. two servers
+    both named `wg0`) would cause a local `wg-quick down` to fire and tear
+    down the panel host's own tunnel — that's exactly the regression that
+    rolled out in 1.5.86 and took prod offline for ~22h.
     """
+    own_session = SessionLocal()
     try:
-        if server.server_type == "amneziawg":
-            from ...core.amneziawg import AmneziaWGManager
-            mgr = AmneziaWGManager(interface=server.interface)
-        elif server.server_type in ("hysteria2", "tuic"):
-            # Proxy services have their own stop_service() on the manager;
-            # construct the matching manager and stop it. Importing lazily
-            # so this module stays cheap to import elsewhere.
-            from ...core.server_manager import ServerManager
-            ServerManager(SessionLocal()).stop_server(server.id)
-            return
-        else:
-            from ...core.wireguard import WireGuardManager
-            mgr = WireGuardManager(interface=server.interface)
-        try:
-            mgr.stop_interface()
-        finally:
-            mgr.close()
+        from ...core.server_manager import ServerManager
+        ServerManager(own_session).stop_server(server.id)
     except Exception as exc:
         logger.warning(
             "License enforcement: could not stop server id={} ({}): {}",
             server.id, server.name, exc,
         )
+    finally:
+        own_session.close()
 
 
 def reconcile(db: Optional[Session] = None) -> dict:
