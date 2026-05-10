@@ -973,3 +973,26 @@ class DeviceLimitEvent(Base):
     def __repr__(self):
         return (f"<DeviceLimitEvent(user_id={self.user_id}, "
                 f"type={self.event_type}, used={self.used_devices}/{self.max_devices})>")
+
+
+class PeerEndpointObservation(Base):
+    """One row per (client, server, endpoint) observation, recorded by the
+    state reconciler each tick.
+
+    Used for advisory "possible key-sharing" detection: if the same peer
+    is observed with multiple distinct source IPs over a short window, it's
+    likely the same WireGuard config copy-pasted to two devices on different
+    networks. We don't enforce on this signal — false positives are common
+    (mobile clients flapping between WiFi and LTE, NAT'd corporate networks
+    with many users behind one IP) — but surfacing the count to the operator
+    lets them investigate manually.
+    """
+    __tablename__ = "peer_endpoint_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    client_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    server_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    endpoint_ip: Mapped[str] = mapped_column(String(64), nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )

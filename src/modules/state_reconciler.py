@@ -137,6 +137,59 @@ def _subnet_of_server(server: Server) -> Optional[ipaddress.IPv4Network]:
         return None
 
 
+def _record_endpoint_observations(
+    db: Session, server_id: int, pairs: List[tuple]
+) -> None:
+    """Record current peer endpoints into peer_endpoint_log for the
+    advisory key-sharing detector. Each tuple is (public_key, endpoint).
+
+    To keep the table from exploding, we only insert a row when the
+    observed endpoint IP differs from the most recent observation for the
+    same client_id. Identical endpoints in consecutive ticks (the common
+    case) skip the insert entirely.
+    """
+    if not pairs:
+        return
+
+    from ..database.models import PeerEndpointObservation
+
+    # Resolve pubkeys → client_ids in one query
+    pubkeys = [pk for pk, _ in pairs]
+    rows = (
+        db.query(Client.id, Client.public_key)
+        .filter(Client.server_id == server_id, Client.public_key.in_(pubkeys))
+        .all()
+    )
+    pk_to_cid = {pk: cid for cid, pk in rows}
+
+    inserts = []
+    for pk, endpoint in pairs:
+        cid = pk_to_cid.get(pk)
+        if cid is None:
+            continue
+        # Strip the :port off; we only care about the IP for flap detection.
+        ip = endpoint.rsplit(":", 1)[0] if endpoint else None
+        if not ip:
+            continue
+        # Skip if last observation has the same IP — keeps row count low.
+        last = (
+            db.query(PeerEndpointObservation.endpoint_ip)
+            .filter(PeerEndpointObservation.client_id == cid)
+            .order_by(PeerEndpointObservation.observed_at.desc())
+            .limit(1)
+            .first()
+        )
+        if last and last[0] == ip:
+            continue
+        inserts.append(PeerEndpointObservation(
+            client_id=cid, server_id=server_id, endpoint_ip=ip,
+        ))
+    if inserts:
+        db.add_all(inserts)
+        # Don't commit here — let the outer reconciliation loop's commit
+        # cover it. Avoids a second transaction round-trip per server.
+
+
 def _try_recover_interface(server: Server, wgm, now: datetime) -> bool:
     """
     Attempt to bring a downed local interface back up. Returns True if a
@@ -197,6 +250,12 @@ def reconcile_server(server: Server, db: Session) -> Dict[str, Any]:
     interface_up: Optional[bool] = None
     wgm = None
 
+    # Collected as (pubkey, endpoint_ip) tuples from whichever code path
+    # actually reads the live peers — we feed this into the endpoint-flap
+    # observation log below so the recording happens once per server tick
+    # regardless of agent vs SSH mode.
+    live_endpoint_pairs: List[tuple] = []
+
     if server.agent_mode == "agent" and server.agent_url:
         # Agent mode
         if not _agent_is_up(server):
@@ -210,6 +269,7 @@ def reconcile_server(server: Server, db: Session) -> Dict[str, Any]:
                 result["drift_detected"] = True
             else:
                 live_pubkeys = {p["public_key"] for p in peers}
+                live_endpoint_pairs = [(p["public_key"], p.get("endpoint")) for p in peers if p.get("endpoint")]
                 interface_up = True  # if agent responds, interface is considered up
     else:
         # SSH / local mode
@@ -228,10 +288,12 @@ def reconcile_server(server: Server, db: Session) -> Dict[str, Any]:
                         result["issues"].remove("interface_down")
                         live_peers = wgm.get_all_peers()
                         live_pubkeys = {p.public_key for p in live_peers}
+                        live_endpoint_pairs = [(p.public_key, p.endpoint) for p in live_peers if p.endpoint]
                         logger.info(f"[RECONCILE] {server.name}: interface {server.interface} auto-recovered")
             else:
                 live_peers = wgm.get_all_peers()
                 live_pubkeys = {p.public_key for p in live_peers}
+                live_endpoint_pairs = [(p.public_key, p.endpoint) for p in live_peers if p.endpoint]
 
                 # ── Subnet sanity check (via live interface address) ──────────
                 try:
@@ -256,6 +318,17 @@ def reconcile_server(server: Server, db: Session) -> Dict[str, Any]:
         # Can't check peers — already flagged above
         _apply_drift_result(server, result, now, db)
         return result
+
+    # ── 1b. Endpoint-flap observation log ───────────────────────────────
+    # Phase 2 advisory monitoring: record current source IP of each live peer
+    # so the admin UI can later flag clients whose endpoint flips between two
+    # very different IPs (likely the same WG config running on two devices on
+    # different networks). Best-effort — failure does not block reconciliation.
+    if live_endpoint_pairs:
+        try:
+            _record_endpoint_observations(db, server.id, live_endpoint_pairs)
+        except Exception as e:
+            logger.debug(f"[RECONCILE] {server.name}: endpoint log write failed: {e}")
 
     # ── 2. Compare DB peers vs live peers ────────────────────────────────────
     db_clients_enabled: List[Client] = (

@@ -98,6 +98,12 @@ class ClientDetailResponse(BaseModel):
     expiry: Optional[dict]
     last_handshake: Optional[str]
     created_at: Optional[str]
+    # Phase-2 advisory key-sharing signal: count of distinct source IPs seen
+    # on this peer over the past 24 hours. 0/1 is normal, 2 is suspicious,
+    # 3+ is very likely the same WG config copy-pasted to multiple devices.
+    # The frontend treats any value >= 2 as a soft warning — operator decides
+    # what to do with it. Computed lazily from peer_endpoint_log.
+    endpoint_distinct_24h: Optional[int] = None
 
 
 class TrafficLimitRequest(BaseModel):
@@ -487,6 +493,31 @@ async def get_client(
 
     if not info:
         raise HTTPException(status_code=404, detail="Client not found")
+
+    # Annotate with the 24h endpoint-flap count for the admin UI's
+    # advisory key-sharing badge. Any value >= 2 means the peer was seen
+    # from at least two distinct source IPs in the last 24h.
+    try:
+        from datetime import timedelta as _td, datetime as _dt, timezone as _tz
+        from ...database.models import PeerEndpointObservation
+        from sqlalchemy import func as _f
+        cutoff = _dt.now(_tz.utc) - _td(hours=24)
+        count = (
+            db.query(_f.count(_f.distinct(PeerEndpointObservation.endpoint_ip)))
+            .filter(
+                PeerEndpointObservation.client_id == client_id,
+                PeerEndpointObservation.observed_at >= cutoff,
+            )
+            .scalar()
+        ) or 0
+        if isinstance(info, dict):
+            info["endpoint_distinct_24h"] = int(count)
+        else:
+            try: setattr(info, "endpoint_distinct_24h", int(count))
+            except Exception: pass
+    except Exception as _flap_err:
+        from loguru import logger
+        logger.debug(f"endpoint flap count failed for client {client_id}: {_flap_err}")
 
     return info
 
