@@ -619,6 +619,35 @@
       </div>
     </div>
 
+    <!-- Per-customer device cap -->
+    <h4 class="mb-4 settings-page__section-title">Device limits</h4>
+    <div class="card mb-4">
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          When you tag a peer with a <strong>Customer</strong> field, this cap
+          controls how many active peers a single customer can have at once.
+          Leave at <code>0</code> to disable enforcement (no cap). Peers
+          without a <strong>Customer</strong> tag are not counted.
+        </p>
+        <div class="row g-2 align-items-center">
+          <div class="col-12 col-sm-4">
+            <label class="form-label small">Max devices per customer</label>
+            <input v-model.number="deviceLimits.max_devices_per_customer"
+                   type="number" min="0" max="1000" class="form-control" />
+          </div>
+          <div class="col-12 col-sm-8 d-flex align-items-end">
+            <button class="btn btn-primary btn-sm"
+                    @click="saveDeviceLimits" :disabled="saving">
+              {{ saving ? $t('settings.saving') : $t('common.save') }}
+            </button>
+            <span v-if="deviceLimits.savedMsg" class="ms-3 small text-success">
+              {{ deviceLimits.savedMsg }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Backup — moved to dedicated /backup page in 1.5.83 -->
     <h4 class="mb-4 settings-page__section-title">{{ $t('settings.backupsTitle') }}</h4>
     <div class="card mb-4">
@@ -1018,6 +1047,11 @@ export default {
         notify_user_payment_confirmed: true,
         alert: '',
       },
+      // Per-customer device cap (admin-side customer_email grouping). 0 = no cap.
+      deviceLimits: {
+        max_devices_per_customer: 0,
+        savedMsg: '',
+      },
       // Branding
       brand: {
         app_name: '',
@@ -1113,7 +1147,7 @@ export default {
     },
   },
   async mounted() {
-    await Promise.all([this.loadLicense(), this.loadPaymentSettings(), this.loadSmtpSettings(), this.loadNotifications(), this.loadBranding(), this.loadWebAccessSettings()])
+    await Promise.all([this.loadLicense(), this.loadPaymentSettings(), this.loadSmtpSettings(), this.loadNotifications(), this.loadDeviceLimits(), this.loadBranding(), this.loadWebAccessSettings()])
   },
   methods: {
     setTheme(k) { useSystemStore().setTheme(k) },
@@ -1492,6 +1526,28 @@ export default {
         await this.loadSmtpSettings()
       } catch(e) { this.smtp.alertType = 'alert-danger'; this.smtp.alert = String(e.message || e) }
       finally { this.saving = false }
+    },
+
+    // Device-limits methods
+    async loadDeviceLimits() {
+      try {
+        var r = await systemApi.getDeviceLimits()
+        this.deviceLimits.max_devices_per_customer = r.data.max_devices_per_customer || 0
+      } catch (e) { /* ignore */ }
+    },
+    async saveDeviceLimits() {
+      this.saving = true
+      try {
+        await systemApi.updateDeviceLimits({
+          max_devices_per_customer: Number(this.deviceLimits.max_devices_per_customer || 0),
+        })
+        this.deviceLimits.savedMsg = 'Saved'
+        setTimeout(() => { this.deviceLimits.savedMsg = '' }, 3000)
+      } catch (e) {
+        alert('Error: ' + (e.response?.data?.detail || e.message))
+      } finally {
+        this.saving = false
+      }
     },
 
     // Notification methods

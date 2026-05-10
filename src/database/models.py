@@ -383,6 +383,15 @@ class Client(Base):
     auto_bandwidth_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     auto_bandwidth_rule_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # Admin-side customer grouping. Optional free-text identifier (typically
+    # email or username) the operator types when creating a peer manually.
+    # When set, multiple peers with the same value are treated as belonging
+    # to the same real-world customer and counted against
+    # `max_devices_per_customer` (SystemConfig). NULL means "no grouping" —
+    # those peers are unlimited from the cap's point of view. Indexed for
+    # the count-by-email query that runs on every POST /clients.
+    customer_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+
     # Traffic tracking
     traffic_limit_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     traffic_limit_expiry: Mapped[Optional[datetime]] = mapped_column(

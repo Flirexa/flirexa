@@ -40,11 +40,18 @@ class ClientCreate(BaseModel):
     traffic_limit_mb: Optional[int] = Field(None, ge=0, description="Traffic limit in MB")
     expiry_days: Optional[int] = Field(None, ge=0, description="Days until expiry")
     peer_visibility: bool = Field(False, description="Allow same-user devices to see each other's VPN IP")
+    customer_email: Optional[str] = Field(
+        None, max_length=255,
+        description=("Optional customer identifier (email/username). Peers "
+                     "with the same value are counted together against the "
+                     "max_devices_per_customer cap.")
+    )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "name": "MyPhone",
+                "customer_email": "bob@example.com",
                 "bandwidth_limit": 50,
                 "traffic_limit_mb": 10240,
                 "expiry_days": 30
@@ -57,6 +64,7 @@ class ClientUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     bandwidth_limit: Optional[int] = Field(None, ge=0)
     traffic_limit_mb: Optional[int] = Field(None, ge=0)
+    customer_email: Optional[str] = Field(None, max_length=255)
 
 
 class ClientResponse(BaseModel):
@@ -98,12 +106,7 @@ class ClientDetailResponse(BaseModel):
     expiry: Optional[dict]
     last_handshake: Optional[str]
     created_at: Optional[str]
-    # Phase-2 advisory key-sharing signal: count of distinct source IPs seen
-    # on this peer over the past 24 hours. 0/1 is normal, 2 is suspicious,
-    # 3+ is very likely the same WG config copy-pasted to multiple devices.
-    # The frontend treats any value >= 2 as a soft warning — operator decides
-    # what to do with it. Computed lazily from peer_endpoint_log.
-    endpoint_distinct_24h: Optional[int] = None
+    customer_email: Optional[str] = None
 
 
 class TrafficLimitRequest(BaseModel):
@@ -446,6 +449,36 @@ def create_client(
             detail=f"Client '{client_data.name}' already exists"
         )
 
+    # Per-customer device cap. Skipped when the operator didn't tag this
+    # peer with a customer_email or when no system-wide limit is set
+    # (max_devices_per_customer = 0 → unlimited).
+    customer_email = (client_data.customer_email or "").strip().lower()
+    if customer_email:
+        try:
+            from ...database.models import SystemConfig
+            cap_row = db.query(SystemConfig).filter(SystemConfig.key == "max_devices_per_customer").first()
+            cap = int(cap_row.value) if cap_row and cap_row.value else 0
+        except Exception:
+            cap = 0
+        if cap > 0:
+            existing = (
+                db.query(Client)
+                .filter(Client.customer_email == customer_email, Client.enabled == True)  # noqa: E712
+                .count()
+            )
+            if existing >= cap:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code":           "customer_device_limit_reached",
+                        "message":        (f"Customer {customer_email} already has {existing} active "
+                                           f"devices (limit: {cap}). Disable one or raise the cap."),
+                        "customer_email": customer_email,
+                        "max_devices":    cap,
+                        "used_devices":   existing,
+                    },
+                )
+
     # Enforce server-level peer_visibility support
     if client_data.peer_visibility:
         resolved_server_id = client_data.server_id
@@ -477,6 +510,14 @@ def create_client(
             detail="Failed to create client"
         )
 
+    # Persist the customer_email tag, if supplied. Done after create_client
+    # because ManagementCore doesn't (yet) accept the field — the column is
+    # admin-only metadata and core.create_client owns the cryptographic /
+    # IP-allocation parts of the lifecycle.
+    if customer_email:
+        client.customer_email = customer_email
+        db.commit()
+
     return core.get_client_full_info(client.id)
 
 
@@ -494,30 +535,18 @@ async def get_client(
     if not info:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    # Annotate with the 24h endpoint-flap count for the admin UI's
-    # advisory key-sharing badge. Any value >= 2 means the peer was seen
-    # from at least two distinct source IPs in the last 24h.
+    # Annotate with customer_email so the admin UI can group peers by
+    # real-world customer. Pulled directly from the Client row.
     try:
-        from datetime import timedelta as _td, datetime as _dt, timezone as _tz
-        from ...database.models import PeerEndpointObservation
-        from sqlalchemy import func as _f
-        cutoff = _dt.now(_tz.utc) - _td(hours=24)
-        count = (
-            db.query(_f.count(_f.distinct(PeerEndpointObservation.endpoint_ip)))
-            .filter(
-                PeerEndpointObservation.client_id == client_id,
-                PeerEndpointObservation.observed_at >= cutoff,
-            )
-            .scalar()
-        ) or 0
+        client_row = db.query(Client.customer_email).filter(Client.id == client_id).first()
+        ce = client_row[0] if client_row else None
         if isinstance(info, dict):
-            info["endpoint_distinct_24h"] = int(count)
+            info["customer_email"] = ce
         else:
-            try: setattr(info, "endpoint_distinct_24h", int(count))
+            try: setattr(info, "customer_email", ce)
             except Exception: pass
-    except Exception as _flap_err:
-        from loguru import logger
-        logger.debug(f"endpoint flap count failed for client {client_id}: {_flap_err}")
+    except Exception:
+        pass
 
     return info
 

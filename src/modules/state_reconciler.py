@@ -319,16 +319,12 @@ def reconcile_server(server: Server, db: Session) -> Dict[str, Any]:
         _apply_drift_result(server, result, now, db)
         return result
 
-    # ── 1b. Endpoint-flap observation log ───────────────────────────────
-    # Phase 2 advisory monitoring: record current source IP of each live peer
-    # so the admin UI can later flag clients whose endpoint flips between two
-    # very different IPs (likely the same WG config running on two devices on
-    # different networks). Best-effort — failure does not block reconciliation.
-    if live_endpoint_pairs:
-        try:
-            _record_endpoint_observations(db, server.id, live_endpoint_pairs)
-        except Exception as e:
-            logger.debug(f"[RECONCILE] {server.name}: endpoint log write failed: {e}")
+    # NOTE: 1.5.92 introduced an "endpoint-flap" observation log meant to
+    # surface possible config-sharing. The signal turned out unreliable —
+    # mobile clients on cellular networks change source IPs frequently
+    # without sharing, and a single home NAT hides shared keys behind one
+    # IP. Disabled in 1.5.93. Per-customer device caps (customer_email +
+    # max_devices_per_customer in clients.py) replace it.
 
     # ── 2. Compare DB peers vs live peers ────────────────────────────────────
     db_clients_enabled: List[Client] = (
