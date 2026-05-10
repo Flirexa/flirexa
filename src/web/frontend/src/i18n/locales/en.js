@@ -617,7 +617,7 @@ export default {
     unlimitedPlaceholder: '0 = unlimited',
     noExpiryPlaceholder: '0 = no expiry',
     customerEmail: 'Customer (optional)',
-    customerEmailHint: 'Group peers by customer for the per-customer device cap',
+    customerEmailHint: 'group peers by customer for the device cap',
     customerEmailPlaceholder: 'customer@example.com or any tag',
     configTitle: 'Client Config',
     downloadConf: 'Download .conf',

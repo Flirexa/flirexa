@@ -428,7 +428,7 @@ export default {
     unlimitedPlaceholder: '0 = без лимита',
     noExpiryPlaceholder: '0 = без срока',
     customerEmail: 'Клиент (необязательно)',
-    customerEmailHint: 'Группировка peer'+"'"+'ов по клиенту для лимита устройств',
+    customerEmailHint: 'группировка пиров одного клиента для лимита устройств',
     customerEmailPlaceholder: 'customer@example.com или любой тэг',
     configTitle: 'Конфиг клиента',
     downloadConf: 'Скачать .conf',
