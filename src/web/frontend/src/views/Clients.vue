@@ -208,11 +208,11 @@
             </div>
             <div class="mb-3">
               <label class="form-label">
-                {{ $t('clients.customerEmail') || 'Customer (optional)' }}
-                <small class="text-muted">— group peers by customer for per-customer device cap</small>
+                {{ $t('clients.customerEmail') }}
+                <small class="text-muted">— {{ $t('clients.customerEmailHint') }}</small>
               </label>
               <input v-model="newClient.customer_email" type="text" class="form-control"
-                     placeholder="customer@example.com or any tag" maxlength="255" />
+                     :placeholder="$t('clients.customerEmailPlaceholder')" maxlength="255" />
             </div>
             <div class="mb-3">
               <label class="form-label">{{ $t('clients.expiryLabel') || 'Expiry' }}</label>

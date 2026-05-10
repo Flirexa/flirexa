@@ -4,6 +4,12 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.94 — 2026-05-10
+
+Translations for the `Customer` field on the New Client form. The 1.5.93 build referenced i18n keys that didn't exist yet, so non-English locales fell through to a hardcoded English fallback. Added `clients.customerEmail`, `customerEmailHint`, and `customerEmailPlaceholder` for English, Russian, German, French, and Spanish.
+
+---
+
 ## v1.5.93 — 2026-05-10
 
 Per-customer device cap that works when the operator manages peers entirely from the admin panel. The portal-side `max_devices` from 1.5.91 only enforced when subscribers self-served through the client portal — operators who add every peer manually weren't covered. This release adds an admin-side path.
