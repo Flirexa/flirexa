@@ -174,6 +174,30 @@
               </div>
             </div>
           </div>
+          <!-- Soft-downgrade banner: shown when user has more devices than the
+               new plan supports. Existing devices keep working until renewal —
+               at that point the oldest excess get auto-pruned, keeping the N
+               most recently-used. The banner gives them a heads-up so they
+               can choose which device to keep instead of letting us pick. -->
+          <div v-if="subscription.over_device_limit"
+               class="fx-card" style="padding:12px 14px; background:var(--warning-soft); border-color:color-mix(in oklab, var(--warning) 30%, var(--border)); margin-bottom:14px">
+            <div style="display:flex; gap:10px; align-items:flex-start; font-size:13px">
+              <FxIcon name="warning" :size="16" style="color:var(--warning); flex-shrink:0; margin-top:2px" />
+              <div>
+                <strong>
+                  {{ $t('dash.overDeviceLimit', { used: subscription.devices_used, max: subscription.max_devices }) ||
+                    `You have ${subscription.devices_used} devices but your current plan supports ${subscription.max_devices}.` }}
+                </strong>
+                <div style="margin-top:4px; color:var(--text-2)">
+                  {{ $t('dash.overDeviceLimitHint') ||
+                    'All devices will keep working until renewal. To pick which device to keep, remove the extras yourself before the next billing date — otherwise the oldest will be removed automatically.' }}
+                </div>
+                <a href="#" @click.prevent="showUpgradeModal = true" style="color:var(--accent); margin-top:6px; display:inline-block">
+                  {{ $t('dash.upgradePlan') }} →
+                </a>
+              </div>
+            </div>
+          </div>
           <div class="fx-sub-rows">
             <div class="fx-sub-row">
               <span class="k">{{ $t('dash.plan') }}</span>
@@ -830,7 +854,21 @@ const createDevice = async () => {
     newDeviceName.value = ''
     await loadDevices()
   } catch (error) {
-    showToast(t('common.error') + ': ' + (error.response?.data?.detail || error.message), 'error')
+    // Backend now returns a structured 409 payload for device-limit hits so we
+    // can offer the user a one-click "Upgrade plan" path instead of a bare
+    // error toast. Other errors fall through to the original toast.
+    const detail = error.response?.data?.detail
+    if (error.response?.status === 409 && detail && typeof detail === 'object' && detail.code === 'device_limit_reached') {
+      const used = detail.used_devices ?? 0
+      const max  = detail.max_devices  ?? 1
+      const msg = t('dash.deviceLimitReached', { used, max }) ||
+        `Device limit reached (${used}/${max}). Upgrade your plan or remove a device.`
+      if (confirm(msg + '\n\n' + (t('dash.openUpgrade') || 'Open Upgrade plan?'))) {
+        showUpgradeModal.value = true
+      }
+    } else {
+      showToast(t('common.error') + ': ' + (typeof detail === 'string' ? detail : (detail?.message || error.message)), 'error')
+    }
   } finally {
     creatingDevice.value = false
   }

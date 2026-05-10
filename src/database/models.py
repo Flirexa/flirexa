@@ -940,3 +940,36 @@ class ClientShareToken(Base):
 
 
 # ============================================================================
+
+
+class DeviceLimitEvent(Base):
+    """Audit trail for per-subscriber device-limit decisions.
+
+    Recorded when:
+      - A device-creation attempt is rejected because the user is at the
+        limit ("blocked").
+      - The renewal handler auto-prunes the oldest excess devices after a
+        soft-downgrade ("auto_pruned").
+      - Operator manually adjusts a subscriber's limit ("manual_override").
+
+    Pure observability — no foreign keys back to clients/users so a row
+    survives even if the underlying client is later deleted. Indexed on
+    user_id + created_at so the admin's "subscriber activity" view can
+    pull the timeline cheaply.
+    """
+    __tablename__ = "device_limit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    client_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    max_devices: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    used_devices: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    def __repr__(self):
+        return (f"<DeviceLimitEvent(user_id={self.user_id}, "
+                f"type={self.event_type}, used={self.used_devices}/{self.max_devices})>")
