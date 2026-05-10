@@ -207,14 +207,6 @@
               <input v-model.number="newClient.bandwidth_limit" type="number" class="form-control" :placeholder="$t('clients.unlimitedPlaceholder')" />
             </div>
             <div class="mb-3">
-              <label class="form-label">
-                {{ $t('clients.customerEmail') }}
-                <small class="text-muted">— {{ $t('clients.customerEmailHint') }}</small>
-              </label>
-              <input v-model="newClient.customer_email" type="text" class="form-control"
-                     :placeholder="$t('clients.customerEmailPlaceholder')" maxlength="255" />
-            </div>
-            <div class="mb-3">
               <label class="form-label">{{ $t('clients.expiryLabel') || 'Expiry' }}</label>
               <div class="d-flex flex-wrap gap-1 mb-2">
                 <button type="button" class="btn btn-sm"
@@ -670,7 +662,7 @@ const bulkLoading = ref(false)
 const showCreateModal = ref(false)
 const creating = ref(false)
 const createError = ref('')
-const newClient = ref({ name: '', server_id: null, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' })
+const newClient = ref({ name: '', server_id: null, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false })
 
 // Config modal
 const showConfigModal = ref(false)
@@ -1137,7 +1129,7 @@ async function createClient() {
   try {
     const created = await store.createClient(newClient.value)
     showCreateModal.value = false
-    newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' }
+    newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false }
     await store.fetchClients()
     // Mark the new client as highlighted in the table for ~60 s, and
     // pop the post-create modal with a fresh share link + quick actions.
