@@ -207,6 +207,14 @@
               <input v-model.number="newClient.bandwidth_limit" type="number" class="form-control" :placeholder="$t('clients.unlimitedPlaceholder')" />
             </div>
             <div class="mb-3">
+              <label class="form-label">
+                {{ $t('clients.customerEmail') || 'Customer (optional)' }}
+                <small class="text-muted">— group peers by customer for per-customer device cap</small>
+              </label>
+              <input v-model="newClient.customer_email" type="text" class="form-control"
+                     placeholder="customer@example.com or any tag" maxlength="255" />
+            </div>
+            <div class="mb-3">
               <label class="form-label">{{ $t('clients.expiryLabel') || 'Expiry' }}</label>
               <div class="d-flex flex-wrap gap-1 mb-2">
                 <button type="button" class="btn btn-sm"
@@ -662,7 +670,7 @@ const bulkLoading = ref(false)
 const showCreateModal = ref(false)
 const creating = ref(false)
 const createError = ref('')
-const newClient = ref({ name: '', server_id: null, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false })
+const newClient = ref({ name: '', server_id: null, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' })
 
 // Config modal
 const showConfigModal = ref(false)
@@ -1129,7 +1137,7 @@ async function createClient() {
   try {
     const created = await store.createClient(newClient.value)
     showCreateModal.value = false
-    newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false }
+    newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' }
     await store.fetchClients()
     // Mark the new client as highlighted in the table for ~60 s, and
     // pop the post-create modal with a fresh share link + quick actions.
@@ -1142,7 +1150,19 @@ async function createClient() {
       await openShareModal(fresh, 'post-create')
     }
   } catch (err) {
-    createError.value = err.response?.data?.detail || err.message
+    // Backend returns a structured 409 detail for the per-customer device
+    // cap so we can surface a friendly message instead of a JSON blob.
+    const detail = err.response?.data?.detail
+    if (typeof detail === 'object' && detail !== null && detail.code === 'customer_device_limit_reached') {
+      createError.value = detail.message ||
+        `Customer ${detail.customer_email} already has ${detail.used_devices}/${detail.max_devices} devices.`
+    } else if (typeof detail === 'string') {
+      createError.value = detail
+    } else if (typeof detail === 'object' && detail !== null) {
+      createError.value = detail.message || JSON.stringify(detail)
+    } else {
+      createError.value = err.message
+    }
   } finally {
     creating.value = false
   }

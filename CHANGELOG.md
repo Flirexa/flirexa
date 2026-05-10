@@ -4,6 +4,21 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.93 — 2026-05-10
+
+Per-customer device cap that works when the operator manages peers entirely from the admin panel. The portal-side `max_devices` from 1.5.91 only enforced when subscribers self-served through the client portal — operators who add every peer manually weren't covered. This release adds an admin-side path.
+
+### Added
+
+- **`Customer` field on the New Client form.** Free-text identifier (typically email or username) the operator types when creating a peer. Peers with the same value are treated as belonging to the same real-world customer.
+- **Settings → Device limits → Max devices per customer.** Single global cap. When an operator tries to create a (N+1)th peer with a `customer_email` that already has N active peers, the create returns `409 Conflict` with a structured payload, and the New Client modal shows an inline message instead of a JSON blob. `0` disables enforcement.
+
+### Removed
+
+- **Endpoint-flap key-sharing detector** introduced in 1.5.92. The "count distinct source IPs in last 24h" signal was unreliable in practice — a single mobile client jumping between cell towers tripped it constantly while two devices behind one home NAT remained invisible. The `peer_endpoint_log` table is left in place (it stops growing because nothing writes to it) but the `endpoint_distinct_24h` field is dropped from the admin client response.
+
+---
+
 ## v1.5.92 — 2026-05-10
 
 Advisory monitoring for possible key-sharing. The `max_devices` cap from 1.5.91 stops a subscriber from creating more peers than their plan permits, but it doesn't catch the case where they copy one config to multiple devices and use it from different networks. This release surfaces a soft signal so operators can investigate.

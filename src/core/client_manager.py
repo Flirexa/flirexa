@@ -481,7 +481,8 @@ class ClientManager:
 
         allowed_fields = {
             "name", "bandwidth_limit", "traffic_limit_mb",
-            "expiry_date", "status", "telegram_user_id"
+            "expiry_date", "status", "telegram_user_id",
+            "customer_email",
         }
 
         has_updates = False

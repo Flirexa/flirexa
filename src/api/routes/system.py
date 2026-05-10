@@ -1277,6 +1277,52 @@ class SmtpSettingsUpdate(BaseModel):
     smtp_enabled: Optional[bool] = None
 
 
+@router.get("/device-limits")
+async def get_device_limits(db: Session = Depends(get_db)):
+    """Read the per-customer device cap (admin-side ``customer_email`` grouping).
+
+    Returns ``{"max_devices_per_customer": N}``. ``0`` means unlimited.
+    """
+    from ...database.models import SystemConfig
+    row = db.query(SystemConfig).filter(SystemConfig.key == "max_devices_per_customer").first()
+    val = 0
+    if row and row.value:
+        try:
+            val = int(row.value)
+        except Exception:
+            val = 0
+    return {"max_devices_per_customer": val}
+
+
+class DeviceLimitsUpdate(BaseModel):
+    max_devices_per_customer: int = Field(..., ge=0, le=1000)
+
+
+@router.post("/device-limits")
+async def update_device_limits(data: DeviceLimitsUpdate, db: Session = Depends(get_db)):
+    """Set the per-customer device cap. ``0`` disables enforcement.
+
+    Stored in ``system_config`` so the value survives restarts and propagates
+    across the whole panel without an env-file rewrite. Enforcement is in
+    POST /clients (see clients.py).
+    """
+    from ...database.models import SystemConfig
+    row = db.query(SystemConfig).filter(SystemConfig.key == "max_devices_per_customer").first()
+    if row is None:
+        row = SystemConfig(
+            key="max_devices_per_customer",
+            value=str(data.max_devices_per_customer),
+            value_type="int",
+            description="Maximum active WG/AmneziaWG peers a single customer_email may have. 0 = unlimited.",
+        )
+        db.add(row)
+    else:
+        row.value = str(data.max_devices_per_customer)
+        row.value_type = "int"
+    db.commit()
+    return {"max_devices_per_customer": data.max_devices_per_customer}
+
+
 @router.get("/smtp-settings")
 async def get_smtp_settings():
     """Get current SMTP configuration status"""
