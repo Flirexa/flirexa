@@ -4,6 +4,12 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.98 — 2026-05-10
+
+Reverts the admin Support Messages redesign that shipped in 1.5.97. The 3-column conversation layout was meant for the license-server's `/panel/support` page, not the operator-facing admin Support Messages page. The admin Support Messages view is back to the original two-column list+detail layout. The license-server panel keeps its separate redesign (which is correct for its scope).
+
+---
+
 ## v1.5.97 — 2026-05-10
 
 Support inbox redesign and a long-overdue convenience on the license server login.
