@@ -4,6 +4,17 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.92 — 2026-05-10
+
+Advisory monitoring for possible key-sharing. The `max_devices` cap from 1.5.91 stops a subscriber from creating more peers than their plan permits, but it doesn't catch the case where they copy one config to multiple devices and use it from different networks. This release surfaces a soft signal so operators can investigate.
+
+### Added
+
+- **`peer_endpoint_log` table** records the source IP each peer is observed handshaking from. Written by the state reconciler on every tick (no extra polls), only when the IP differs from the last observation for the same peer — keeps the table small. Works on both agent and SSH-mode servers.
+- **`endpoint_distinct_24h` field on the admin client detail response.** Counts the number of distinct source IPs seen for a peer over the last 24 hours. Anything ≥ 2 is a soft warning that the same WireGuard config may be in use on multiple devices on different networks. False positives are common (mobile clients flapping between WiFi and LTE, NAT'd corporate networks), so the operator sees the count and decides what to do. No automatic action is taken.
+
+---
+
 ## v1.5.91 — 2026-05-10
 
 Per-subscriber device limit polish. The `max_devices` cap on tariffs already worked, but the user-facing experience around it was thin: the rejection error was a bare string, downgrades silently let users sit over-limit forever, and there was no audit trail for operators trying to see how often subscribers hit the ceiling.
