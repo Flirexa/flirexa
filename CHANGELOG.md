@@ -4,6 +4,21 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.90 — 2026-05-10
+
+Resilience pass for the agent connection. Self-hosted operators running their main WireGuard server from a home connection (port-forwarded behind the router) saw their server flip to "unreachable" several times an hour as the upstream NAT and ISP routing shuffled. The panel was correctly reporting what it observed, but a 5-30 second blip is not actually the server being gone, and the UI was alarming customers.
+
+### Changed
+
+- **Brief connectivity blips no longer flip a server to "offline".** Agent `/health` and `/stats` requests now retry once (health) or twice (stats) with a short backoff before declaring the agent unreachable. The first try still succeeds on a healthy network, so the latency budget is unchanged for normal operation.
+- **Last-known agent state is cached for 30 minutes.** When the agent does fail every retry, the dashboard returns the previous successful poll tagged `is_stale=true` with an age in seconds, and the server status reads `degraded` ("showing data from 45s ago") instead of `offline`. Peer counts no longer collapse to zero during a transient drop.
+
+### Why this matters
+
+A home-hosted operator complained that their server was "disappearing and coming back" several times a day. The fix is on the panel side only — agents do not need to be reinstalled, and the SSH/local code paths are untouched.
+
+---
+
 ## v1.5.89 — 2026-05-09
 
 Critical fix for license enforcement. On a FREE-tier install with multiple servers (where some are remote and share an `interface` name like `wg0` with the panel host's local interface), the suspension sweep was running `wg-quick down` locally for every "excess" server. If a remote wireguard server's interface field collided with the local one, this tore down the panel's own tunnel and dropped every connected client.

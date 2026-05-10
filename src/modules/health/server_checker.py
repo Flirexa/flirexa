@@ -465,26 +465,78 @@ class ServerHealthChecker:
     def _check_agent(self, server, t0: float, quick: bool) -> ServerHealth:
         interface = server.interface or "wg0"
         import requests
+        from ...core import agent_health_cache as _cache
         base = server.agent_url.rstrip("/")
         headers = {"X-API-Key": server.agent_api_key}
-        try:
-            resp = requests.get(f"{base}/health", headers=headers, timeout=AGENT_TIMEOUT)
-            latency = round((time.perf_counter() - t0) * 1000, 2)
-            resp.raise_for_status()
-            health_data = resp.json()
-        except requests.exceptions.Timeout:
-            latency = round((time.perf_counter() - t0) * 1000, 2)
+
+        # One quick retry on the first failure — most real-world unreachable
+        # events on port-forwarded home boxes self-resolve within a few
+        # seconds. We don't want to flip the dashboard to "offline" on a
+        # single 5-second NAT blip.
+        def _try_health():
+            return requests.get(f"{base}/health", headers=headers, timeout=AGENT_TIMEOUT)
+
+        health_data = None
+        last_exc: Optional[Exception] = None
+        for attempt in range(2):
+            try:
+                resp = _try_health()
+                resp.raise_for_status()
+                health_data = resp.json()
+                break
+            except Exception as exc:
+                last_exc = exc
+                if attempt == 0:
+                    time.sleep(2)
+
+        latency = round((time.perf_counter() - t0) * 1000, 2)
+
+        if health_data is not None:
+            _cache.record_health(server.agent_url, health_data)
+        else:
+            # Two consecutive failures — try to serve a stale cache before
+            # declaring the server offline. The UI gets an explicit
+            # "stale" marker so the operator knows it's a cached snapshot,
+            # not a fresh probe.
+            cached = _cache.get_cached_health(server.agent_url)
+            if cached is not None:
+                cached_data, age = cached
+                logger.info(
+                    "[HEALTH] {} agent unreachable, returning cached health ({}s old)",
+                    server.name, age,
+                )
+                # Build a degraded-but-not-offline response from the cache
+                sys_m_cached = None
+                if isinstance(cached_data, dict):
+                    sys_m_cached = ServerSystemMetrics(
+                        cpu_percent=cached_data.get("cpu_percent"),
+                        memory_percent=cached_data.get("memory_percent"),
+                        disk_percent=cached_data.get("disk_percent"),
+                        uptime_seconds=cached_data.get("uptime_seconds"),
+                    )
+                kind = "Agent timed out" if isinstance(last_exc, requests.exceptions.Timeout) else f"Agent unreachable: {type(last_exc).__name__ if last_exc else 'unknown'}"
+                return ServerHealth(
+                    server_id=server.id, server_name=server.name,
+                    status="degraded",
+                    checked_at=datetime.now(timezone.utc).isoformat(),
+                    connection_mode="agent",
+                    message=f"{kind} — showing data from {age}s ago",
+                    latency_ms=latency, quick=quick, system=sys_m_cached,
+                    details={"is_stale": True, "stale_age_seconds": age,
+                             "server_type": getattr(server, 'server_type', 'wireguard')},
+                )
+
+            if isinstance(last_exc, requests.exceptions.Timeout):
+                return ServerHealth(
+                    server_id=server.id, server_name=server.name,
+                    status="offline", checked_at=datetime.now(timezone.utc).isoformat(),
+                    connection_mode="agent", message="Agent timed out", latency_ms=latency, quick=quick,
+                )
             return ServerHealth(
                 server_id=server.id, server_name=server.name,
                 status="offline", checked_at=datetime.now(timezone.utc).isoformat(),
-                connection_mode="agent", message="Agent timed out", latency_ms=latency, quick=quick,
-            )
-        except Exception as exc:
-            latency = round((time.perf_counter() - t0) * 1000, 2)
-            return ServerHealth(
-                server_id=server.id, server_name=server.name,
-                status="offline", checked_at=datetime.now(timezone.utc).isoformat(),
-                connection_mode="agent", message=f"Agent unreachable: {type(exc).__name__}",
+                connection_mode="agent",
+                message=f"Agent unreachable: {type(last_exc).__name__ if last_exc else 'unknown'}",
                 latency_ms=latency, quick=quick,
             )
 
@@ -495,24 +547,34 @@ class ServerHealthChecker:
                 connection_mode="agent", message="Agent reachable", latency_ms=latency, quick=True,
             )
 
-        # Parse stats
+        # Parse stats. On failure, fall back to cached peer count so a
+        # transient blip doesn't show as "0 peers online".
         wg = None
+        peers_data = None
         try:
             sr = requests.get(f"{base}/stats", headers=headers, timeout=AGENT_TIMEOUT)
             if sr.status_code == 200:
                 stats = sr.json()
                 peers_data = stats.get("peers", [])
-                now_ts = int(time.time())
-                wg = WireGuardInterfaceHealth(
-                    interface=interface, status="up",
-                    peers_total=len(peers_data),
-                    peers_active=sum(1 for p in peers_data
-                                     if p.get("latest_handshake") and (now_ts - p["latest_handshake"]) < 180),
-                    peers_recent=sum(1 for p in peers_data
-                                     if p.get("latest_handshake") and (now_ts - p["latest_handshake"]) < 900),
-                )
+                _cache.record_stats(server.agent_url, peers_data)
         except Exception:
             pass
+
+        if peers_data is None:
+            cached_stats = _cache.get_cached_stats(server.agent_url)
+            if cached_stats is not None:
+                peers_data, _stats_age = cached_stats
+
+        if peers_data is not None:
+            now_ts = int(time.time())
+            wg = WireGuardInterfaceHealth(
+                interface=interface, status="up",
+                peers_total=len(peers_data),
+                peers_active=sum(1 for p in peers_data
+                                 if p.get("latest_handshake") and (now_ts - p["latest_handshake"]) < 180),
+                peers_recent=sum(1 for p in peers_data
+                                 if p.get("latest_handshake") and (now_ts - p["latest_handshake"]) < 900),
+            )
 
         sys_m = None
         if isinstance(health_data, dict):
