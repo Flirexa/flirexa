@@ -4,6 +4,20 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.97 — 2026-05-10
+
+Support inbox redesign and a long-overdue convenience on the license server login.
+
+### Changed
+
+- **Support inbox is a 3-column conversation view**: inbox list on the left, thread in the middle, customer details on the right. Status pills (open / replied / closed), unread dots, search field with `/` shortcut, status tab counts, mobile-responsive (collapses to 2 then 1 column on narrow screens). The right details panel can be toggled per-ticket. Existing tickets, replies, close/reopen/delete keep the same backend — only the layout changed.
+
+### Added
+
+- **License server panel — "Remember me for 30 days" checkbox** on the login page. Without it the session lives 8 hours like before; with it, the signed cookie carries a `long` marker and the panel keeps you logged in for 30 days.
+
+---
+
 ## v1.5.96 — 2026-05-10
 
 The Customer field is back in the New Client form. The 1.5.94 attempt rendered the Clients page blank for some users when the inline `$t()` calls in the template hit a transient i18n state during initial mount. This release moves the lookups into computed properties wrapped in try/catch, so a missing key or an i18n hiccup returns a hard-coded English fallback instead of taking the parent component down with it. Translations also got a quick simplification — removed the apostrophe-via-concatenation in the Russian string and replaced em-dashes with plain ASCII so the bundle has no edge-case characters that could confuse a minifier.
