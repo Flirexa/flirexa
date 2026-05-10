@@ -278,6 +278,17 @@ class SubscriptionManager:
         if not subscription:
             return None, "No subscription found"
 
+        # Soft-downgrade auto-prune: if the user picked a smaller plan during
+        # the previous cycle, they got to keep all their devices for the rest
+        # of the period (with a banner). Now that we're starting a fresh
+        # cycle, prune down to the plan limit so the next cycle starts clean.
+        # We disable the OLDEST excess (lowest client.id, which corresponds to
+        # earliest creation), leaving the most recent N working.
+        try:
+            self._prune_devices_to_limit(user_id, subscription, reason="RENEWAL_AUTO_PRUNE")
+        except Exception as e:
+            logger.warning(f"Auto-prune at renewal failed for user {user_id}: {e}")
+
         # Extend expiry date
         if subscription.expiry_date:
             expiry = subscription.expiry_date.replace(tzinfo=timezone.utc) if subscription.expiry_date.tzinfo is None else subscription.expiry_date
@@ -302,6 +313,82 @@ class SubscriptionManager:
 
         logger.info(f"Renewed subscription for user {user_id} for {duration_days} days")
         return subscription, None
+
+    def _prune_devices_to_limit(
+        self,
+        user_id: int,
+        subscription: "ClientPortalSubscription",
+        reason: str = "DEVICE_LIMIT_PRUNE",
+    ) -> int:
+        """Disable the oldest excess WG clients for a user so they're back
+        within ``subscription.max_devices``. Returns the number disabled.
+
+        Idempotent: safe to call when devices_used <= max_devices (no-op).
+        Soft-disables (sets enabled=False, removes from WG interface), keeps
+        DB row so the user can see the device in their history. Records to
+        the audit log.
+        """
+        max_devices = subscription.max_devices or 0
+        if max_devices <= 0:
+            return 0  # 0 = unlimited
+
+        links = self.db.query(ClientUserClients).filter(
+            ClientUserClients.client_user_id == user_id
+        ).all()
+        if len(links) <= max_devices:
+            return 0
+
+        # Sort by client_id ascending (oldest first), keep newest max_devices.
+        links_sorted = sorted(links, key=lambda l: l.client_id)
+        excess = links_sorted[: len(links_sorted) - max_devices]
+
+        from src.core.management import ManagementCore
+        core = ManagementCore(self.db)
+
+        pruned = 0
+        for link in excess:
+            try:
+                client = self.db.query(Client).filter(Client.id == link.client_id).first()
+                if client and client.enabled:
+                    core.clients.disable_client(client.id)
+                    self._audit_device_event(
+                        user_id=user_id,
+                        client_id=client.id,
+                        event_type="auto_pruned",
+                        reason=reason,
+                        max_devices=max_devices,
+                        used_devices=len(links_sorted),
+                    )
+                    pruned += 1
+            except Exception as e:
+                logger.warning(f"Failed to disable client {link.client_id} during prune: {e}")
+
+        if pruned:
+            logger.info(
+                f"Pruned {pruned} excess device(s) for user {user_id} "
+                f"(was {len(links_sorted)}, max {max_devices})"
+            )
+        return pruned
+
+    def _audit_device_event(
+        self, *, user_id: int, client_id: Optional[int], event_type: str,
+        reason: str, max_devices: int, used_devices: int,
+    ) -> None:
+        """Best-effort write to device_limit_events. Failure does not block
+        the prune itself — auditing is observability, not load-bearing."""
+        try:
+            from src.database.models import DeviceLimitEvent
+            self.db.add(DeviceLimitEvent(
+                user_id=user_id,
+                client_id=client_id,
+                event_type=event_type,
+                reason=reason,
+                max_devices=max_devices,
+                used_devices=used_devices,
+            ))
+            self.db.flush()
+        except Exception as e:
+            logger.debug(f"Could not write device_limit_event ({event_type}): {e}")
 
     def cancel_subscription(self, user_id: int) -> bool:
         """Cancel user subscription (downgrade to free at expiry)"""

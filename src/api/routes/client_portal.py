@@ -596,11 +596,23 @@ async def get_subscription(
         if not subscription:
             raise HTTPException(status_code=404, detail="No subscription found")
 
+    # Soft-downgrade detection: if the subscriber currently has more linked WG
+    # devices than their plan permits (because they switched to a smaller tier
+    # mid-cycle), the portal banner needs to know so it can prompt the user to
+    # remove the excess before the next renewal auto-prunes the oldest.
+    devices_used = db.query(ClientUserClients).filter(
+        ClientUserClients.client_user_id == user_id
+    ).count()
+    over_limit = subscription.max_devices and devices_used > subscription.max_devices
+
     return {
         "id": subscription.id,
         "tier": subscription.tier,
         "status": subscription.status.value,
         "max_devices": subscription.max_devices,
+        "devices_used": devices_used,
+        "over_device_limit": bool(over_limit),
+        "excess_devices": max(0, devices_used - (subscription.max_devices or 0)),
         "traffic_limit_gb": subscription.traffic_limit_gb,
         "traffic_used_gb": round(subscription.traffic_used_total_gb, 2),
         "traffic_remaining_gb": round(subscription.traffic_remaining_gb, 2) if subscription.traffic_remaining_gb else None,
@@ -610,7 +622,7 @@ async def get_subscription(
         "expiry_date": subscription.expiry_date.isoformat() if subscription.expiry_date else None,
         "days_remaining": subscription.days_remaining,
         "auto_renew": subscription.auto_renew,
-        "created_at": subscription.created_at.isoformat()
+        "created_at": subscription.created_at.isoformat(),
     }
 
 
@@ -1859,13 +1871,34 @@ async def create_wireguard_client(
     if not subscription or not subscription.is_active:
         raise HTTPException(status_code=400, detail="No active subscription")
 
-    # Check device limit
+    # Check device limit. Surface a structured payload so the portal can
+    # render an inline "Upgrade plan" CTA next to the message instead of a
+    # bare error string.
     existing_ids = _get_user_client_ids(db, user_id)
     max_devices = subscription.max_devices or 1
     if len(existing_ids) >= max_devices:
+        # Audit the rejection so admins can see how often subscribers hit the
+        # ceiling — useful signal for "raise the cap on this plan" decisions.
+        try:
+            from src.database.models import DeviceLimitEvent
+            db.add(DeviceLimitEvent(
+                user_id=user_id, client_id=None,
+                event_type="blocked", reason="DEVICE_LIMIT",
+                max_devices=max_devices, used_devices=len(existing_ids),
+            ))
+            db.commit()
+        except Exception as _e:
+            logger.debug("could not write device_limit_event: %s", _e)
         raise HTTPException(
-            status_code=400,
-            detail="Cannot create client: device limit reached"
+            status_code=409,
+            detail={
+                "code":         "device_limit_reached",
+                "message":      "You've reached the device limit for your plan.",
+                "max_devices":  max_devices,
+                "used_devices": len(existing_ids),
+                "current_tier": subscription.tier,
+                "action":       "upgrade_or_remove",
+            },
         )
 
     # Get user info for naming

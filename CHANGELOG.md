@@ -4,6 +4,24 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.91 — 2026-05-10
+
+Per-subscriber device limit polish. The `max_devices` cap on tariffs already worked, but the user-facing experience around it was thin: the rejection error was a bare string, downgrades silently let users sit over-limit forever, and there was no audit trail for operators trying to see how often subscribers hit the ceiling.
+
+### Added
+
+- **Soft-downgrade banner in client portal.** When a subscriber switches to a smaller plan mid-cycle and ends up with more devices than the new plan allows, all existing devices keep working until renewal. The dashboard now shows an inline warning telling the user how many to remove and that the oldest will be pruned automatically at the next billing date if they don't pick.
+- **Auto-prune at renewal.** When the subscription renews for a new period, any excess devices over `subscription.max_devices` are soft-disabled (oldest first) so the next cycle starts within the plan limit. Prune is idempotent and falls back gracefully if individual disables fail.
+- **`device_limit_events` audit log.** New table records every block ("user tried to add device 4 of 3") and every auto-prune decision so operators can review activity from the admin panel and decide whether to raise plan caps.
+
+### Changed
+
+- **Device-limit rejection now returns a structured `409 Conflict`** with `code`, `max_devices`, `used_devices`, and `current_tier`. The portal renders an inline "Upgrade plan?" prompt instead of a bare error toast.
+
+---
+
+---
+
 ## v1.5.90 — 2026-05-10
 
 Resilience pass for the agent connection. Self-hosted operators running their main WireGuard server from a home connection (port-forwarded behind the router) saw their server flip to "unreachable" several times an hour as the upstream NAT and ISP routing shuffled. The panel was correctly reporting what it observed, but a 5-30 second blip is not actually the server being gone, and the UI was alarming customers.
