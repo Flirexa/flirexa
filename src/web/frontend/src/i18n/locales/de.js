@@ -428,7 +428,7 @@ export default {
     unlimitedPlaceholder: '0 = unbegrenzt',
     noExpiryPlaceholder: '0 = kein Ablauf',
     customerEmail: 'Kunde (optional)',
-    customerEmailHint: 'Gruppiert Peers pro Kunde für die Geräte-Obergrenze',
+    customerEmailHint: 'Peers pro Kunde gruppieren für die Geräte-Obergrenze',
     customerEmailPlaceholder: 'kunde@beispiel.de oder ein Tag',
     configTitle: 'Client-Konfiguration',
     downloadConf: '.conf herunterladen',

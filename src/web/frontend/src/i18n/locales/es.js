@@ -428,7 +428,7 @@ export default {
     unlimitedPlaceholder: '0 = ilimitado',
     noExpiryPlaceholder: '0 = sin expiraci\u00f3n',
     customerEmail: 'Cliente (opcional)',
-    customerEmailHint: 'Agrupa peers por cliente para el l\u00edmite de dispositivos',
+    customerEmailHint: 'agrupar peers por cliente para el l\u00edmite de dispositivos',
     customerEmailPlaceholder: 'cliente@ejemplo.com o cualquier etiqueta',
     configTitle: 'Config del cliente',
     downloadConf: 'Descargar .conf',

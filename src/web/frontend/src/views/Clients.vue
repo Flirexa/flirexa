@@ -207,6 +207,12 @@
               <input v-model.number="newClient.bandwidth_limit" type="number" class="form-control" :placeholder="$t('clients.unlimitedPlaceholder')" />
             </div>
             <div class="mb-3">
+              <label class="form-label">{{ customerEmailLabel }}</label>
+              <input v-model="newClient.customer_email" type="text" class="form-control"
+                     :placeholder="customerEmailPh" maxlength="255" />
+              <div class="form-text small">{{ customerEmailHint }}</div>
+            </div>
+            <div class="mb-3">
               <label class="form-label">{{ $t('clients.expiryLabel') || 'Expiry' }}</label>
               <div class="d-flex flex-wrap gap-1 mb-2">
                 <button type="button" class="btn btn-sm"
@@ -662,7 +668,26 @@ const bulkLoading = ref(false)
 const showCreateModal = ref(false)
 const creating = ref(false)
 const createError = ref('')
-const newClient = ref({ name: '', server_id: null, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false })
+const newClient = ref({ name: '', server_id: null, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' })
+
+// Customer-email i18n strings — computed with try/catch so a missing key or
+// vue-i18n hiccup can never break the parent component's render. Falls
+// through to plain English if anything goes wrong. The 1.5.94 attempt to
+// use $t() inline in the template rendered the Clients view blank for
+// some users; computed + try-catch isolates the lookup from template
+// rendering.
+const customerEmailLabel = computed(() => {
+  try { return t('clients.customerEmail') || 'Customer (optional)' }
+  catch { return 'Customer (optional)' }
+})
+const customerEmailHint = computed(() => {
+  try { return t('clients.customerEmailHint') || 'group peers by customer for the device cap' }
+  catch { return 'group peers by customer for the device cap' }
+})
+const customerEmailPh = computed(() => {
+  try { return t('clients.customerEmailPlaceholder') || 'customer@example.com or any tag' }
+  catch { return 'customer@example.com or any tag' }
+})
 
 // Config modal
 const showConfigModal = ref(false)
@@ -1129,7 +1154,7 @@ async function createClient() {
   try {
     const created = await store.createClient(newClient.value)
     showCreateModal.value = false
-    newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false }
+    newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' }
     await store.fetchClients()
     // Mark the new client as highlighted in the table for ~60 s, and
     // pop the post-create modal with a fresh share link + quick actions.

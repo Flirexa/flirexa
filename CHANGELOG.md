@@ -4,6 +4,12 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.96 — 2026-05-10
+
+The Customer field is back in the New Client form. The 1.5.94 attempt rendered the Clients page blank for some users when the inline `$t()` calls in the template hit a transient i18n state during initial mount. This release moves the lookups into computed properties wrapped in try/catch, so a missing key or an i18n hiccup returns a hard-coded English fallback instead of taking the parent component down with it. Translations also got a quick simplification — removed the apostrophe-via-concatenation in the Russian string and replaced em-dashes with plain ASCII so the bundle has no edge-case characters that could confuse a minifier.
+
+---
+
 ## v1.5.95 — 2026-05-10
 
 Hotfix for the Clients page going blank after 1.5.94. The new Customer field in the New Client form was triggering a render error in the deployed bundle on some installs, leaving the entire Clients view as a white screen. Reverted that input from the form. The backend `customer_email` column and the Settings → Device limits panel are kept — the cap still works for any peer tagged via the API directly. The form input will return in a follow-up release after the rendering path is fixed properly.
