@@ -65,33 +65,68 @@ def _wg_manager(server: Server):
     return WireGuardManager(**ssh_kwargs)
 
 
+def _agent_request_with_retries(
+    server: Server, path: str, *, retries: int = 2, backoff_sec: float = 2.0
+) -> Optional[dict]:
+    """GET ``{agent_url}{path}`` with a small retry budget for transient blips.
+
+    Home-hosted agents on port-forwarded connections lose 5-30 seconds at a
+    time when the ISP shuffles routes or NAT entries expire. We retry up to
+    ``retries`` extra times with a short backoff before giving up — that
+    catches almost every real-world blip without making fan-out polls
+    noticeably slower on a healthy agent (first try succeeds, no retry).
+
+    Returns the parsed JSON dict on success, None on persistent failure.
+    """
+    import httpx
+    url = server.agent_url.rstrip("/") + path
+    headers = {"X-Api-Key": server.agent_api_key or ""}
+    last_exc: Optional[Exception] = None
+    for attempt in range(retries + 1):
+        try:
+            resp = httpx.get(url, headers=headers, timeout=8)
+            resp.raise_for_status()
+            return resp.json() if resp.content else {}
+        except Exception as e:
+            last_exc = e
+            if attempt < retries:
+                import time as _time
+                _time.sleep(backoff_sec)
+    logger.debug(f"[RECONCILE] agent GET {path} failed for {server.name} after {retries + 1} tries: {last_exc}")
+    return None
+
+
 def _agent_get_peers(server: Server) -> Optional[List[dict]]:
-    """
-    Fetch peer list via the vpnmanager-agent /stats endpoint.
-    Returns list of dicts with 'public_key' and 'allowed_ips', or None on error.
-    """
-    try:
-        import httpx
-        url = server.agent_url.rstrip("/")
-        headers = {"X-Api-Key": server.agent_api_key or ""}
-        resp = httpx.get(f"{url}/stats", headers=headers, timeout=8)
-        resp.raise_for_status()
-        return resp.json().get("peers", [])
-    except Exception as e:
-        logger.debug(f"[RECONCILE] agent /stats failed for {server.name}: {e}")
-        return None
+    """Fetch peer list via /stats with retries; fall back to last-known cache."""
+    from ..core import agent_health_cache as _cache
+    data = _agent_request_with_retries(server, "/stats")
+    if data is not None:
+        peers = data.get("peers", [])
+        _cache.record_stats(server.agent_url, peers)
+        return peers
+    cached = _cache.get_cached_stats(server.agent_url)
+    if cached is not None:
+        peers, age = cached
+        logger.info(
+            f"[RECONCILE] {server.name}: agent /stats unreachable, using cached peers ({age}s old)"
+        )
+        return peers
+    return None
 
 
 def _agent_is_up(server: Server) -> bool:
-    """Quick reachability check via agent /health."""
-    try:
-        import httpx
-        url = server.agent_url.rstrip("/")
-        headers = {"X-Api-Key": server.agent_api_key or ""}
-        resp = httpx.get(f"{url}/health", headers=headers, timeout=8)
-        return resp.status_code == 200
-    except Exception:
-        return False
+    """Quick reachability check via /health with retries.
+
+    A successful probe also refreshes the health cache so server_checker
+    and other consumers can show the agent as 'recently alive' even during
+    the next blip.
+    """
+    from ..core import agent_health_cache as _cache
+    data = _agent_request_with_retries(server, "/health", retries=1, backoff_sec=1.0)
+    if data is not None:
+        _cache.record_health(server.agent_url, data)
+        return True
+    return False
 
 
 def _subnet_of_server(server: Server) -> Optional[ipaddress.IPv4Network]:
