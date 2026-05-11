@@ -1032,12 +1032,48 @@ class ClientManager:
         server_id: int,
         address_pool: str
     ) -> Optional[int]:
-        """Find the next available IP index for a server"""
-        # Get used IP indices
+        """Find the next available IP index for a server.
+
+        Considers both:
+          - IPs already allocated by the panel (`clients.ip_index` in DB)
+          - For Mikrotik-mode servers: IPs of peers added directly on the
+            router via WebFig/Winbox/etc. — we pull the live peer list
+            and avoid colliding with peers we didn't create.
+        """
         used_ips = self.db.query(Client.ip_index).filter(
             Client.server_id == server_id
         ).all()
         used_set = {ip[0] for ip in used_ips}
+
+        # For mikrotik servers, also skip IPs of manually-added router
+        # peers. Soft-fail if the probe doesn't respond — we'd rather hand
+        # out a possibly-colliding IP than refuse to create the client.
+        from ..database.models import Server  # local import to avoid cycle
+        server = self.db.query(Server).filter(Server.id == server_id).first()
+        if server and (getattr(server, "agent_mode", None) or "") == "mikrotik":
+            try:
+                wg = self._get_wg(server)
+                try:
+                    pool_base = address_pool.split("/")[0].rsplit(".", 1)[0]
+                    for peer in wg.get_all_peers():
+                        for cidr in peer.allowed_ips or []:
+                            ip_part = cidr.split("/")[0].strip()
+                            if "." not in ip_part:
+                                continue  # IPv6 or malformed — skip here
+                            parts = ip_part.rsplit(".", 1)
+                            if len(parts) == 2 and parts[0] == pool_base:
+                                try:
+                                    used_set.add(int(parts[1]))
+                                except ValueError:
+                                    pass
+                finally:
+                    try: wg.close()
+                    except Exception: pass
+            except Exception as e:
+                logger.warning(
+                    f"Mikrotik probe for IP-allocation collision check failed "
+                    f"(server_id={server_id}): {e}. Proceeding with DB-only view."
+                )
 
         # Find first available (start from 2, skip network address)
         for i in range(2, 255):

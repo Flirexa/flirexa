@@ -556,7 +556,8 @@ async def create_server(
                 password=server_data.mikrotik_password,
             )
             info = probe.get_interface_info()
-            probe.close()
+            # NOTE: do NOT close `probe` here — the address-pool inherit
+            # block below still uses it. Close happens after that block.
         except Exception as _mt_err:
             raise HTTPException(400, f"Mikrotik REST probe failed: {_mt_err}")
         if not info:
@@ -572,6 +573,25 @@ async def create_server(
         # (MikrotikWireGuardManager queries the router directly).
         private_key = ""
         listen_port = info["listen_port"]
+        # Auto-inherit the IP pool from the router — saves the operator
+        # from re-typing it and from accidentally specifying a different
+        # subnet than what the WG interface actually has assigned.
+        # Caller can still override by sending an explicit `address_pool_ipv4`
+        # that doesn't match the schema default ("10.66.66.0/24") — we keep
+        # the user's value in that case.
+        try:
+            addrs = probe.get_interface_addresses()
+            if server_data.address_pool_ipv4 in (None, "10.66.66.0/24") and addrs.get("ipv4"):
+                address_pool_ipv4 = addrs["ipv4"]
+                logger.info(f"Mikrotik probe: inherited IPv4 pool {address_pool_ipv4} from router")
+            if (server_data.address_pool_ipv6 in (None, "fd42:42:42::/64")) and addrs.get("ipv6"):
+                server_data.address_pool_ipv6 = addrs["ipv6"]
+                logger.info(f"Mikrotik probe: inherited IPv6 pool {addrs['ipv6']} from router")
+        except Exception as _addr_err:
+            logger.warning(f"Mikrotik probe: address-pool inherit failed ({_addr_err}); using operator-supplied values")
+        finally:
+            try: probe.close()
+            except Exception: pass
         logger.info(
             f"Mikrotik probe OK: interface={server_data.interface} "
             f"port={listen_port} pubkey={public_key[:20]}…"
@@ -606,7 +626,11 @@ async def create_server(
     # caller didn't pin a specific value explicitly via API — we still bump
     # because the request can't succeed otherwise; better to drift the port
     # than to 500.
-    if not server_data.ssh_host:
+    # Local-server collision auto-picks (port + subnet) apply only to
+    # interfaces that actually live on this host. Mikrotik mode is remote
+    # — port and subnet belong to the router and we already probed them,
+    # so skip these auto-shifts to avoid clobbering the probed values.
+    if not server_data.ssh_host and not is_mikrotik:
         existing_ports = {
             row[0]
             for row in db.query(Server.listen_port)

@@ -4,6 +4,23 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.4 — 2026-05-12
+
+Three follow-ups to the RouterOS integration that ship in 1.6.2: the panel now picks up the router's existing address pool automatically, avoids handing out IPs already claimed by manually-added router peers, and surfaces aggregated peer transfer in server stats. Together these reduce the "fill in the same `/20` you already configured on the router" friction and prevent panel-allocated clients from colliding with peers added directly via WebFig or Winbox.
+
+### Added
+
+- **Address pool auto-inherits from the router** at server-create time for Mikrotik mode. The probe step now reads the WireGuard interface's IPv4 address from `/ip/address` and stores the matching `/N` network on the server row, so the operator doesn't have to retype it. If the operator passes an explicit non-default pool in the request, that value still wins (no surprise overwrite). IPv6 link-local (`fe80::/10`) is filtered out since it's not a usable client pool.
+- **IP-allocation collision check against the live router** for Mikrotik servers. Before assigning a new client an IP from the pool, the allocator now queries the router's peer list and treats any peer's `allowed-address` as occupied alongside the panel's own DB records. Manually-added router peers (configs the operator set up before adopting the panel, or peers from other tooling on the same interface) are skipped instead of clashed with. Soft-fails to the DB-only view if the router doesn't respond, so client create doesn't break on transient connectivity blips.
+- **Server stats include Mikrotik peer traffic.** `get_server_stats` and the bandwidth/traffic managers now route Mikrotik servers through the adapter (previously they fell through to a local `wg` command which doesn't apply). Aggregated `total_rx` / `total_tx` and per-peer last-handshake / transfer counters now come from the router's `/interface/wireguard/peers` over REST.
+
+### Fixed
+
+- **Subnet auto-shift no longer clobbers the router's pool.** The "interface already in use" / "subnet overlaps another local server" auto-shift block was running for Mikrotik servers too — they have no `ssh_host` and looked local. Adding a router as the third or fourth server would silently rewrite the just-probed pool with a bumped local default. Skipped for remote-managed modes, which include Mikrotik.
+- **Listen-port auto-shift also skipped for remote-managed modes** for the same reason — port belongs to the router, not the panel host.
+
+---
+
 ## v1.6.3 — 2026-05-11
 
 **RouterOS / Mikrotik adapter is now a Pro-tier feature.** When this shipped in 1.6.2 it was unconditionally available on every install, including FREE. That was an oversight — managing a Mikrotik-hosted WireGuard server is a paid capability alongside multi-server orchestration and proxy protocols, and 1.6.3 gates it accordingly.

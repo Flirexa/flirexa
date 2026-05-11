@@ -57,6 +57,16 @@ class TrafficManager:
         Returns RemoteServerAdapter for remote servers (routes to SSH or Agent).
         Returns AmneziaWGManager/WireGuardManager for local servers (direct execution).
         """
+        # Mikrotik mode is remote but has no ssh_host — route through
+        # adapter so we don't try to run local `wg` commands.
+        if (getattr(server, "agent_mode", None) or "") == "mikrotik":
+            from .remote_adapter import RemoteServerAdapter
+            return RemoteServerAdapter(
+                server=server,
+                interface=server.interface,
+                config_path=server.config_path,
+            )
+
         # Local server - use direct manager (AWG or standard WG)
         if not server.ssh_host:
             if getattr(server, 'server_type', 'wireguard') == 'amneziawg':

@@ -21,7 +21,11 @@ class BandwidthMonitor:
 
     def _get_wg(self, server):
         """Create WireGuard manager or RemoteServerAdapter for a server."""
-        if server.ssh_host or (server.agent_mode and server.agent_mode == "agent"):
+        if (
+            server.ssh_host
+            or (server.agent_mode and server.agent_mode == "agent")
+            or (server.agent_mode and server.agent_mode == "mikrotik")
+        ):
             from .remote_adapter import RemoteServerAdapter
             return RemoteServerAdapter(
                 server=server,
