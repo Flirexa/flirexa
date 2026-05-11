@@ -60,6 +60,24 @@ def _normalize_license_type(raw: str) -> LicenseType:
 TRIAL_DURATION_THRESHOLD_DAYS = 14
 
 
+# canonical → legacy names carried by older offline-signed licenses.
+# Pre-1.5.99 license_server issued keys with these legacy flags; renaming
+# the canonical flags would otherwise gate paid customers off paid features.
+_FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
+    "proxy_protocols":    ("extra_protocols",),
+    "telegram_client_bot": ("client_tg_bot",),
+    "telegram_bots":      ("client_tg_bot",),
+    "payments":           ("nowpayments",),
+    # Mikrotik adapter ships in 1.6.x as a paid feature. Existing Pro+
+    # lifetime licenses don't have the new flag explicitly, but every
+    # Pro+ tier already has `multi_server` (it's the canonical Pro+
+    # indicator) — accept that as proof of entitlement so existing
+    # paying customers get the feature on update without re-issuing
+    # their key.
+    "mikrotik_adapter":   ("multi_server",),
+}
+
+
 @dataclass
 class LicenseInfo:
     """License information"""
@@ -129,7 +147,16 @@ class LicenseInfo:
         return current_count < self.max_servers
 
     def has_feature(self, feature: str) -> bool:
-        return feature in self.features
+        if feature in self.features:
+            return True
+        # Legacy feature-name aliases from pre-rename signed licenses.
+        # When the canonical name changed, old offline-signed keys still
+        # carry the legacy name — accept both so existing customers don't
+        # get gated on renames.
+        for legacy in _FEATURE_ALIASES.get(feature, ()):
+            if legacy in self.features:
+                return True
+        return False
 
 
 # License plan configurations (fallback for trial / when payload lacks features list)
@@ -183,6 +210,7 @@ LICENSE_TIERS = {
             "client_portal",
             "telegram_bots",
             "multi_server",
+            "mikrotik_adapter",
             "traffic_rules",
             "android_app",
             "white_label_basic",
@@ -222,6 +250,7 @@ LICENSE_TIERS = {
             "bandwidth_limits",
             "expiry_timers",
             "multi_server",
+            "mikrotik_adapter",
             "client_portal",
             "traffic_rules",
             "wireguard",
@@ -259,6 +288,7 @@ LICENSE_TIERS = {
             "promo_codes",
             "auto_renewal",
             "manager_rbac",
+            "mikrotik_adapter",
         ]
     },
 }

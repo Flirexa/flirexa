@@ -1417,10 +1417,12 @@
 import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useServersStore } from '../stores/servers'
+import { useLicenseStore } from '../stores/license'
 import { serversApi, systemApi } from '../api'
 
 const { t } = useI18n()
 const store = useServersStore()
+const license = useLicenseStore()
 
 // ── i18n-safe labels (try/catch + literal fallback) ─────────
 // Inline $t() inside templates can crash the route on first paint when the
@@ -1436,11 +1438,14 @@ const connectionModeLabel = computed(() => { try { return t('servers.connectionM
 
 // Mikrotik adapter only manages plain WireGuard interfaces. AmneziaWG is a
 // Linux-kernel-only protocol, and Hysteria2/TUIC are entirely different
-// proxy services — neither runs on RouterOS. Hide the button in those
-// cases so operators can't pick an unsupported combination.
+// proxy services — neither runs on RouterOS. Also gated by the
+// `mikrotik_adapter` license feature (Pro tier or higher). Hide the
+// button when any of these don't hold so operators can't pick an
+// unsupported / unlicensed combination.
 const mikrotikOptionAvailable = computed(() => {
   return newServer.value.server_type === 'wireguard'
       && newServer.value.server_category !== 'proxy'
+      && license.has('mikrotik_adapter')
 })
 const mikrotikHint        = computed(() => { try { return t('servers.mikrotikHint') || 'The server must already have a WireGuard interface configured on the router. We connect to its REST API to add and remove peers.' } catch { return 'The server must already have a WireGuard interface configured on the router. We connect to its REST API to add and remove peers.' } })
 const mikrotikUrlLabel    = computed(() => { try { return t('servers.mikrotikUrl') || 'RouterOS URL' } catch { return 'RouterOS URL' } })
