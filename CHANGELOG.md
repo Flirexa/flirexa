@@ -4,6 +4,12 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.5.100 — 2026-05-11
+
+Translates the Let's Encrypt requirements banner on the proxy server create form. The three-line banner that appears when TLS mode is set to ACME was previously hardcoded in Russian and stayed Russian regardless of the selected UI language. All four strings (banner title plus three requirement bullets) now go through `vue-i18n`, with full translations in English, Russian, German, French, and Spanish. The lookups are wrapped in computed properties with try/catch and a literal English fallback, matching the defensive pattern adopted in 1.5.96 for the Clients form.
+
+---
+
 ## v1.5.99 — 2026-05-11
 
 Fixes a regression where Hysteria2 and TUIC installations were rejected with an upgrade prompt on installs running paid licences issued before some internal feature-flag names were normalized. `LicenseInfo.has_feature` now consults an alias table, so a renamed canonical flag still matches its legacy predecessor on existing signed keys. Customers don't need to re-issue or re-activate their licence.
