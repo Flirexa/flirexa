@@ -857,9 +857,21 @@ esac
             return {"success": False, "message": f"Bad address_pool_ipv4 '{ipv4_net}'", "details": details}
         host_addr = ".".join(octets[:3] + ["1"]) + f"/{prefix}"
         if address_pool_ipv6:
-            v6_net, _, v6_prefix = address_pool_ipv6.partition("/")
-            v6_prefix = v6_prefix or "64"
-            host_addr = f"{host_addr},{v6_net.rstrip(':')}::1/{v6_prefix}" if not v6_net.endswith("::") else f"{host_addr},{v6_net}1/{v6_prefix}"
+            # Accept either "fd42:42:42::/64" (network) or "fd42:42:42::1/64"
+            # (already a host). Naive concat doubles up the ::1 and yields
+            # the invalid "fd42:42:42::1::1/64" — route through `ipaddress`
+            # so the output is always a valid host.
+            try:
+                import ipaddress as _ip
+                iface = _ip.IPv6Interface(address_pool_ipv6)
+                net = iface.network
+                host = iface.ip if iface.ip != net.network_address else (net.network_address + 1)
+                host_addr = f"{host_addr},{host}/{net.prefixlen}"
+            except Exception:
+                v6_net, _, v6_prefix = address_pool_ipv6.partition("/")
+                v6_prefix = v6_prefix or "64"
+                base = v6_net.rstrip(":")
+                host_addr = f"{host_addr},{base}::1/{v6_prefix}"
 
         config_content = self.generate_server_config(
             private_key=private_key,

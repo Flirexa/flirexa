@@ -266,6 +266,18 @@ def _auto_register_local_server(db: Session) -> None:
     except Exception:
         pass
 
+    # Same normalization for IPv6 — store the network (fd42:42:42::/64),
+    # not the host (fd42:42:42::1/64). Consumers re-derive the ::1 host
+    # at config-write time, and a stored host part would double up to
+    # an invalid "fd42:42:42::1::1/64" address (seen in 1.5.x installs).
+    pool_v6 = address_v6 or None
+    if pool_v6:
+        try:
+            import ipaddress
+            pool_v6 = str(ipaddress.IPv6Interface(pool_v6).network)
+        except Exception:
+            pass
+
     server = Server(
         name="Main Server",
         endpoint=endpoint,
@@ -273,7 +285,7 @@ def _auto_register_local_server(db: Session) -> None:
         private_key=private_key,
         listen_port=listen_port,
         address_pool_ipv4=pool_v4,
-        address_pool_ipv6=address_v6 or None,
+        address_pool_ipv6=pool_v6,
         interface=iface,
         config_path=wg_conf,
         is_default=True,

@@ -1,14 +1,17 @@
 """
 Remote Server Adapter
-Routes commands to SSH (legacy) or Agent (new) based on server.agent_mode
+Routes commands to SSH (legacy), Agent (HTTP), or Mikrotik RouterOS REST.
+Mode selection is read from `server.agent_mode`.
 """
 
 from typing import Optional
+from urllib.parse import urlparse
 from loguru import logger
 
 from .wireguard import WireGuardManager
 from .amneziawg import AmneziaWGManager
 from .agent_client import AgentClient
+from .mikrotik import MikrotikWireGuardManager
 
 
 class RemoteServerAdapter:
@@ -42,7 +45,29 @@ class RemoteServerAdapter:
         is_awg = getattr(server, 'server_type', 'wireguard') == 'amneziawg'
 
         # Initialize backend
-        if self.mode == "agent" and server.agent_url and server.agent_api_key:
+        if self.mode == "mikrotik" and server.agent_url:
+            # Mikrotik RouterOS REST API. `agent_url` carries the scheme+host
+            # (e.g. "http://142.171.45.138" or "https://router.example.com:443"),
+            # `agent_api_key` is "user:password" — picked because the existing
+            # Server model already has those two columns and they're encrypted
+            # at rest. Avoids a schema migration just for one new mode.
+            parsed = urlparse(server.agent_url)
+            host = parsed.hostname or server.agent_url
+            scheme = parsed.scheme or "http"
+            port = parsed.port or (443 if scheme == "https" else 80)
+            creds = (server.agent_api_key or "").split(":", 1)
+            username = creds[0] if creds[0] else "admin"
+            password = creds[1] if len(creds) > 1 else ""
+            self.backend = MikrotikWireGuardManager(
+                interface=interface,
+                host=host,
+                port=port,
+                scheme=scheme,
+                username=username,
+                password=password,
+            )
+            logger.debug(f"RemoteAdapter: using MIKROTIK mode for {server.name}")
+        elif self.mode == "agent" and server.agent_url and server.agent_api_key:
             # Use Agent API
             self.backend = AgentClient(server.agent_url, server.agent_api_key)
             logger.debug(f"RemoteAdapter: using AGENT mode for {server.name}")
