@@ -788,7 +788,7 @@ Previous behavior was "validator + heartbeat always run, but skip if no key". Th
 ### Added
 
 - **Auto-poll for new versions in the background.** A periodic check (default every 6 hours, controlled by `UPDATE_CHECK_INTERVAL`) refreshes the manifest cache. The admin panel's navbar now shows a small package-up icon with a red dot when a newer version is available — click it to jump to Updates. No auto-apply: you stay in control of when to install.
-- **`publish_update.py --to-both` flag** for vendors operating primary + backup license servers. One command publishes / promotes / lists / deletes across both, surfacing per-server failures at the end without aborting halfway. Defaults: `flirexa.biz` (primary) + `global-connection.site` (backup).
+- **`publish_update.py --to-both` flag** for vendors operating primary + backup license servers. One command publishes / promotes / lists / deletes across both, surfacing per-server failures at the end without aborting halfway. Both URLs are configurable via env (`UPDATE_SERVER_URL`, `UPDATE_SERVER_BACKUP_URL`).
 
 ### Fixed
 
