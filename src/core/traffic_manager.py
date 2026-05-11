@@ -786,8 +786,12 @@ class TrafficManager:
         server = client.server
 
         try:
-            if server and server.ssh_host:
-                # REMOTE server — delegate to Agent via RemoteServerAdapter
+            # Remote-managed servers (SSH-agent, or Mikrotik over REST):
+            # delegate the limit to the device-specific backend via
+            # RemoteServerAdapter. Local-only `tc/htb` doesn't apply when
+            # the WG interface lives on another box.
+            _is_mikrotik = (getattr(server, "agent_mode", None) or "") == "mikrotik"
+            if server and (server.ssh_host or _is_mikrotik):
                 wg = self._get_wg(server)
                 try:
                     if bandwidth_mbps <= 0:
@@ -800,7 +804,8 @@ class TrafficManager:
                 if result:
                     client.bandwidth_limit = bandwidth_mbps if bandwidth_mbps > 0 else None
                     self.db.commit()
-                    logger.info(f"Set bandwidth limit for {client.name}: {bandwidth_mbps} Mbps (remote)")
+                    where = "mikrotik" if _is_mikrotik else "remote"
+                    logger.info(f"Set bandwidth limit for {client.name}: {bandwidth_mbps} Mbps ({where})")
                 return result
             else:
                 # LOCAL server — tc via subprocess

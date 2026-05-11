@@ -252,6 +252,8 @@ class RemoteServerAdapter:
         """Set bandwidth limit"""
         if self.mode == "agent":
             return self.backend.set_bandwidth(ip, limit_mbps, ip_index)
+        elif self.mode == "mikrotik":
+            return self.backend.set_bandwidth_limit(ip, limit_mbps)
         else:
             logger.warning("set_bandwidth_limit not implemented for SSH mode")
             return False
@@ -260,6 +262,8 @@ class RemoteServerAdapter:
         """Remove bandwidth limit"""
         if self.mode == "agent":
             return self.backend.set_bandwidth(ip, 0, ip_index, remove=True)
+        elif self.mode == "mikrotik":
+            return self.backend.remove_bandwidth_limit(ip)
         else:
             logger.warning("remove_bandwidth_limit not implemented for SSH mode")
             return False

@@ -4,6 +4,24 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.5 — 2026-05-12
+
+**Per-peer bandwidth caps now work on RouterOS-managed servers**, closing the last functional parity gap between Linux-managed and Mikrotik-managed Pro-tier servers. Setting a Speed limit on a client backed by a Mikrotik server now provisions a `/queue/simple` entry on the router targeting that peer's IP. Linux servers continue to use `tc/htb` as before; only the dispatch and the RouterOS path are new.
+
+### Added
+
+- **`MikrotikWireGuardManager.set_bandwidth_limit(ip, mbps)` / `remove_bandwidth_limit(ip)`** mapping panel bandwidth operations to RouterOS `/queue/simple`. Each managed queue is named `flirexa-peer-<ip>` and carries a `managed by flirexa — do not edit` comment so it's easy to identify alongside the operator's own queues. Symmetric upload + download (same `max-limit` for both directions).
+- **`get_bandwidth_limits()`** for inspecting / reconciling the live cap state on the router from panel-side code (returns `{ip: mbps}` for every panel-managed queue).
+- **`RemoteServerAdapter` routes the existing `set_bandwidth_limit` / `remove_bandwidth_limit` calls** to the Mikrotik backend when `agent_mode == 'mikrotik'`. `TrafficManager.set_bandwidth_limit` no longer falls through to local `tc` for remote-managed servers; it delegates to the adapter unconditionally.
+
+### Behavior notes
+
+- A limit of `0` Mbps removes the queue entirely (`tc` and `queue/simple` both treat this as "no cap").
+- Updating an existing cap rewrites the queue's `max-limit` in place — same name, same target, no flap of the existing traffic.
+- Queues named `flirexa-peer-*` are the only ones the panel touches. Other queues you've configured on the router via WebFig, Winbox, or any tooling stay untouched.
+
+---
+
 ## v1.6.4 — 2026-05-12
 
 Three follow-ups to the RouterOS integration that ship in 1.6.2: the panel now picks up the router's existing address pool automatically, avoids handing out IPs already claimed by manually-added router peers, and surfaces aggregated peer transfer in server stats. Together these reduce the "fill in the same `/20` you already configured on the router" friction and prevent panel-allocated clients from colliding with peers added directly via WebFig or Winbox.
