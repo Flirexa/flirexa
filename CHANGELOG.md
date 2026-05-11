@@ -4,6 +4,12 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.6 — 2026-05-12
+
+Fixes a UI gating regression where licence-feature buttons (most visibly the Mikrotik connection-mode option in Add Server) stayed hidden for operators whose licence carries a legacy feature flag that the backend honours through aliasing but the frontend couldn't see. `/api/v1/system/license` now returns the **effective** feature set — raw features plus any canonical flag whose alias is satisfied — so frontend checks like `license.has('mikrotik_adapter')` resolve the same way the backend's `has_feature()` does. Operators with existing Pro / Business / Enterprise lifetime keys (which carry `multi_server` but not `mikrotik_adapter` explicitly) now see the Mikrotik option in the form without re-issuing their licence.
+
+---
+
 ## v1.6.5 — 2026-05-12
 
 **Per-peer bandwidth caps now work on RouterOS-managed servers**, closing the last functional parity gap between Linux-managed and Mikrotik-managed Pro-tier servers. Setting a Speed limit on a client backed by a Mikrotik server now provisions a `/queue/simple` entry on the router targeting that peer's IP. Linux servers continue to use `tc/htb` as before; only the dispatch and the RouterOS path are new.
