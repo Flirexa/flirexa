@@ -2,8 +2,8 @@
 """Fail if any FastAPI route handler is `async def` but blocks the event
 loop with sync I/O (no `await`, but uses sync SQLAlchemy / requests /
 subprocess). Such routes serialize the entire panel on the single uvicorn
-event loop, which is what made Herbert's panel hang for seconds in
-1.5.80 before the mass conversion in 1.5.82.
+event loop, which was the cause of the multi-second hangs in 1.5.80
+before the mass conversion in 1.5.82.
 
 Run with no args from the repo root:
 

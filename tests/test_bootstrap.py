@@ -413,11 +413,11 @@ class TestUninstallPreservesDataPlane:
     WireGuard interface by default. That data-plane teardown is reserved for
     `delete_server` (which sets `purge_vpn_interface=True` explicitly).
 
-    Regression: Herbert clicked "Uninstall agent" on a server that had become
-    panel-unreachable. The old code wiped /etc/wireguard/wg1.conf and ran
-    `wg-quick down wg1`, knocking 13 customers offline. Reinstall is the only
-    place that needs to rewrite the config (bootstrap S4 already does it),
-    so the destructive teardown was overkill on this path.
+    Regression: clicking "Uninstall agent" on a panel-unreachable server
+    used to wipe /etc/wireguard/wg1.conf and run `wg-quick down wg1`,
+    knocking active customers offline. Reinstall is the only path that
+    needs to rewrite the config (bootstrap S4 already does it), so the
+    destructive teardown was overkill on this path.
     """
 
     def _make_bootstrap(self):

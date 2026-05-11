@@ -327,10 +327,10 @@ def list_servers(
 
     Declared as `def` (not `async def`) on purpose: the body uses synchronous
     SQLAlchemy. With `async def`, every sync DB call would block the single
-    event loop and serialize concurrent requests — which is what made
-    Herbert's panel hang for 2-3s under fan-out (one /servers call running
-    behind 6 /bandwidth calls). FastAPI runs `def` handlers in a thread pool,
-    so concurrent fan-outs progress in parallel.
+    event loop and serialize concurrent requests — which caused multi-second
+    hangs under fan-out (e.g. one /servers call queued behind 6 /bandwidth
+    calls). FastAPI runs `def` handlers in a thread pool, so concurrent
+    fan-outs progress in parallel.
     """
     from sqlalchemy import func as sa_func
     query = db.query(Server)

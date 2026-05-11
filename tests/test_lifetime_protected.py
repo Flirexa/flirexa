@@ -52,8 +52,8 @@ def _make_protected_payload():
         "hardware_id": "abcd1234",
         "issued_at": "2026-05-05T00:00:00+00:00",
         "expires_at": None,
-        "owner_name": "Herbert Rivera",
-        "owner_email": "h@example.com",
+        "owner_name": "Acme Holdings",
+        "owner_email": "owner@example.com",
         "migration_secret": "MIGSECRET_32CHARS_TESTONLY________",
     }
 
@@ -250,12 +250,12 @@ def test_license_generator_emits_protected_fields(tmp_path):
         duration_days=None,
         billing_type="lifetime",
         license_type="lifetime_protected",
-        owner_name="Herbert Rivera",
-        owner_email="h@example.com",
+        owner_name="Acme Holdings",
+        owner_email="owner@example.com",
     )
     assert payload["license_type"] == "lifetime_protected"
-    assert payload["owner_name"] == "Herbert Rivera"
-    assert payload["owner_email"] == "h@example.com"
+    assert payload["owner_name"] == "Acme Holdings"
+    assert payload["owner_email"] == "owner@example.com"
     assert "migration_secret" in payload
     assert len(payload["migration_secret"]) >= 32
     # Roundtrip via key string

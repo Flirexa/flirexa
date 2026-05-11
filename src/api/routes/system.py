@@ -491,9 +491,7 @@ async def replay_license(data: LicenseReplayRequest):
     hw_id   = get_hardware_id()
     payload = {"activation_code": activation_code, "hardware_id": hw_id}
 
-    # Try primary, then backup. Both must speak /api/activate/replay (deployed
-    # on flirexa.biz + global-connection.site as of license-server change on
-    # 2026-05-01).
+    # Try primary, then backup. Both must speak /api/activate/replay.
     last_error = None
     for base_url in (primary, backup):
         if not base_url:

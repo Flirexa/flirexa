@@ -1,6 +1,8 @@
 """
 Tests for the Migrate Clients endpoint, especially the dual-active
-copy mode introduced in v1.5.59 (Herbert's DNS-propagation case).
+copy mode introduced in v1.5.59 (the DNS-propagation case where an
+operator needed both source and destination serving the same peers
+while DNS records flipped to the new IP).
 
 We're checking three flavours of `POST /api/v1/servers/{src}/migrate-clients`:
   • move (default): clients re-pointed to dst, removed from src WG, added to dst WG

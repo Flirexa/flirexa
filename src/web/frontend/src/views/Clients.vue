@@ -1354,8 +1354,8 @@ onMounted(async () => {
 })
 
 // Live auto-refresh: re-pull clients (which carries fresh last_handshake
-// from each agent) on a user-picked interval. Persisted per page so
-// Herbert's "show me online users without F5" preference sticks.
+// from each agent) on a user-picked interval. Persisted per page so the
+// operator's "show me online users without F5" preference sticks.
 const livePollInterval = usePersistedInterval('vmm.live.clients', 15_000)
 const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(), livePollInterval)
 </script>
