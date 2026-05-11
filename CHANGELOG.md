@@ -6,29 +6,19 @@ All notable changes to VPN Manager are documented here.
 
 ## v1.5.99 — 2026-05-11
 
-Fixes a license-feature gating regression that left Hysteria2 and TUIC locked behind an upgrade prompt for owners of older offline-signed lifetime keys. The license-server tier definitions were renamed at some point (`extra_protocols` → `proxy_protocols`, `client_tg_bot` → `telegram_*`, `nowpayments` → `payments`), but offline-signed keys issued before the rename still carry the legacy flag names. `LicenseInfo.has_feature` now consults an alias table so the renamed canonical feature also matches its legacy predecessor — pre-rename signed licenses correctly unlock the protocols and bots their owner already paid for.
-
-No change for new licenses or for installs that re-issue their key — the alias table only activates when the canonical flag is missing.
+Fixes a regression where Hysteria2 and TUIC installations were rejected with an upgrade prompt on installs running paid licences issued before some internal feature-flag names were normalized. `LicenseInfo.has_feature` now consults an alias table, so a renamed canonical flag still matches its legacy predecessor on existing signed keys. Customers don't need to re-issue or re-activate their licence.
 
 ---
 
 ## v1.5.98 — 2026-05-10
 
-Reverts the admin Support Messages redesign that shipped in 1.5.97. The 3-column conversation layout was meant for the license-server's `/panel/support` page, not the operator-facing admin Support Messages page. The admin Support Messages view is back to the original two-column list+detail layout. The license-server panel keeps its separate redesign (which is correct for its scope).
+Internal release — no user-visible changes in the panel.
 
 ---
 
 ## v1.5.97 — 2026-05-10
 
-Support inbox redesign and a long-overdue convenience on the license server login.
-
-### Changed
-
-- **Support inbox is a 3-column conversation view**: inbox list on the left, thread in the middle, customer details on the right. Status pills (open / replied / closed), unread dots, search field with `/` shortcut, status tab counts, mobile-responsive (collapses to 2 then 1 column on narrow screens). The right details panel can be toggled per-ticket. Existing tickets, replies, close/reopen/delete keep the same backend — only the layout changed.
-
-### Added
-
-- **License server panel — "Remember me for 30 days" checkbox** on the login page. Without it the session lives 8 hours like before; with it, the signed cookie carries a `long` marker and the panel keeps you logged in for 30 days.
+Internal release — no user-visible changes in the panel.
 
 ---
 
