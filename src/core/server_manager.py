@@ -78,6 +78,20 @@ class ServerManager:
         """
         is_awg = getattr(server, 'server_type', 'wireguard') == 'amneziawg'
 
+        # Mikrotik mode is *remote* (the WG interface lives on the router)
+        # but has no ssh_host. Route through the adapter, otherwise we'd
+        # hit the local-mode branch and accidentally tear down the panel
+        # host's wg0 when stopping/deleting a mikrotik-managed server with
+        # the same interface name. Same defensive pattern as the SSH/local
+        # collision incident fixed in 1.5.89/1.5.101.
+        if (getattr(server, "agent_mode", None) or "") == "mikrotik":
+            from .remote_adapter import RemoteServerAdapter
+            return RemoteServerAdapter(
+                server=server,
+                interface=server.interface,
+                config_path=server.config_path,
+            )
+
         # Local server
         if not server.ssh_host:
             if is_awg:
@@ -155,6 +169,7 @@ class ServerManager:
         proxy_service_name: Optional[str] = None,
         proxy_obfs_password: Optional[str] = None,
         proxy_auth_password: Optional[str] = None,
+        **kwargs,
     ) -> Optional[Server]:
         """
         Create a new WireGuard server configuration
@@ -183,8 +198,15 @@ class ServerManager:
             logger.error(f"Server '{name}' already exists")
             return None
 
-        # Check if interface is already used (skip for remote servers)
-        if not ssh_host:
+        # Check if interface is already used (skip for remote servers —
+        # remote SSH and remote Mikrotik both manage their interface on the
+        # *remote* host and can legitimately share a name with another
+        # remote box. Detect remote-Mikrotik mode via the caller-supplied
+        # `_is_remote_mode` kwarg (the API route flags this for mikrotik
+        # because at the time of create_server() the agent_mode hasn't
+        # been stamped on the row yet).
+        _is_remote_mode = bool(kwargs.get("_is_remote_mode", False))
+        if not ssh_host and not _is_remote_mode:
             interface_exists = self.db.query(Server).filter(
                 Server.interface == interface,
                 Server.ssh_host == None,
@@ -770,7 +792,20 @@ class ServerManager:
         network_part = base.rsplit(".", 1)[0]
         address = f"{network_part}.1/{prefix}"
         if server.address_pool_ipv6:
-            ipv6_addr = server.address_pool_ipv6.split("/")[0].rstrip(":") + "::1/64"
+            # `address_pool_ipv6` should be a network ("fd42:42:42::/64"), but
+            # older installs sometimes stored the host form ("fd42:42:42::1/64").
+            # Normalize via `ipaddress` so either input yields the correct
+            # host address — naive string concat would double-up to an
+            # invalid "fd42:42:42::1::1/64".
+            try:
+                import ipaddress as _ip
+                iface = _ip.IPv6Interface(server.address_pool_ipv6)
+                net = iface.network
+                host = iface.ip if iface.ip != net.network_address else (net.network_address + 1)
+                ipv6_addr = f"{host}/{net.prefixlen}"
+            except Exception:
+                base = server.address_pool_ipv6.split("/")[0].rstrip(":")
+                ipv6_addr = f"{base}::1/64"
             address = f"{address},{ipv6_addr}"
 
         if getattr(server, "server_type", "wireguard") == "amneziawg":

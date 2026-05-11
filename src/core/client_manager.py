@@ -51,6 +51,16 @@ class ClientManager:
         """
         is_awg = getattr(server, 'server_type', 'wireguard') == 'amneziawg'
 
+        # Mikrotik mode is "remote" but has no ssh_host. Route through the
+        # adapter so peer ops go to RouterOS REST instead of local `wg`.
+        if (getattr(server, "agent_mode", None) or "") == "mikrotik":
+            from .remote_adapter import RemoteServerAdapter
+            return RemoteServerAdapter(
+                server=server,
+                interface=server.interface,
+                config_path=server.config_path,
+            )
+
         # Local server - use direct manager
         if not server.ssh_host:
             if is_awg:

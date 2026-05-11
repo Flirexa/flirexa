@@ -4,6 +4,32 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.2 — 2026-05-11
+
+**RouterOS support — manage WireGuard servers running on Mikrotik routers directly from the panel.**
+
+A new "Connection" mode in the New Server form, alongside SSH: pick Mikrotik (RouterOS API), paste the router URL plus an API username and password, and the panel takes over peer management on that device. The router's WireGuard interface and its keypair stay where the operator set them up — the panel just talks to the device's REST API (port 80 by default, 443 when SSL is enabled). All the usual client lifecycle works the same as for SSH-managed servers: add client, disable/enable, delete, all the way through to the generated `.conf` that clients download from the portal.
+
+### Added
+
+- **Mikrotik connection mode** with three new fields on Add Server (RouterOS URL, API username, API password). On submit, the panel probes the router over REST, pulls the WireGuard interface's public key and listen-port from the device, and stores them on the server row — no need to type the pubkey by hand.
+- **Client lifecycle parity with SSH mode.** Adding a client creates a peer on the router; disabling a client removes the peer (preserving the client's IP and PSK so re-enabling restores it identically); deleting a client removes the peer for good. Generated client `.conf` contains the router's real public key, verified to handshake end-to-end.
+- **Connection mode is hidden for incompatible protocols.** RouterOS cannot run AmneziaWG (Linux-kernel-specific) or Hysteria2/TUIC. Selecting either of those server types in the Add Server form hides the Mikrotik option so an unsupported combination cannot be picked.
+- **Translations** for the new form labels and hint banner in English, Russian, German, French, and Spanish.
+
+### Fixed
+
+- **Startup failure when `address_pool_ipv6` was stored as a host address rather than the network address.** Some installs ended up with `fd42:42:42::1/64` (the host form) saved on the server row, which then expanded to the invalid `fd42:42:42::1::1/64` at `wg-quick up` time and the kernel refused to bring the interface up. The composer now normalizes either form before writing the Address line, and the install bootstrap stores the network form consistently going forward.
+- **Deleting a Mikrotik-managed server no longer touches the router's own interface.** Earlier in development this code path was sending a `disabled=true` to the router's WireGuard interface on server delete — surprising for an operator whose interface predates the panel. Now the panel only cleans up the peers it added itself.
+- **The "interface already in use" check no longer false-positives on remote-managed servers.** Adding a Mikrotik server with `wg0` would fail if the panel host also had a local `wg0`, even though the two interfaces live on entirely different machines. The check is now scoped to local-mode servers, where it actually matters.
+
+### Limitations
+
+- Per-peer traffic counters and latest-handshake from Mikrotik aren't pulled into the panel's stats dashboards yet. The data is exposed by RouterOS over REST and will be wired into the panel in a follow-up release.
+- Bandwidth caps for Mikrotik peers (Linux servers already have them via tc/htb) require a different mechanism on RouterOS (queue tree) — also queued for a follow-up.
+
+---
+
 ## v1.5.100 — 2026-05-11
 
 Translates the Let's Encrypt requirements banner on the proxy server create form. The three-line banner that appears when TLS mode is set to ACME was previously hardcoded in Russian and stayed Russian regardless of the selected UI language. All four strings (banner title plus three requirement bullets) now go through `vue-i18n`, with full translations in English, Russian, German, French, and Spanish. The lookups are wrapped in computed properties with try/catch and a literal English fallback, matching the defensive pattern adopted in 1.5.96 for the Clients form.

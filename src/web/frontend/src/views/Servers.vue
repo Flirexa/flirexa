@@ -450,11 +450,11 @@
 
               <!-- ACME requirements banner -->
               <div v-if="newServer.proxy_tls_mode === 'acme'" class="acme-banner mb-3">
-                <div class="acme-banner__title"><i class="mdi mdi-lock me-1"></i>Let's Encrypt — требования</div>
+                <div class="acme-banner__title"><i class="mdi mdi-lock me-1"></i>{{ acmeBannerTitle }}</div>
                 <ul class="acme-banner__list">
-                  <li>Домен <strong>должен</strong> указывать на IP этого сервера (A-запись)</li>
-                  <li>Порт <strong>80</strong> должен быть открыт (HTTP-01 challenge)</li>
-                  <li>Сертификат получается автоматически при запуске — в логах будет виден весь процесс</li>
+                  <li v-html="acmeReqDomain"></li>
+                  <li v-html="acmeReqPort80"></li>
+                  <li>{{ acmeReqAutoIssue }}</li>
                 </ul>
               </div>
 
@@ -518,28 +518,76 @@
                            :placeholder="$t('servers.locationPlaceholder')" />
                   </div>
 
-                  <!-- SSH -->
-                  <div class="ssh-section-label mb-2">{{ $t('servers.sshRemote') }}</div>
-                  <div class="row g-3 mb-3">
-                    <div class="col-12 col-sm-6">
-                      <label class="form-label mb-1 small fw-medium">{{ $t('servers.sshHost') }}</label>
-                      <input v-model="newServer.ssh_host" type="text" class="form-control"
-                             :placeholder="$t('servers.sshHostPlaceholder')" />
-                    </div>
-                    <div class="col-4 col-sm-2">
-                      <label class="form-label mb-1 small fw-medium">{{ $t('servers.sshPort') }}</label>
-                      <input v-model.number="newServer.ssh_port" type="number" class="form-control" />
-                    </div>
-                    <div class="col-8 col-sm-4">
-                      <label class="form-label mb-1 small fw-medium">{{ $t('servers.sshUser') }}</label>
-                      <input v-model="newServer.ssh_user" type="text" class="form-control" />
-                    </div>
+                  <!-- Connection mode selector. Mikrotik option is only
+                       shown for plain WireGuard servers — RouterOS doesn't
+                       support AmneziaWG (Linux-kernel-specific) and isn't
+                       a Hysteria2/TUIC server. -->
+                  <div class="ssh-section-label mb-2">{{ connectionModeLabel }}</div>
+                  <div class="btn-group mb-3 w-100" role="group">
+                    <button type="button"
+                            class="btn"
+                            :class="newServer.agent_mode === 'ssh' ? 'btn-primary' : 'btn-outline-secondary'"
+                            @click="newServer.agent_mode = 'ssh'">
+                      <i class="mdi mdi-console me-1"></i>SSH
+                    </button>
+                    <button v-if="mikrotikOptionAvailable"
+                            type="button"
+                            class="btn"
+                            :class="newServer.agent_mode === 'mikrotik' ? 'btn-primary' : 'btn-outline-secondary'"
+                            @click="newServer.agent_mode = 'mikrotik'">
+                      <i class="mdi mdi-router-network me-1"></i>Mikrotik (RouterOS API)
+                    </button>
                   </div>
-                  <div class="mb-1">
-                    <label class="form-label mb-1 small fw-medium">{{ $t('servers.sshPassword') }}</label>
-                    <input v-model="newServer.ssh_password" type="password" class="form-control"
-                           :placeholder="$t('servers.sshPasswordPlaceholder')" />
-                  </div>
+
+                  <!-- SSH credentials (mode = ssh) -->
+                  <template v-if="newServer.agent_mode === 'ssh'">
+                    <div class="row g-3 mb-3">
+                      <div class="col-12 col-sm-6">
+                        <label class="form-label mb-1 small fw-medium">{{ $t('servers.sshHost') }}</label>
+                        <input v-model="newServer.ssh_host" type="text" class="form-control"
+                               :placeholder="$t('servers.sshHostPlaceholder')" />
+                      </div>
+                      <div class="col-4 col-sm-2">
+                        <label class="form-label mb-1 small fw-medium">{{ $t('servers.sshPort') }}</label>
+                        <input v-model.number="newServer.ssh_port" type="number" class="form-control" />
+                      </div>
+                      <div class="col-8 col-sm-4">
+                        <label class="form-label mb-1 small fw-medium">{{ $t('servers.sshUser') }}</label>
+                        <input v-model="newServer.ssh_user" type="text" class="form-control" />
+                      </div>
+                    </div>
+                    <div class="mb-1">
+                      <label class="form-label mb-1 small fw-medium">{{ $t('servers.sshPassword') }}</label>
+                      <input v-model="newServer.ssh_password" type="password" class="form-control"
+                             :placeholder="$t('servers.sshPasswordPlaceholder')" />
+                    </div>
+                  </template>
+
+                  <!-- Mikrotik RouterOS REST credentials (mode = mikrotik) -->
+                  <template v-if="newServer.agent_mode === 'mikrotik'">
+                    <div class="alert alert-info py-2 small mb-3">
+                      <i class="mdi mdi-information-outline me-1"></i>
+                      {{ mikrotikHint }}
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label mb-1 small fw-medium">{{ mikrotikUrlLabel }} *</label>
+                      <input v-model="newServer.mikrotik_url" type="url" class="form-control"
+                             placeholder="http://192.168.88.1" required />
+                      <div class="form-text small">{{ mikrotikUrlHint }}</div>
+                    </div>
+                    <div class="row g-3 mb-1">
+                      <div class="col-6">
+                        <label class="form-label mb-1 small fw-medium">{{ mikrotikUserLabel }} *</label>
+                        <input v-model="newServer.mikrotik_username" type="text" class="form-control"
+                               placeholder="admin" required />
+                      </div>
+                      <div class="col-6">
+                        <label class="form-label mb-1 small fw-medium">{{ mikrotikPassLabel }} *</label>
+                        <input v-model="newServer.mikrotik_password" type="password" class="form-control"
+                               required />
+                      </div>
+                    </div>
+                  </template>
 
                   <!-- Reuse-keypair toggle for the "replace a dead server" workflow.
                        Most users never need this — keep it collapsed by default so
@@ -1374,6 +1422,32 @@ import { serversApi, systemApi } from '../api'
 const { t } = useI18n()
 const store = useServersStore()
 
+// ── i18n-safe labels (try/catch + literal fallback) ─────────
+// Inline $t() inside templates can crash the route on first paint when the
+// locale module hits a transient state. Wrapping in computed + try/catch
+// returns a hard-coded English fallback instead of taking the whole page
+// down. See feedback_jsx_safe_i18n_patterns.
+const acmeBannerTitle    = computed(() => { try { return t('servers.acmeBannerTitle')    || "Let's Encrypt — requirements" } catch { return "Let's Encrypt — requirements" } })
+const acmeReqDomain      = computed(() => { try { return t('servers.acmeReqDomain')      || "Domain <strong>must</strong> point to this server's IP (A record)" } catch { return "Domain <strong>must</strong> point to this server's IP (A record)" } })
+const acmeReqPort80      = computed(() => { try { return t('servers.acmeReqPort80')      || "Port <strong>80</strong> must be open (HTTP-01 challenge)" } catch { return "Port <strong>80</strong> must be open (HTTP-01 challenge)" } })
+const acmeReqAutoIssue   = computed(() => { try { return t('servers.acmeReqAutoIssue')   || "Certificate is issued automatically on startup — the full process is visible in the logs" } catch { return "Certificate is issued automatically on startup — the full process is visible in the logs" } })
+
+const connectionModeLabel = computed(() => { try { return t('servers.connectionMode') || 'Connection' } catch { return 'Connection' } })
+
+// Mikrotik adapter only manages plain WireGuard interfaces. AmneziaWG is a
+// Linux-kernel-only protocol, and Hysteria2/TUIC are entirely different
+// proxy services — neither runs on RouterOS. Hide the button in those
+// cases so operators can't pick an unsupported combination.
+const mikrotikOptionAvailable = computed(() => {
+  return newServer.value.server_type === 'wireguard'
+      && newServer.value.server_category !== 'proxy'
+})
+const mikrotikHint        = computed(() => { try { return t('servers.mikrotikHint') || 'The server must already have a WireGuard interface configured on the router. We connect to its REST API to add and remove peers.' } catch { return 'The server must already have a WireGuard interface configured on the router. We connect to its REST API to add and remove peers.' } })
+const mikrotikUrlLabel    = computed(() => { try { return t('servers.mikrotikUrl') || 'RouterOS URL' } catch { return 'RouterOS URL' } })
+const mikrotikUrlHint     = computed(() => { try { return t('servers.mikrotikUrlHint') || 'Include scheme and port if non-default: http://1.2.3.4 or https://router.example.com:443' } catch { return 'Include scheme and port if non-default: http://1.2.3.4 or https://router.example.com:443' } })
+const mikrotikUserLabel   = computed(() => { try { return t('servers.mikrotikUser') || 'API username' } catch { return 'API username' } })
+const mikrotikPassLabel   = computed(() => { try { return t('servers.mikrotikPass') || 'API password' } catch { return 'API password' } })
+
 // ── Server card helpers ────────────────────────────────────
 const openMenuId = ref(null)
 function isOnline(s) { return s.status === 'ONLINE' || s.status === 'online' }
@@ -1462,6 +1536,18 @@ watch(() => newServer.value.proxy_tls_mode, (mode) => {
     acmeDomainError.value = false
   } else if (!newServer.value.proxy_domain?.trim()) {
     acmeDomainError.value = true
+  }
+})
+
+// If the user picks AWG or a proxy protocol after having selected
+// Mikrotik connection-mode, flip the mode back to SSH — Mikrotik can't
+// run those.
+watch([
+  () => newServer.value.server_type,
+  () => newServer.value.server_category,
+], () => {
+  if (newServer.value.agent_mode === 'mikrotik' && !mikrotikOptionAvailable.value) {
+    newServer.value.agent_mode = 'ssh'
   }
 })
 watch(() => newServer.value.proxy_domain, (val) => {
@@ -1557,6 +1643,13 @@ const newServer = ref({
   server_category: 'vpn',
   split_tunnel_support: false,
   ipv4_only: false,
+  // Connection mode: 'ssh' (default, install agent over SSH) or 'mikrotik'
+  // (manage an existing RouterOS device via its REST API — no SSH, no
+  // agent install).
+  agent_mode: 'ssh',
+  mikrotik_url: '',
+  mikrotik_username: 'admin',
+  mikrotik_password: '',
   // Proxy fields
   proxy_domain: '',
   proxy_tls_mode: 'self_signed',
@@ -1826,8 +1919,20 @@ async function addServer() {
   stopBootstrapPolling()
 
   const payload = { ...newServer.value }
-  const isRemote = !!payload.ssh_host
+  const isMikrotik = payload.agent_mode === 'mikrotik'
+  const isRemote = isMikrotik || !!payload.ssh_host
   const isProxy = payload.server_category === 'proxy'
+
+  // Mikrotik mode: the WG interface and its keypair live on the router.
+  // public_key and listen_port get probed and stamped by the backend from
+  // the router's REST API; drop whatever the user typed. Endpoint stays
+  // (user types the public-facing IP/host that clients dial — separate
+  // from the management URL).
+  if (isMikrotik) {
+    delete payload.public_key
+    delete payload.private_key
+    delete payload.listen_port
+  }
 
   // Proxy servers: backend auto-generates the interface name (proxy-hy20, proxy-tui0)
   // Frontend default 'proxy-hy20' would fail backend VPN interface validation
@@ -1883,6 +1988,20 @@ async function addServer() {
     delete payload.ssh_password
   }
 
+  // Mikrotik mode: drop SSH fields entirely; keep mikrotik_* for the API.
+  // SSH mode (or default): drop mikrotik_* so they don't show up as empty
+  // strings in the payload (pydantic would still accept them but it's noise).
+  if (payload.agent_mode === 'mikrotik') {
+    delete payload.ssh_host
+    delete payload.ssh_port
+    delete payload.ssh_user
+    delete payload.ssh_password
+  } else {
+    delete payload.mikrotik_url
+    delete payload.mikrotik_username
+    delete payload.mikrotik_password
+  }
+
   try {
     // For proxy servers, attach a task_id for live progress streaming
     if (isProxy) {
@@ -1891,6 +2010,8 @@ async function addServer() {
       payload.task_id = tid
       installProgress.value = t('servers.connecting') || 'Connecting...'
       pollBootstrapLogs(tid)
+    } else if (isMikrotik) {
+      installProgress.value = t('servers.connectingMikrotik') || 'Probing RouterOS API…'
     } else if (isRemote) {
       installProgress.value = t('servers.connectingSSH') || 'Connecting via SSH...'
     }

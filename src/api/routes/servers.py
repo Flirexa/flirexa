@@ -87,6 +87,24 @@ class ServerCreate(BaseModel):
     proxy_key_path: Optional[str] = Field(None, description="Path to TLS key on server (proxy manual TLS)")
     proxy_obfs_password: Optional[str] = Field(None, description="OBFS password (Hysteria2 only)")
 
+    # ── Mikrotik RouterOS REST mode ────────────────────────────────────────
+    # When `agent_mode='mikrotik'`, the server is managed via RouterOS REST.
+    # We reuse `agent_url` to carry the full URL (e.g. "http://1.2.3.4")
+    # and `agent_api_key` to carry "user:password" — no schema migration
+    # needed. SSH fields are ignored in this mode.
+    agent_mode: str = Field(
+        "ssh",
+        pattern=r"^(ssh|agent|mikrotik)$",
+        description="Connection mode: ssh (default), agent (HTTP daemon), mikrotik (RouterOS REST API)",
+    )
+    mikrotik_url: Optional[str] = Field(
+        None,
+        description="RouterOS REST endpoint URL (e.g. http://1.2.3.4 or https://router.example.com:443). "
+                    "Required when agent_mode=mikrotik.",
+    )
+    mikrotik_username: Optional[str] = Field(None, description="RouterOS API username")
+    mikrotik_password: Optional[str] = Field(None, description="RouterOS API password")
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -474,8 +492,15 @@ async def create_server(
     if is_proxy:
         return await _create_proxy_server(server_data, db, core)
 
-    # Check if interface is already used (only for local servers)
-    if not server_data.ssh_host and core.servers.get_server_by_interface(server_data.interface):
+    # Check if interface is already used (only for local servers — remote
+    # SSH-managed and Mikrotik-managed boxes have their own interface
+    # namespace on the remote host and can legitimately share a name with
+    # the local install).
+    _is_local_mode = (
+        not server_data.ssh_host
+        and (server_data.agent_mode or "ssh") != "mikrotik"
+    )
+    if _is_local_mode and core.servers.get_server_by_interface(server_data.interface):
         raise HTTPException(
             status_code=400,
             detail=f"Interface '{server_data.interface}' is already in use"
@@ -487,6 +512,54 @@ async def create_server(
     address_pool_ipv4 = server_data.address_pool_ipv4
 
     is_awg = server_data.server_type == "amneziawg"
+
+    # ── Mikrotik RouterOS mode ─────────────────────────────────────────────
+    # The router holds the WG interface and its keypair. We fetch the
+    # public key over REST, leave private_key NULL (we never have it —
+    # RouterOS doesn't expose it via this code path), and listen-port comes
+    # from the router too. Caller doesn't need to provide keys.
+    is_mikrotik = (server_data.agent_mode or "ssh") == "mikrotik"
+    if is_mikrotik:
+        if not server_data.mikrotik_url:
+            raise HTTPException(400, "mikrotik_url is required when agent_mode=mikrotik")
+        if not server_data.mikrotik_username or not server_data.mikrotik_password:
+            raise HTTPException(400, "mikrotik_username and mikrotik_password are required")
+        if is_awg:
+            raise HTTPException(400, "AmneziaWG is not supported on RouterOS — use server_type=wireguard")
+        try:
+            from urllib.parse import urlparse
+            from ...core.mikrotik import MikrotikWireGuardManager
+            _u = urlparse(server_data.mikrotik_url)
+            _host = _u.hostname or server_data.mikrotik_url
+            _scheme = _u.scheme or "http"
+            _port = _u.port or (443 if _scheme == "https" else 80)
+            probe = MikrotikWireGuardManager(
+                interface=server_data.interface,
+                host=_host, port=_port, scheme=_scheme,
+                username=server_data.mikrotik_username,
+                password=server_data.mikrotik_password,
+            )
+            info = probe.get_interface_info()
+            probe.close()
+        except Exception as _mt_err:
+            raise HTTPException(400, f"Mikrotik REST probe failed: {_mt_err}")
+        if not info:
+            raise HTTPException(
+                400,
+                f"Interface '{server_data.interface}' not found on Mikrotik. "
+                f"Create it on the router first (e.g. via WebFig) then retry."
+            )
+        public_key = info["public_key"]
+        # Server.private_key is NOT NULL — but the router holds the real
+        # private key, we never have it. Empty-string sentinel keeps the
+        # constraint happy; no code path for mikrotik mode reads this field
+        # (MikrotikWireGuardManager queries the router directly).
+        private_key = ""
+        listen_port = info["listen_port"]
+        logger.info(
+            f"Mikrotik probe OK: interface={server_data.interface} "
+            f"port={listen_port} pubkey={public_key[:20]}…"
+        )
 
     # Keypair-reuse path: when the operator pastes only a private_key (the
     # "Replacing a broken server? Reuse its private key" toggle on Add Server,
@@ -667,8 +740,11 @@ async def create_server(
             if user_val:
                 awg_params[f"awg_{k}"] = user_val
 
-    # For local servers without keys: generate new keypair
-    if not public_key or not private_key:
+    # For local servers without keys: generate new keypair. Mikrotik mode
+    # is excluded — the router owns the keypair, we already probed the
+    # public side of it above and intentionally store private_key="" since
+    # we never have it locally.
+    if (not public_key or not private_key) and not is_mikrotik:
         if is_awg:
             from ...core.amneziawg import AmneziaWGManager
             wg = AmneziaWGManager(interface=server_data.interface)
@@ -698,6 +774,7 @@ async def create_server(
         listen_port=listen_port,
         address_pool_ipv4=address_pool_ipv4,
         address_pool_ipv6=server_data.address_pool_ipv6,
+        _is_remote_mode=is_mikrotik,
         dns=server_data.dns,
         max_clients=server_data.max_clients,
         description=server_data.description,
@@ -717,6 +794,20 @@ async def create_server(
 
     if not server:
         raise HTTPException(status_code=500, detail="Failed to create server")
+
+    # ── Mikrotik mode: stamp agent_mode/url/creds on the new row ──────────
+    # `create_server` doesn't know about Mikrotik; we patch the columns
+    # directly. `agent_api_key` is encrypted at rest by the model.
+    if is_mikrotik:
+        server.agent_mode = "mikrotik"
+        server.agent_url = server_data.mikrotik_url
+        server.agent_api_key = f"{server_data.mikrotik_username}:{server_data.mikrotik_password}"
+        db.add(server)
+        db.commit()
+        db.refresh(server)
+        # Mikrotik path skips agent install entirely — there's no SSH and
+        # no agent daemon to deploy.
+        return ServerResponse.from_server(server, db=db)
 
     # AUTO-INSTALL AGENT for remote servers
     if server.ssh_host:
