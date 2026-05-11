@@ -911,6 +911,19 @@ class LicenseManager:
         """Get license status summary"""
         license_info = self.get_license_info()
 
+        # Expose "effective" features to the UI — raw features + any
+        # canonical flag whose alias is present. Without this expansion the
+        # frontend can't tell that a legacy Pro key (which only carries
+        # `multi_server`) actually entitles the user to `mikrotik_adapter`
+        # (which the backend aliases). UI gates like
+        # `license.has('mikrotik_adapter')` would then mis-hide the button.
+        effective = list(license_info.features or [])
+        for canonical, legacy_tuple in _FEATURE_ALIASES.items():
+            if canonical in effective:
+                continue
+            if any(legacy in license_info.features for legacy in legacy_tuple):
+                effective.append(canonical)
+
         result: Dict[str, Any] = {
             "server_id":    self.get_server_id(),
             "license_type": license_info.type.value,
@@ -922,7 +935,7 @@ class LicenseManager:
             "is_valid":     license_info.is_valid,
             "max_clients":  license_info.max_clients,
             "max_servers":  license_info.max_servers,
-            "features":     license_info.features,
+            "features":     effective,
             "expires_at":   license_info.expires_at.isoformat() if license_info.expires_at else None,
             "days_remaining": license_info.days_remaining(),
             "grace_period": license_info.grace_period,
