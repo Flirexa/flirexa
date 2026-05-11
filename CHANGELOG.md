@@ -4,6 +4,12 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.7 — 2026-05-12
+
+Fixes a UI startup gap where the licence feature list wasn't being fetched until a `FeatureGuard`-wrapped view was visited. Views that depend on `licenseStore.has(...)` directly — the most visible being Add Server's Mikrotik connection-mode option — would render with the default empty feature list and hide their gated UI even on licences that legitimately had the feature. The licence store now loads at app startup, and reloads automatically after login.
+
+---
+
 ## v1.6.6 — 2026-05-12
 
 Fixes a UI gating regression where licence-feature buttons (most visibly the Mikrotik connection-mode option in Add Server) stayed hidden for operators whose licence carries a legacy feature flag that the backend honours through aliasing but the frontend couldn't see. `/api/v1/system/license` now returns the **effective** feature set — raw features plus any canonical flag whose alias is satisfied — so frontend checks like `license.has('mikrotik_adapter')` resolve the same way the backend's `has_feature()` does. Operators with existing Pro / Business / Enterprise lifetime keys (which carry `multi_server` but not `mikrotik_adapter` explicitly) now see the Mikrotik option in the form without re-issuing their licence.
