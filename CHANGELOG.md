@@ -86,16 +86,14 @@ Per-subscriber device limit polish. The `max_devices` cap on tariffs already wor
 
 ## v1.5.90 — 2026-05-10
 
-Resilience pass for the agent connection. Self-hosted operators running their main WireGuard server from a home connection (port-forwarded behind the router) saw their server flip to "unreachable" several times an hour as the upstream NAT and ISP routing shuffled. The panel was correctly reporting what it observed, but a 5-30 second blip is not actually the server being gone, and the UI was alarming customers.
+Resilience pass for the agent connection. Brief upstream blips (NAT shuffles, ISP route changes, port-forward hiccups) were flipping servers to "unreachable" several times an hour even though they were only out for a few seconds. The panel reported what it saw, but the UI shouldn't alarm operators over 5–30s drops.
 
 ### Changed
 
 - **Brief connectivity blips no longer flip a server to "offline".** Agent `/health` and `/stats` requests now retry once (health) or twice (stats) with a short backoff before declaring the agent unreachable. The first try still succeeds on a healthy network, so the latency budget is unchanged for normal operation.
 - **Last-known agent state is cached for 30 minutes.** When the agent does fail every retry, the dashboard returns the previous successful poll tagged `is_stale=true` with an age in seconds, and the server status reads `degraded` ("showing data from 45s ago") instead of `offline`. Peer counts no longer collapse to zero during a transient drop.
 
-### Why this matters
-
-A home-hosted operator complained that their server was "disappearing and coming back" several times a day. The fix is on the panel side only — agents do not need to be reinstalled, and the SSH/local code paths are untouched.
+The fix is panel-side only — agents do not need to be reinstalled, and the SSH/local code paths are untouched.
 
 ---
 
@@ -556,13 +554,11 @@ Fixes a real bug in the keypair-reuse flow shipped earlier: the toggle accepted 
 
 ## v1.5.51 — 2026-05-05
 
-Starter tier capacity bump and a small landing-page tidy.
+Starter tier capacity bump.
 
 ### Changed
 
-- **Starter tier client limit raised from 300 to 500.** Existing Starter licences automatically pick up the new ceiling — no re-issue needed; the tier metadata is read live from the license manager. The bump aligns the tier with the published landing copy and gives solo operators meaningful headroom over the FREE tier (which stays at 80).
-- Landing pricing page numbers updated to match: Starter 500 clients / 1 server, Business 2000 clients / 10 servers.
-- Payment modal footer no longer promises "Fiat (card / bank) coming soon" — the line had been there indefinitely without an actual integration in flight. Replaced with a factual note about license scope ("All sales final. License is bound to one server per activation code.").
+- **Starter tier client limit raised from 300 to 500.** Existing Starter licences automatically pick up the new ceiling — no re-issue needed; the tier metadata is read live from the license manager. Gives solo operators meaningful headroom over the FREE tier (which stays at 80).
 
 ---
 
@@ -728,7 +724,7 @@ Foundational pieces that the new client portal needed.
 
 ## v1.5.4 — 2026-05-02
 
-A short follow-up bundling Herbert-driven UX requests and one update-bookkeeping fix.
+A short follow-up bundling a few UX requests and one update-bookkeeping fix.
 
 ### Added
 
@@ -739,7 +735,6 @@ A short follow-up bundling Herbert-driven UX requests and one update-bookkeeping
 ### Fixed
 
 - **Mobile: AmneziaWG client config no longer overlaps two QR codes.** On narrow screens the WireGuard QR and the AmneziaVPN share-link QR now stack instead of squeezing into the same row.
-- **Landing page mobile overflow.** The hero section's grid items lacked `min-width:0`, so the `nowrap` install command inside expanded the column past the viewport on small phones, pushing the hero off-screen until the "Why us" section. Fixed by setting `min-width:0` on grid/flex children that contain potentially long unbreakable text.
 - **No more spurious "business_mutation blocked in update_in_progress" errors.** If an earlier update transitioned to `ROLLBACK_REQUIRED` because the post-update health check timed out, and a later update then succeeded, the system was leaving the old `ROLLBACK_REQUIRED` flag behind. The operational-mode middleware kept treating the box as "update in progress" and 423-blocked every write — including creating new clients. The reconcile pass now auto-clears stale `ROLLBACK_REQUIRED` rows once a later `SUCCESS` row exists for the same instance.
 - **Update badge now flashes promptly without manual "Check for updates".** `_CACHE_TTL` reduced from 1 hour to 60 seconds so the navbar's per-minute poll actually picks up newly published manifests.
 - **Top-level `navbar.logout` translation key.** Was previously only defined inside `cp.nav.logout` (client portal namespace), so the admin Navbar showed the literal `navbar.logout` string. Added in en/ru/es/fr/de.
@@ -886,7 +881,6 @@ End-to-end verified on a clean VM: install → activate FREE → keep auto-WireG
   - Starter (`$19/mo`): adds Hysteria2 + TUIC = up to 4 servers (one of each).
   - Business+ keeps the existing `multi_server` feature, which lifts the cap fully (10 / unlimited).
 - Server-create endpoint now counts servers of the same `server_type` instead of all servers. The pg advisory lock is preserved so concurrent requests can't both win.
-- License-server `plans` table: `standard.max_servers` 1 → 2.
 - Local `LICENSE_TIERS` fallback: `FREE` 1 → 2, `STANDARD` 1 → 4.
 
 ---
@@ -908,7 +902,6 @@ End-to-end verified on a clean VM: install → activate FREE → keep auto-WireG
 - **AmneziaWG was incorrectly gated as a paid feature.** The server-create endpoint mapped `amneziawg` → license-feature `amneziawg`, which doesn't exist on FREE-tier signed licenses, so any FREE user trying to provision an AmneziaWG server got `403 "AMNEZIAWG protocol requires the 'amneziawg' feature. Upgrade your plan to enable it."` This contradicts both the README and `docs/free-vs-paid.md`, which list AmneziaWG as a core FREE feature — it's the DPI-resistant protocol that makes the product useful on hostile networks.
   - Real impact for FREE users: a fresh install auto-provisions a WireGuard server. Anyone who wanted AmneziaWG instead had to delete the auto-server and create a new one — and the second create was blocked. They were stuck on WireGuard. Now AmneziaWG creation just works.
   - Hysteria2 / TUIC still require the `proxy_protocols` feature (Starter+), unchanged.
-- **License-server plans seed**: added `amneziawg` to the standard / pro plan feature lists too, so future-issued paid licenses also include it (was previously absent — paid users were *also* affected, just less visibly because they could pay their way to enterprise which already had it).
 
 ---
 
@@ -966,27 +959,8 @@ End-to-end verified on a clean VM: install → activate FREE → keep auto-WireG
 
 ## v1.4.43 — 2026-04-17
 
-### Added
-- **NOWPayments purchase flow** — full end-to-end payment pipeline: invoice creation, IPN webhook processing, activation code generation, signed download token delivery
-- **Post-payment thank-you modal** on landing — auto-detects `?NP_id=` redirect from NOWPayments, polls purchase API, displays activation code (with copy button) and one-time download link
-- **Email collection in payment modal** — buyer enters email before redirect to NOWPayments; email stored server-side and resolved by webhook when IPN arrives (no dependency on NOWPayments email collection)
-- **Buyer email delivery** — HTML email with activation code, green "Download" button (signed URL, 72h TTL, 5 download attempts), and step-by-step install instructions
-- **Vendor sale notification** — always fires on successful payment (independent of buyer email), includes plan, amount, code, NOWPayments ID, and download URL
-- **Download token system** — `download_tokens` DB table with signed URL-safe tokens, expiry, use limit, IP tracking; `GET /download/{token}` serves package with counter enforcement
-- **Invoice creation proxy** — `POST /api/create-invoice` creates NOWPayments invoice server-side with canonical pricing (prevents client-side price tampering), stores buyer email in `buyer_emails.json`
-- **Auto-cleanup of unpaid buyer emails** — entries without payment are automatically purged after 7 days; paid entries marked `paid: true` and kept permanently
-- **Multi-currency payment support** — landing page payment modal with 11+ cryptocurrency options (BTC, ETH, USDT-TRC20/ERC20, USDC, LTC, XMR, TON, SOL, BNB, TRX)
-- Landing: 6 languages for all new payment/thank-you UI strings (EN, RU, UK, DE, FR, ES)
-
 ### Fixed
 - **QR code crash on Cyrillic client names** — `_safe_filename()` used `\w` which matches Unicode; replaced with explicit `[a-zA-Z0-9_\-.]` to ensure ASCII-only Content-Disposition headers
-- **Vendor notification not firing** — was nested inside `_send_license_email()` which was skipped when buyer email was empty; split into independent `_send_vendor_notification()`
-
-### Changed
-- Landing: pricing buttons changed from direct NOWPayments links to dynamic invoice creation via server-side proxy
-- Landing: payment modal now collects email, shows loading spinner during invoice creation, validates email format client-side
-- License server: refactored SMTP into reusable `_send_mail()` helper; vendor and buyer emails use separate functions
-- License server: migrated to flirexa.biz as primary host
 
 ---
 
@@ -1010,7 +984,6 @@ End-to-end verified on a clean VM: install → activate FREE → keep auto-WireG
 - **Proxy config rollback** — `_apply_proxy_config()` result was silently ignored; client saved to DB even when SSH config application failed
 - **Unicode crash on QR/config download** — Cyrillic client names caused `UnicodeEncodeError` in Content-Disposition headers
 - **Hysteria2/TUIC configs use domain** — client configs now use domain as connection host when TLS cert exists (not IP), fixing TLS handshake failures
-- **License server `/panel/api/sales`** — `NameError: PRICES` undefined variable fixed
 - **`portalUsers.never`** i18n key added — was showing raw key string instead of "Никогда"
 - `datetime.utcnow()` deprecated calls replaced with `datetime.now(timezone.utc)`
 - Rate limit cleanup threshold lowered from 10000 to 1000 IPs
@@ -1027,7 +1000,6 @@ End-to-end verified on a clean VM: install → activate FREE → keep auto-WireG
 - **Admin panel** — complete i18n for Settings, missing keys added to all 5 locales (en/ru/de/es/fr)
 - Removed 109 unnecessary `|| 'fallback'` i18n patterns from client portal
 - Removed "spongebot" from client-facing error messages
-- License server web panel: dynamic tier filters, license count indicator
 
 ---
 
