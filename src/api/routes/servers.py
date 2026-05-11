@@ -520,6 +520,22 @@ async def create_server(
     # from the router too. Caller doesn't need to provide keys.
     is_mikrotik = (server_data.agent_mode or "ssh") == "mikrotik"
     if is_mikrotik:
+        # License gate: RouterOS adapter is a Pro+ feature.
+        # `mikrotik_adapter` aliases to `multi_server` in `_FEATURE_ALIASES`
+        # so existing Pro+ lifetime keys are honored without re-issue.
+        if not info.has_feature("mikrotik_adapter"):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": (
+                        "Mikrotik / RouterOS management requires the "
+                        "'mikrotik_adapter' feature. Upgrade to Pro or higher to enable it."
+                    ),
+                    "license_feature_required": "mikrotik_adapter",
+                    "upgrade_url": "https://flirexa.biz/#pricing",
+                    "upgrade_tier": "pro",
+                },
+            )
         if not server_data.mikrotik_url:
             raise HTTPException(400, "mikrotik_url is required when agent_mode=mikrotik")
         if not server_data.mikrotik_username or not server_data.mikrotik_password:

@@ -4,6 +4,18 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.3 — 2026-05-11
+
+**RouterOS / Mikrotik adapter is now a Pro-tier feature.** When this shipped in 1.6.2 it was unconditionally available on every install, including FREE. That was an oversight — managing a Mikrotik-hosted WireGuard server is a paid capability alongside multi-server orchestration and proxy protocols, and 1.6.3 gates it accordingly.
+
+### Changed
+
+- **`mikrotik_adapter` feature flag** added to the Pro / Business / Enterprise tier definitions. Selecting Mikrotik connection mode and submitting now requires the license to carry this flag; the API returns `403` with `license_feature_required: mikrotik_adapter` for licenses that don't.
+- **The Mikrotik option in the Add Server form is hidden** when the active license lacks the feature — FREE and Starter operators no longer see it as an available choice.
+- **Backwards-compatibility for already-issued Pro+ keys.** The feature alias table maps `mikrotik_adapter` ← `multi_server`, so existing lifetime Pro / Business / Enterprise keys (which carry `multi_server` but not the new flag) keep working as expected. No re-issue needed.
+
+---
+
 ## v1.6.2 — 2026-05-11
 
 **RouterOS support — manage WireGuard servers running on Mikrotik routers directly from the panel.**
