@@ -141,7 +141,15 @@ def _enrich_handshakes(clients: list, db: Session):
 
         peers = []
         try:
-            if server.ssh_host:
+            # Remote-managed (SSH agent or Mikrotik REST) → route through
+            # the adapter. Without this, mikrotik servers fall into the
+            # `else` branch and try to call local `wg show` for a peer
+            # list that lives on the router — produces nothing and the
+            # online-users / clients tabs show no handshake activity.
+            _is_remote = bool(server.ssh_host) or (
+                (getattr(server, 'agent_mode', None) or '') == 'mikrotik'
+            )
+            if _is_remote:
                 from ...core.remote_adapter import RemoteServerAdapter
                 adapter = RemoteServerAdapter(
                     server=server,
@@ -308,7 +316,12 @@ async def get_map_data(db: Session = Depends(get_db)):
         peers = []
         if not _is_proxy:
             try:
-                if server.ssh_host:
+                # Same routing as _enrich_handshakes — mikrotik mode has
+                # no ssh_host but lives remote, route through adapter.
+                _is_remote = bool(server.ssh_host) or (
+                    (getattr(server, 'agent_mode', None) or '') == 'mikrotik'
+                )
+                if _is_remote:
                     from ...core.remote_adapter import RemoteServerAdapter
                     adapter = RemoteServerAdapter(
                         server=server,

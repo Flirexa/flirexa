@@ -4,6 +4,20 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.10 — 2026-05-12
+
+Mikrotik servers now show live stats and online users.
+
+### Fixed
+
+- **Mikrotik servers stayed empty on the Clients tab and Online Users tab** even though the server itself reported ONLINE. Three handshake/state code paths still dispatched on `ssh_host` alone, so a server with `agent_mode='mikrotik'` (which has no `ssh_host` — it has `mikrotik_url` instead) silently fell into the local-WireGuardManager branch and tried to run `wg show` for an interface that doesn't exist on the panel host. Result: empty peer list → `last_handshake` never refreshed in the DB → both online lists stayed blank.
+  - `state_reconciler._wg_manager` now routes mikrotik through `RemoteServerAdapter`.
+  - `clients._enrich_handshakes` and the map-data endpoint now route mikrotik through `RemoteServerAdapter`.
+  - `ManagementCore.get_client_full_info` (used by Client Portal and "client details" pages) routes the per-client handshake fetch through the adapter for mikrotik servers.
+- **Auto-recovery no longer touches a mikrotik interface.** `state_reconciler._try_recover_interface` previously short-circuited only for SSH-agent servers; mikrotik servers slipped through and could be auto-enabled if the operator had disabled the router's wg interface on purpose. Now mikrotik mode is treated the same as the SSH-agent / agent-URL guard.
+
+---
+
 ## v1.6.9 — 2026-05-12
 
 Combined release: tier-definition cleanup, payment ladder split, and a broader feature-alias map that re-entitles legacy Pro / Business / Enterprise keys to features that have been added or renamed since the keys were originally issued.

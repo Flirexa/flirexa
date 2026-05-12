@@ -484,7 +484,11 @@ class ManagementCore:
 
         # Use server-specific WG manager for handshake
         server = client.server
-        if server and server.ssh_host:
+        _is_remote = server and (
+            bool(server.ssh_host)
+            or (getattr(server, 'agent_mode', None) or '') == 'mikrotik'
+        )
+        if _is_remote:
             from .remote_adapter import RemoteServerAdapter
             wg = RemoteServerAdapter(
                 server=server,

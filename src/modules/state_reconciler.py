@@ -38,6 +38,18 @@ _RECOVERY_COOLDOWN_SECONDS = 300
 
 def _wg_manager(server: Server):
     """Return the correct WireGuardManager subclass for the server."""
+    # Mikrotik servers are remote-managed via REST API. Route through
+    # the RemoteServerAdapter so reconciler reads live peers from the
+    # router instead of falling through to a local `wg show` (which has
+    # no interface with this name and produces an empty peer list → DB
+    # never sees fresh last_handshake → online-users tab stays empty).
+    if (getattr(server, "agent_mode", None) or "") == "mikrotik":
+        from ..core.remote_adapter import RemoteServerAdapter
+        return RemoteServerAdapter(
+            server=server,
+            interface=server.interface,
+            config_path=server.config_path,
+        )
     ssh_kwargs = dict(
         interface=server.interface,
         config_path=server.config_path,
@@ -198,6 +210,12 @@ def _try_recover_interface(server: Server, wgm, now: datetime) -> bool:
     (rate-limited, suspended server, remote server, operator-stopped, etc).
     """
     if server.ssh_host or server.agent_url:
+        return False
+    if (getattr(server, "agent_mode", None) or "") == "mikrotik":
+        # Mikrotik interface belongs to the router operator. We never
+        # auto-enable it from the panel — surprising the operator with a
+        # silent /interface/wireguard enable would violate the same
+        # principle as stop_interface being a no-op.
         return False
     if server.lifecycle_status == ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value:
         return False
