@@ -64,17 +64,52 @@ TRIAL_DURATION_THRESHOLD_DAYS = 14
 # Pre-1.5.99 license_server issued keys with these legacy flags; renaming
 # the canonical flags would otherwise gate paid customers off paid features.
 _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
+    # Approach: a new canonical feature name doesn't break existing signed
+    # licences if we map it back to one of the tier-marker flags those
+    # legacy keys still carry. The convention is:
+    #   • `proxy_protocols`  → Standard+ marker (legacy `extra_protocols`)
+    #   • `multi_server`     → Pro+ marker
+    #   • `white_label`      → Enterprise-only marker
+    # Any new flag inherits from whichever marker matches its minimum tier.
+    # FREE customers never carry these markers, so FREE never accidentally
+    # passes — paid tiers do, on both new and legacy signed keys.
     "proxy_protocols":    ("extra_protocols",),
-    "telegram_client_bot": ("client_tg_bot",),
-    "telegram_bots":      ("client_tg_bot",),
-    "payments":           ("nowpayments",),
+    # Telegram bot support collapsed to a single canonical flag in 1.6.8.
+    # Legacy keys may carry `telegram_admin_bot`, `telegram_client_bot`,
+    # or the original `client_tg_bot` — any of those satisfies `telegram_bots`.
+    "telegram_bots":      ("client_tg_bot", "telegram_admin_bot", "telegram_client_bot"),
     # Mikrotik adapter ships in 1.6.x as a paid feature. Existing Pro+
-    # lifetime licenses don't have the new flag explicitly, but every
-    # Pro+ tier already has `multi_server` (it's the canonical Pro+
-    # indicator) — accept that as proof of entitlement so existing
-    # paying customers get the feature on update without re-issuing
-    # their key.
+    # lifetime licences don't have the new flag explicitly, but every
+    # Pro+ tier carries `multi_server` — accept that as proof of
+    # entitlement so existing paying customers get the feature on update
+    # without re-issuing their key.
     "mikrotik_adapter":   ("multi_server",),
+    # `nowpayments` (NOWPayments / crypto) is universal — FREE through
+    # Enterprise. New tier defs list it explicitly, but older signed
+    # licences predate the listing. Any Standard+ marker is sufficient.
+    # FREE customers get it from the FREE tier def directly.
+    "nowpayments":        ("multi_server", "proxy_protocols"),
+    # `payments` (full payment-provider suite — Stripe, Mollie, PayMe,
+    # Razorpay, PayPal) is Pro+ only. The bug-fixed alias from `nowpayments`
+    # is gone (FREE must not pass); only `multi_server` (the Pro+ marker)
+    # satisfies.
+    "payments":           ("multi_server",),
+    # Standard+ tier features re-added with markers so old Standard/Pro/
+    # Business/Enterprise keys don't lose entitlements that were always
+    # part of their plan but never explicitly listed in their signed payload.
+    "promo_codes":        ("multi_server", "proxy_protocols"),
+    "auto_renewal":       ("multi_server", "proxy_protocols"),
+    # Pro+ tier features. Legacy keys with `multi_server` get them all.
+    "auto_backup":        ("multi_server",),
+    "white_label_basic":  ("multi_server", "white_label"),
+    "traffic_rules":      ("multi_server",),
+    "android_app":        ("multi_server",),
+    # Enterprise-only features. `white_label` is the legacy Enterprise
+    # marker (only Enterprise tier ever carried it). Legacy Enterprise
+    # keys with that flag get corporate_vpn and manager_rbac without
+    # re-issuing.
+    "corporate_vpn":      ("white_label",),
+    "manager_rbac":       ("white_label",),
 }
 
 
@@ -161,6 +196,18 @@ class LicenseInfo:
 
 # License plan configurations (fallback for trial / when payload lacks features list)
 LICENSE_TIERS = {
+    # Tier-defs cleanup landed in 1.6.8:
+    #   • Dropped flags no code checks: basic_management, wireguard_only,
+    #     priority_support, bandwidth_limits, traffic_limits, expiry_timers
+    #     (operational features that are functionally free across all tiers).
+    #   • Collapsed telegram bot flags into a single canonical `telegram_bots`
+    #     present on every tier — bot functionality depends on the operator
+    #     supplying a token in `.env`, not on the licence tier.
+    #   • Split crypto-only NOWPayments from full payment-provider suite:
+    #     `nowpayments` is on FREE and every paid tier; `payments` is Pro+
+    #     only (card processors are paid plugins from flirexa-pro).
+    #   • Added `android_app` to BUSINESS (it was missing — gap between
+    #     PRO and ENTERPRISE in the ladder).
     LicenseType.FREE: {
         "max_clients": 80,
         # FREE: one server per protocol (WireGuard + AmneziaWG = up to 2).
@@ -168,11 +215,10 @@ LICENSE_TIERS = {
         "max_servers": 2,
         # FREE tier never expires — no duration_days
         "features": [
-            "basic_management",
-            "telegram_admin_bot",
             "wireguard",
             "amneziawg",
             "client_portal",
+            "telegram_bots",
             "nowpayments",
         ]
     },
@@ -181,9 +227,8 @@ LICENSE_TIERS = {
         "max_servers": 1,
         "duration_days": 7,
         "features": [
-            "basic_management",
-            "telegram_admin_bot",
-            "wireguard_only",
+            "wireguard",
+            "telegram_bots",
         ]
     },
     LicenseType.STANDARD: {
@@ -196,6 +241,7 @@ LICENSE_TIERS = {
             "proxy_protocols",   # Hysteria2 + TUIC
             "client_portal",
             "telegram_bots",
+            "nowpayments",
             "promo_codes",
             "auto_renewal",
         ],
@@ -209,6 +255,8 @@ LICENSE_TIERS = {
             "proxy_protocols",
             "client_portal",
             "telegram_bots",
+            "nowpayments",
+            "payments",
             "multi_server",
             "mikrotik_adapter",
             "traffic_rules",
@@ -226,15 +274,12 @@ LICENSE_TIERS = {
         "max_clients": 500,
         "max_servers": 1,
         "features": [
-            "basic_management",
-            "telegram_admin_bot",
-            "traffic_limits",
-            "bandwidth_limits",
-            "expiry_timers",
             "wireguard",
             "amneziawg",
             "proxy_protocols",
             "client_portal",
+            "telegram_bots",
+            "nowpayments",
             "promo_codes",
             "auto_renewal",
         ]
@@ -243,19 +288,17 @@ LICENSE_TIERS = {
         "max_clients": 2000,
         "max_servers": 10,
         "features": [
-            "basic_management",
-            "telegram_admin_bot",
-            "telegram_client_bot",
-            "traffic_limits",
-            "bandwidth_limits",
-            "expiry_timers",
-            "multi_server",
-            "mikrotik_adapter",
-            "client_portal",
-            "traffic_rules",
             "wireguard",
             "amneziawg",
             "proxy_protocols",
+            "client_portal",
+            "telegram_bots",
+            "nowpayments",
+            "payments",
+            "multi_server",
+            "mikrotik_adapter",
+            "traffic_rules",
+            "android_app",
             "white_label_basic",
             "auto_backup",
             "promo_codes",
@@ -266,29 +309,24 @@ LICENSE_TIERS = {
         "max_clients": 999999,
         "max_servers": 999999,
         "features": [
-            "basic_management",
-            "telegram_admin_bot",
-            "telegram_client_bot",
-            "traffic_limits",
-            "bandwidth_limits",
-            "expiry_timers",
-            "multi_server",
-            "client_portal",
-            "traffic_rules",
-            "android_app",
-            "payments",
-            "white_label",
-            "white_label_basic",
-            "priority_support",
             "wireguard",
             "amneziawg",
             "proxy_protocols",
-            "corporate_vpn",
+            "client_portal",
+            "telegram_bots",
+            "nowpayments",
+            "payments",
+            "multi_server",
+            "mikrotik_adapter",
+            "traffic_rules",
+            "android_app",
+            "white_label_basic",
+            "white_label",
             "auto_backup",
+            "corporate_vpn",
+            "manager_rbac",
             "promo_codes",
             "auto_renewal",
-            "manager_rbac",
-            "mikrotik_adapter",
         ]
     },
 }
