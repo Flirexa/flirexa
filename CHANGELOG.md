@@ -4,6 +4,20 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.12 — 2026-05-12
+
+Mikrotik adapter survives routers without the IPv6 package.
+
+### Fixed
+
+- **`get_interface_addresses` aborted entirely on routers without the IPv6 package.** RouterOS installs without `/system/package` "ipv6" return HTTP 404 on `/rest/ipv6/address`. The unconditional fetch raised through, poisoning the already-fetched IPv4 result. Visible effect: at "Add Server" time, the panel could not inherit the router's real WireGuard pool and silently fell back to the schema default (`10.66.66.0/24`) — leading to a pool/router mismatch the operator wouldn't notice until clients couldn't reach the new range. Now wrapped in try/except so IPv4 inherit completes and `ipv6` is left `None` on routers without v6 support.
+
+### Verification
+
+Adapter behaviour is now covered by an end-to-end test suite against a mock RouterOS REST server: 53 checks across interface discovery, peer CRUD, bandwidth queues (`/queue/simple`), handshake parsing, transfer counters, address-pool inheritance with link-local filter, IPv6-package-missing fallback, auth-failure surface, multi-peer delete-server cleanup, and `RemoteServerAdapter` routing. Previous mikrotik releases (1.6.0 – 1.6.11) shipped without this; tests are now part of the development workflow.
+
+---
+
 ## v1.6.11 — 2026-05-12
 
 Polish pass for Mikrotik servers — Health page, server menu, and error messages now treat RouterOS-managed servers correctly.
