@@ -210,12 +210,14 @@ class ServerHealthChecker:
             return self._check_proxy(server, quick=quick)
 
         mode = server.agent_mode or "ssh"
-        if not server.ssh_host and mode != "agent":
+        if not server.ssh_host and mode not in ("agent", "mikrotik"):
             mode = "local"
         t0 = time.perf_counter()
         try:
             if mode == "agent" and server.agent_url and server.agent_api_key:
                 result = self._check_agent(server, t0, quick=quick)
+            elif mode == "mikrotik":
+                result = self._check_mikrotik(server, t0, quick=quick)
             elif server.ssh_host:
                 result = self._check_ssh(server, t0, quick=quick)
             else:
@@ -346,6 +348,92 @@ class ServerHealthChecker:
             )
         except Exception:
             return ServerSystemMetrics()
+
+    # ── Mikrotik (RouterOS REST) ───────────────────────────────────────────
+
+    def _check_mikrotik(self, server, t0: float, quick: bool) -> ServerHealth:
+        # The Mikrotik adapter speaks the same WireGuardManager surface, so
+        # we reuse is_interface_up + get_all_peers and synthesize a
+        # WireGuardInterfaceHealth. We don't query system metrics — RouterOS
+        # exposes them via different APIs and the operator's box health
+        # isn't ours to monitor; the panel only cares whether the wg
+        # interface and its peers are alive.
+        interface = server.interface or "wg0"
+        try:
+            from ...core.remote_adapter import RemoteServerAdapter
+            adapter = RemoteServerAdapter(
+                server=server,
+                interface=interface,
+                config_path=server.config_path,
+            )
+        except Exception as exc:
+            latency = round((time.perf_counter() - t0) * 1000, 2)
+            return ServerHealth(
+                server_id=server.id, server_name=server.name,
+                status="offline", checked_at=datetime.now(timezone.utc).isoformat(),
+                connection_mode="mikrotik",
+                message=f"Mikrotik adapter init failed: {type(exc).__name__}",
+                latency_ms=latency, quick=quick,
+            )
+
+        try:
+            try:
+                iface_up = adapter.is_interface_up()
+            except Exception as exc:
+                latency = round((time.perf_counter() - t0) * 1000, 2)
+                return ServerHealth(
+                    server_id=server.id, server_name=server.name,
+                    status="offline", checked_at=datetime.now(timezone.utc).isoformat(),
+                    connection_mode="mikrotik",
+                    message=f"Router unreachable: {type(exc).__name__}",
+                    latency_ms=latency, quick=quick,
+                )
+
+            latency = round((time.perf_counter() - t0) * 1000, 2)
+
+            if quick:
+                return ServerHealth(
+                    server_id=server.id, server_name=server.name,
+                    status="healthy" if iface_up else "degraded",
+                    checked_at=datetime.now(timezone.utc).isoformat(),
+                    connection_mode="mikrotik",
+                    message="Router reachable" if iface_up else f"Interface {interface} down",
+                    latency_ms=latency, quick=True,
+                    details={"server_type": "wireguard"},
+                )
+
+            try:
+                peers = adapter.get_all_peers()
+            except Exception:
+                peers = []
+
+            now_ts = time.time()
+            active = 0
+            for p in peers:
+                hs = getattr(p, "latest_handshake", None)
+                if isinstance(hs, (int, float)) and hs > 0 and (now_ts - hs) < 180:
+                    active += 1
+
+            wg = WireGuardInterfaceHealth(
+                interface=interface,
+                status="up" if iface_up else "down",
+                peers_total=len(peers),
+                peers_active=active,
+                message=None if iface_up else "Router reports interface disabled or not running",
+            )
+            status, message = _determine_status(wg, None, reachable=True)
+            return ServerHealth(
+                server_id=server.id, server_name=server.name,
+                status=status, checked_at=datetime.now(timezone.utc).isoformat(),
+                connection_mode="mikrotik", message=message, latency_ms=latency,
+                quick=quick, wireguard=wg, system=None,
+                details={"server_type": "wireguard"},
+            )
+        finally:
+            try:
+                adapter.close()
+            except Exception:
+                pass
 
     # ── SSH ────────────────────────────────────────────────────────────────
 

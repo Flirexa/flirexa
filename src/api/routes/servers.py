@@ -2002,6 +2002,22 @@ def expand_address_pool(
                     "message": "Address pools only apply to WireGuard / AmneziaWG servers."},
         )
 
+    # Mikrotik routers own their wireguard interface address themselves —
+    # the panel inherits the pool at adoption time and doesn't push config
+    # back. Silently regenerating a "new" config here would update the DB
+    # without touching the router, leaving the two out of sync. Refuse
+    # cleanly and point the operator at the right place.
+    if (getattr(server, "agent_mode", None) or "") == "mikrotik":
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "not_supported_on_mikrotik",
+                    "message": "Address pool for a Mikrotik server is configured "
+                               "on the router itself (/interface/wireguard, "
+                               "/ip address). Update it in RouterOS, then "
+                               "re-adopt the server in the panel — the new "
+                               "pool is inherited automatically."},
+        )
+
     # 1. Parse + canonicalise
     try:
         new_net = ipaddress.IPv4Network(payload.new_cidr.strip(), strict=False)

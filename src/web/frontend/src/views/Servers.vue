@@ -103,7 +103,7 @@
                 </button>
                 <button v-if="!server.is_default" class="srv-menu__item"
                   @click="menuAction(() => setDefaultServer(server.id))"><i class="mdi mdi-star-outline me-1"></i>{{ $t('servers.setDefault') }}</button>
-                <template v-if="server.server_category !== 'proxy'">
+                <template v-if="server.server_category !== 'proxy' && server.agent_mode !== 'mikrotik'">
                   <button v-if="server.agent_mode === 'agent'" class="srv-menu__item"
                     @click="menuAction(() => openAgentMenu(server))"><i class="mdi mdi-robot-outline me-1"></i>{{ $t('servers.manageAgent') || 'Manage Agent' }}</button>
                   <button v-else class="srv-menu__item" @click="menuAction(() => openInstallModal(server.id))"
@@ -117,9 +117,9 @@
                 <button class="srv-menu__item" @click="menuAction(() => openRenameModal(server))"><i class="mdi mdi-pencil-outline me-1"></i>{{ $t('servers.rename') || 'Rename (display)' }}</button>
                 <template v-if="server.server_category !== 'proxy'">
                   <div class="srv-menu__sep"></div>
-                  <button class="srv-menu__item" @click="menuAction(() => openExpandPool(server))"><i class="mdi mdi-arrow-expand-horizontal me-1"></i>{{ $t('servers.expandPool') || 'Expand address pool' }}</button>
+                  <button v-if="server.agent_mode !== 'mikrotik'" class="srv-menu__item" @click="menuAction(() => openExpandPool(server))"><i class="mdi mdi-arrow-expand-horizontal me-1"></i>{{ $t('servers.expandPool') || 'Expand address pool' }}</button>
                   <button class="srv-menu__item" @click="menuAction(() => openExportKeypair(server))"><i class="mdi mdi-key-outline me-1"></i>{{ $t('servers.exportKeypair') || 'Export keypair' }}</button>
-                  <button class="srv-menu__item" @click="menuAction(() => openMigrateClients(server))"><i class="mdi mdi-account-switch-outline me-1"></i>{{ $t('servers.migrateClients') || 'Migrate clients' }}</button>
+                  <button v-if="server.agent_mode !== 'mikrotik'" class="srv-menu__item" @click="menuAction(() => openMigrateClients(server))"><i class="mdi mdi-account-switch-outline me-1"></i>{{ $t('servers.migrateClients') || 'Migrate clients' }}</button>
                 </template>
                 <template v-if="!server.is_default">
                   <div class="srv-menu__sep"></div>

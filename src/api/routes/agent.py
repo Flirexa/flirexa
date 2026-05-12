@@ -58,6 +58,12 @@ async def install_agent(
     if not server:
         raise HTTPException(status_code=404, detail="Server not found")
 
+    if (getattr(server, 'agent_mode', None) or '') == 'mikrotik':
+        raise HTTPException(
+            status_code=400,
+            detail="Mikrotik routers are managed via the RouterOS REST API — "
+                   "no agent installation is needed."
+        )
     if not server.ssh_host:
         raise HTTPException(
             status_code=400,

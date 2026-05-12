@@ -4,6 +4,24 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.11 — 2026-05-12
+
+Polish pass for Mikrotik servers — Health page, server menu, and error messages now treat RouterOS-managed servers correctly.
+
+### Fixed
+
+- **Health page reported Mikrotik servers as offline.** The health checker (`server_checker.py`) had no Mikrotik branch and fell back to `_check_local`, which runs `wg show <iface>` against the panel host — where that interface doesn't exist. It came up "down" every tick. The Servers tab kept showing the server ONLINE because state reconciler writes `server.status` from its own (already Mikrotik-aware) path; the two views disagreed. A new `_check_mikrotik` reuses the RouterOS adapter to probe interface state and peer counts, producing a real WireGuard health record with handshake-recency-based "active peers" instead of nothing.
+- **Server-row menu offered actions that don't apply to Mikrotik.** "Install Agent", "Install Proxy", "Install AmneziaWG", "Expand address pool", and "Migrate clients" were visible for Mikrotik servers. Install actions hit SSH/agent code paths and bounced with a generic error. Expand pool would update the DB but never reach the router. Migrate clients had no destination-write path for Mikrotik. All five are now hidden via `agent_mode === 'mikrotik'` checks. Rename, Export keypair, and Set Default remain available.
+- **`/agent/install` returned a misleading error.** Mikrotik servers got "Cannot install agent on local server" — the wrong reason. Now the endpoint refuses with "Mikrotik routers are managed via the RouterOS REST API — no agent installation is needed."
+- **`/servers/{id}/expand-pool` silently no-op'd on Mikrotik.** The endpoint would update the DB but never push regenerated config to the router. Now returns a 400 explaining that the address pool is configured in RouterOS itself (`/interface/wireguard`, `/ip address`) and inherited by the panel at adoption.
+
+### Behaviour notes
+
+- The Mikrotik adapter's `_check_mikrotik` does not collect system metrics — RouterOS exposes CPU/memory/disk via different APIs, and panel monitoring of the operator's box is out of scope. Health rows for Mikrotik servers show only interface and peer state.
+- Auto-recovery (`state_reconciler._try_recover_interface`) already short-circuits for Mikrotik (added in 1.6.10) — the panel never auto-enables a wg interface the operator disabled on the router.
+
+---
+
 ## v1.6.10 — 2026-05-12
 
 Mikrotik servers now show live stats and online users.
