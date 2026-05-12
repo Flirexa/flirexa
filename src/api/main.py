@@ -459,8 +459,15 @@ def create_app(
                 # app.include_router(...). A mismatch silently turns this
                 # into a no-op on FREE installs.
                 # Each entry maps prefix → (feature_flag, tier_for_upgrade_cta).
-                "/api/v1/traffic": ("traffic_rules", "business"),
-                "/api/v1/payments": ("payments", "starter"),
+                # /api/v1/payments gates on `nowpayments` (FREE+) — the basic
+                # payment surface (plans CRUD, invoice list, webhook) is
+                # available wherever NOWPayments is. Per-provider gating for
+                # card processors (Stripe, Mollie, PayMe, Razorpay, PayPal,
+                # CryptoPay) happens inside the router against the `payments`
+                # feature so FREE can transact via crypto but cannot use the
+                # paid provider plugins.
+                "/api/v1/traffic": ("traffic_rules", "pro"),
+                "/api/v1/payments": ("nowpayments", "pro"),
                 "/api/v1/promo-codes": ("promo_codes", "starter"),
             }
             for route_prefix, (feature_name, upgrade_tier) in feature_routes.items():

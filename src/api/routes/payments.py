@@ -16,6 +16,43 @@ from ...database.models import Payment, PaymentStatus, Plan
 router = APIRouter()
 
 
+# Provider IDs gated behind the `payments` feature (Pro+). Anything not in
+# this set is treated as crypto / mock and is allowed for FREE customers who
+# have `nowpayments` via the prefix-level middleware gate.
+_PAID_PROVIDERS = {"stripe", "mollie", "payme", "razorpay", "paypal", "cryptopay"}
+
+
+def _require_paid_provider(provider: str) -> None:
+    """Raise HTTPException(403) if `provider` is a paid one and the active
+    licence lacks the `payments` feature. NOWPayments and `mock` are open
+    to anyone whose licence has `nowpayments` (FREE+).
+    """
+    if not provider or provider.lower() not in _PAID_PROVIDERS:
+        return
+    try:
+        from ...modules.license.manager import get_license_manager
+        info = get_license_manager().get_license_info()
+    except Exception:
+        # Fail closed for paid providers if licence layer is broken
+        raise HTTPException(
+            status_code=503,
+            detail="License verification unavailable. Please retry shortly.",
+        )
+    if not info.has_feature("payments"):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": (
+                    f"Payment provider '{provider}' requires the 'payments' feature. "
+                    "Upgrade to Pro or higher to enable card processors."
+                ),
+                "license_feature_required": "payments",
+                "upgrade_url": "https://flirexa.biz/#pricing",
+                "upgrade_tier": "pro",
+            },
+        )
+
+
 # ============================================================================
 # SCHEMAS
 # ============================================================================
@@ -203,6 +240,11 @@ def create_invoice(
     """
     Create a payment invoice (stub - mock provider only)
     """
+    # Gate: card-processor providers (Stripe/Mollie/PayMe/etc.) require the
+    # `payments` feature. NOWPayments and `mock` are reachable via the
+    # prefix-level `nowpayments` gate (FREE+).
+    _require_paid_provider(invoice_data.provider)
+
     # Create payment record
     payment = Payment(
         telegram_user_id=invoice_data.telegram_user_id,
@@ -334,5 +376,8 @@ async def payment_webhook(
     This would handle callbacks from payment providers
     like crypto payment processors
     """
+    # Same per-provider gating as invoice creation — a customer downgrade
+    # could otherwise leave a webhook URL active for a paid processor.
+    _require_paid_provider(provider)
     # Stub implementation
     return {"received": True, "provider": provider}

@@ -4,6 +4,31 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.9 — 2026-05-12
+
+Combined release: tier-definition cleanup, payment ladder split, and a broader feature-alias map that re-entitles legacy Pro / Business / Enterprise keys to features that have been added or renamed since the keys were originally issued.
+
+### Changed
+
+- **Tier definitions cleaned.** Removed flags that no code actually checks: `basic_management`, `wireguard_only`, `priority_support`, `bandwidth_limits`, `traffic_limits`, `expiry_timers`. They don't gate anything in the panel, and their presence in tier defs only confused the licence inspector. Existing signed keys still carry these flags harmlessly; nothing breaks.
+- **Telegram bot flags collapsed into one canonical `telegram_bots`** present on every tier (FREE through Enterprise). Bot functionality depends on the operator supplying a token in `.env`, not on the licence. Legacy keys with `telegram_admin_bot`, `telegram_client_bot`, or `client_tg_bot` still satisfy `has_feature("telegram_bots")` via the alias map.
+- **Payment ladder split into `nowpayments` (FREE+) and `payments` (Pro+).** `nowpayments` covers NOWPayments crypto on every tier. `payments` is required for card-processor providers (Stripe, Mollie, PayMe, Razorpay, PayPal, CryptoPay) and is Pro+ only. The `/api/v1/payments` prefix gates on `nowpayments` so the basic payment surface works on FREE; per-provider gating inside the router blocks card processors for non-Pro licences. The previous accidental `payments ← nowpayments` alias is removed.
+- **`android_app` added to the Business tier.** Pro and Enterprise had it but Business didn't — a step missing from the ladder.
+
+### Added
+
+- **Broader legacy-compat alias map.** Newer canonical flags now resolve from the legacy tier marker that proves entitlement. `multi_server` (Pro+ marker) satisfies `mikrotik_adapter`, `payments`, `auto_backup`, `white_label_basic`, `traffic_rules`, `android_app`, `auto_renewal`, `promo_codes`. `proxy_protocols` (Standard+ marker) additionally satisfies `auto_renewal`, `promo_codes`, `nowpayments`. `white_label` (Enterprise marker) satisfies `corporate_vpn`, `manager_rbac`. FREE customers carry none of these markers, so the additions cannot accidentally entitle FREE installs.
+- **Effective features in `/api/v1/system/license`.** The endpoint now returns the alias-expanded feature set so the frontend's gating matches the backend's `has_feature(...)`. UI feature-gated controls (the Mikrotik connection mode option being the most visible) no longer hide for licences that satisfy the feature via aliasing.
+- **Sidebar tier badges** next to paid menu items (Backup, Traffic Rules, Promo Codes, Applications/RBAC). Surfaces the required tier (Starter / Pro / Business / Enterprise) when the active licence lacks the feature; items aren't hidden, which turns "stuff I can't use" into a soft-conversion prompt.
+
+### Behaviour notes
+
+- Existing customers on Pro, Business, or Enterprise see every entitlement they paid for, without re-activating. Run "Check for updates" in the panel, apply, reopen the page — feature surface repopulates from the alias-expanded `/system/license` response.
+- FREE customers are unchanged: they retain `nowpayments`, `wireguard`, `amneziawg`, `client_portal`, and `telegram_bots`.
+- Newly-issued activation codes carry the full feature set directly rather than relying on aliases.
+
+---
+
 ## v1.6.7 — 2026-05-12
 
 Fixes a UI startup gap where the licence feature list wasn't being fetched until a `FeatureGuard`-wrapped view was visited. Views that depend on `licenseStore.has(...)` directly — the most visible being Add Server's Mikrotik connection-mode option — would render with the default empty feature list and hide their gated UI even on licences that legitimately had the feature. The licence store now loads at app startup, and reloads automatically after login.
