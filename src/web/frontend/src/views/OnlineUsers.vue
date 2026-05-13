@@ -16,14 +16,36 @@
       </div>
     </div>
 
-    <!-- Per-server breakdown chips -->
+    <!-- Per-server breakdown chips. Clicking a chip filters the list to
+         that server; clicking the active chip again (or 'All') clears
+         the filter. Mirrors the by-server pill UX from other dashboards. -->
     <div v-if="byServer.length" class="ou-servers">
-      <div v-for="s in byServer" :key="s.id" class="ou-server-chip">
+      <button
+        type="button"
+        class="ou-server-chip ou-server-chip--all"
+        :class="{ 'is-active': !serverFilter }"
+        @click="serverFilter = null"
+        :title="$t('onlineUsers.showAll') || 'Show all servers'"
+      >
+        <i class="mdi mdi-filter-variant"></i>
+        <span class="name">{{ $t('onlineUsers.allServers') || 'All' }}</span>
+        <span class="dot">·</span>
+        <span class="count">{{ onlineCountUnfiltered }}</span>
+      </button>
+      <button
+        type="button"
+        v-for="s in byServer"
+        :key="s.id"
+        class="ou-server-chip"
+        :class="{ 'is-active': serverFilter === s.id }"
+        @click="serverFilter = (serverFilter === s.id ? null : s.id)"
+        :title="$t('onlineUsers.filterByServer') || 'Filter by this server'"
+      >
         <i class="mdi mdi-server-network"></i>
         <span class="name">{{ s.name }}</span>
         <span class="dot">·</span>
         <span class="count">{{ s.count }}</span>
-      </div>
+      </button>
     </div>
 
     <!-- Empty state -->
@@ -127,6 +149,11 @@ const { t } = useI18n()
 const clients = ref([])
 const servers = ref([])
 const loading = ref(true)
+// Server filter: null = show all, otherwise a server.id. Set by clicking
+// the per-server pill at the top. Click the same pill again or 'All' to
+// clear. We intentionally don't persist this across page visits — fresh
+// page should show everything.
+const serverFilter = ref(null)
 // Per-client live speed snapshot. Refreshed each poll alongside clients/servers.
 // Keyed by public_key (the only pubkey present on both bandwidth and clients
 // payloads). On the very first poll values may be 0 because the backend's
@@ -157,17 +184,29 @@ function isOnline(c) {
   return _now.value - new Date(c.last_handshake).getTime() < ONLINE_WINDOW_MS
 }
 
-const onlineList = computed(() =>
+// Full set of online clients across all servers. byServer + the top
+// counter always derive from this, so the server pills remain accurate
+// even while the main table is filtered to one server.
+const onlineListAll = computed(() =>
   clients.value
     .filter(isOnline)
     // most recent handshake first
     .sort((a, b) => new Date(b.last_handshake).getTime() - new Date(a.last_handshake).getTime())
 )
+
+// What the table / cards actually render: optionally narrowed by serverFilter.
+const onlineList = computed(() =>
+  serverFilter.value == null
+    ? onlineListAll.value
+    : onlineListAll.value.filter(c => c.server_id === serverFilter.value)
+)
+
 const onlineCount = computed(() => onlineList.value.length)
+const onlineCountUnfiltered = computed(() => onlineListAll.value.length)
 
 const byServer = computed(() => {
   const map = new Map()
-  for (const c of onlineList.value) {
+  for (const c of onlineListAll.value) {
     const sid = c.server_id
     map.set(sid, (map.get(sid) || 0) + 1)
   }
@@ -358,6 +397,29 @@ onMounted(refresh)
   border-radius: 999px;
   font-size: 0.82rem;
   color: #0a58ca;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+}
+.ou-server-chip:hover { background: rgba(13, 110, 253, 0.13); }
+.ou-server-chip:active { transform: scale(0.97); }
+.ou-server-chip.is-active {
+  background: #0d6efd;
+  border-color: #0d6efd;
+  color: #fff;
+}
+.ou-server-chip.is-active .mdi,
+.ou-server-chip.is-active .dot { opacity: 0.85; color: #fff; }
+.ou-server-chip--all {
+  background: rgba(108, 117, 125, 0.08);
+  border-color: rgba(108, 117, 125, 0.25);
+  color: #495057;
+}
+.ou-server-chip--all:hover { background: rgba(108, 117, 125, 0.15); }
+.ou-server-chip--all.is-active {
+  background: #495057;
+  border-color: #495057;
+  color: #fff;
 }
 .ou-server-chip .mdi { font-size: 0.95rem; opacity: 0.7; }
 .ou-server-chip .name { font-weight: 500; }
@@ -601,6 +663,27 @@ onMounted(refresh)
   background: rgba(99, 132, 253, 0.14);
   border-color: rgba(99, 132, 253, 0.30);
   color: #93b5ff;
+}
+[data-theme="dark"] .ou-server-chip:hover {
+  background: rgba(99, 132, 253, 0.22);
+}
+[data-theme="dark"] .ou-server-chip.is-active {
+  background: #4d7cfe;
+  border-color: #4d7cfe;
+  color: #fff;
+}
+[data-theme="dark"] .ou-server-chip--all {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #c8cdd5;
+}
+[data-theme="dark"] .ou-server-chip--all:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+[data-theme="dark"] .ou-server-chip--all.is-active {
+  background: #6b7280;
+  border-color: #6b7280;
+  color: #fff;
 }
 
 /* Cards / table — borrow the surface colour from the panel's theme tokens
