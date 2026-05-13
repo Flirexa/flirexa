@@ -31,9 +31,23 @@ class TimerManager:
         """
         Create WireGuard manager for server (local or remote).
 
-        Returns RemoteServerAdapter for remote servers (routes to SSH or Agent).
-        Returns AmneziaWGManager/WireGuardManager for local servers (direct execution).
+        Returns RemoteServerAdapter for remote servers (routes to SSH, Agent,
+        or Mikrotik REST). Returns AmneziaWGManager/WireGuardManager for
+        local servers (direct execution).
         """
+        # Mikrotik mode has no ssh_host but is fully remote — route through
+        # the adapter so timer-driven auto-disable actually deletes the
+        # peer on the router. Without this the local-branch falls back to
+        # `wg show wg0` on the panel host, finds nothing, returns silently,
+        # and the DB-disabled client keeps a live peer on the router.
+        if (getattr(server, "agent_mode", None) or "") == "mikrotik":
+            from .remote_adapter import RemoteServerAdapter
+            return RemoteServerAdapter(
+                server=server,
+                interface=server.interface,
+                config_path=server.config_path,
+            )
+
         # Local server - use direct manager (AWG or standard WG)
         if not server.ssh_host:
             if getattr(server, 'server_type', 'wireguard') == 'amneziawg':

@@ -4,6 +4,20 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.13 — 2026-05-13
+
+Mikrotik auto-disable now actually removes the peer from the router, and the Online Users page gains a per-server filter.
+
+### Fixed
+
+- **Mikrotik clients stayed connected after their expiry timer fired.** `timer_manager._get_wg` was missing the `agent_mode == 'mikrotik'` dispatch branch. For a Mikrotik server (which has no `ssh_host`) the helper fell into the local-server path, ran `wg show <iface>` on the panel host where that interface doesn't exist, returned silently, and the DB flipped to `enabled=False` while the peer kept running on the operator's router. This was the fifth call site of the same dispatch pattern that 1.6.10 and 1.6.11 already covered in four other files — a missed file, not a new bug class. Manually-triggered Disable was never affected (it goes through `client_manager._get_wg`, which already had the branch).
+
+### Added
+
+- **Clickable server filter on the Online Users page.** The per-server pills above the table are now buttons. Click one to filter the list to that server; click the active pill or the new "All" pill to clear. The top counter and the by-server breakdown always reflect overall state, so the filter only narrows the table — it never hides connections from the totals. `serverFilter` is in-memory only, fresh page visits start unfiltered.
+
+---
+
 ## v1.6.12 — 2026-05-12
 
 Mikrotik adapter survives routers without the IPv6 package.
