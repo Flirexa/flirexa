@@ -4,6 +4,16 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.15 — 2026-05-16
+
+Dashboard "Traffic used" card now matches the "Traffic over time" chart.
+
+### Fixed
+
+- **Client portal dashboard: "Traffic used" stat card stuck at 0.00.** The card was pulling `Subscription.traffic_used_total_gb`, which sums two columns (`traffic_used_rx`, `traffic_used_tx`) that no code path actually writes to — every traffic-counter update across the codebase targets `Client.traffic_used_rx/tx` on the per-device row, not the subscription summary. So the card always read back the SQLAlchemy default of 0, no matter how many gigabytes flowed through the peer underneath. The "Traffic over time" chart sitting right below it was already aggregating `TrafficDaily` rows correctly, which is why operators saw two contradicting numbers (e.g. card "0.00 GB", chart "52 MB"). The /dashboard/subscription endpoint now sums `Client.traffic_used_rx + traffic_used_tx` across the portal user's linked devices, so the card matches the chart and the derived `traffic_remaining_gb` / `traffic_percentage` come out right.
+
+---
+
 ## v1.6.14 — 2026-05-16
 
 SSL setup in Settings → Web Access got a thorough hardening pass: HTTP/2, HSTS, modern TLS, DNS pre-check before requesting a cert, and several fixes to long-standing rough edges.
