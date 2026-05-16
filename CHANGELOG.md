@@ -4,6 +4,34 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.14 — 2026-05-16
+
+SSL setup in Settings → Web Access got a thorough hardening pass: HTTP/2, HSTS, modern TLS, DNS pre-check before requesting a cert, and several fixes to long-standing rough edges.
+
+### Added
+
+- **DNS pre-check before requesting a cert.** The setup script now resolves your portal/admin domain and compares against the server's public IP before calling Let's Encrypt. If the A record points somewhere else (or hasn't propagated yet), you get a one-line error pointing at the actual issue instead of a 30-second `certbot` timeout with a wall of authorisation-failure text.
+- **Port 80/443 conflict pre-check.** If anything other than nginx is already listening on port 80 or 443 (Caddy, a stray docker container, anything), the script aborts cleanly with the offending listener identified, instead of letting nginx start-fail mid-setup.
+- **HTTP/2 + HSTS by default.** New nginx vhosts listen on `443 ssl http2` and send `Strict-Transport-Security: max-age=31536000; includeSubDomains` in HTTPS responses. Faster page loads, no accidental HTTP downgrade after the first visit.
+- **TLS 1.2/1.3 with Mozilla-Intermediate cipher list and OCSP stapling.** Legacy TLS 1.0/1.1 paths are gone, session tickets are off (per Mozilla's forward-secrecy guidance), OCSP stapling resolves via Cloudflare/Google with a 5s timeout, and a 2048-bit DH group is generated once and reused on subsequent runs.
+- **Hardening security headers** in HTTPS server blocks: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` denying geolocation/microphone/camera by default.
+- **`--staging` flag** on `scripts/configure-web-access.sh`. Test the SSL pipeline against Let's Encrypt's staging endpoint without burning your real-cert rate limit. Useful when iterating on DNS or before opening rate-limited domains.
+
+### Changed
+
+- **`proxy_read_timeout` raised 60s → 300s.** Long admin operations (full backups, bulk imports) no longer 504 partway through.
+- **WebSocket-ready proxy headers** in every HTTPS server block (`Upgrade`, `Connection: upgrade`, `proxy_http_version 1.1`).
+- **Per-vhost access and error logs** under `/var/log/nginx/portal-*.log` and `/admin-*.log` — easier triage when something goes wrong on one of two domains.
+- **`update_env_file` now takes an exclusive `flock`** on `.env.lock`, matching the Python panel's lock path. Concurrent shell + panel writers no longer corrupt `.env`.
+
+### Fixed
+
+- **CLI arguments silently overridden by `.env` during Web Access setup.** Submitting the Settings → Web Access form would fail with `Invalid email:` even though the email field was filled, because the script's `set -a; . .env` step immediately wiped the form-supplied values with the empty `.env` defaults the panel writes during install. CLI values are now captured before sourcing and restored after.
+- **Duplicate `ssl_protocols` / `gzip` directive at http scope.** Ubuntu 24.04's stock `/etc/nginx/nginx.conf` already declares these at the `http {}` level. The previous script's params file re-declared them, breaking `nginx -t`. They now live inside each `server { }` block, where per-block scope is allowed regardless of distro defaults.
+- **`certbot.timer` left masked.** If the timer had been disabled or masked for any reason, it stayed that way even after a fresh SSL setup, silently breaking auto-renew 90 days later. Now: explicit `systemctl unmask + enable --now certbot.timer` after issuance.
+
+---
+
 ## v1.6.13 — 2026-05-13
 
 Mikrotik auto-disable now actually removes the peer from the router, and the Online Users page gains a per-server filter.
