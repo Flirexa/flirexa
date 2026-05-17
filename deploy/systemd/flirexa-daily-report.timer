@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Flirexa Telegram report at 18:00 UTC
+
+[Timer]
+OnCalendar=*-*-* 18:00:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

@@ -4,6 +4,30 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.19 — 2026-05-17
+
+AmneziaWG obfuscation parameters (Jc/Jmin/Jmax/S1/S2/H1-H4) are now editable from the panel after server creation, with three smart-fill paths so an operator migrating to a new AWG box can preserve existing client configs without re-issuing anything.
+
+### Background
+
+AmneziaWG packets carry per-server-unique header magic (`H1`-`H4`) plus shared junk parameters (`Jc/Jmin/Jmax/S1/S2`). Every client config bakes these values into its `[Interface]` section; the kernel module on the server side must match exactly or the handshake fails. Until now the panel generated these randomly on first server creation and offered no way to change them afterwards — fine for greenfield installs, painful for migrations: spin up a replacement AWG box with the same private key and the new auto-generated H1-H4 silently break every previously-issued client config. Operators had to either reissue all configs (annoying at scale) or `psql` the panel's DB directly (annoying and risky).
+
+### Added
+
+- **"Edit obfuscation params" menu item on AmneziaWG server cards.** Opens a focused modal with all 9 values, validation, and an atomic save flow: DB update → `awg.conf` rewrite on disk (local or via agent/SSH for remote boxes) → `awg-quick down/up` to make the kernel module pick up the new headers. Operators get one consistent "save & restart" UX whether their AWG server is local, behind SSH, or behind the HTTP agent.
+- **"Copy from another AWG server" dropdown.** When the panel has more than one AWG server (typical migration: old box + new box both still registered), pick the source server from a dropdown and click Copy — all 9 values inherit in one click. Same-keypair candidates are listed first and tagged "same keypair" since they're the obvious-right-answer for migrations.
+- **"Auto-fill from a working client config" paste box.** Fallback for when the old server entry is already gone from the panel. Paste any `.conf` that still handshakes against the old box (operator typically has one on their own device), the parser extracts `Jc/Jmin/Jmax/S1/S2/H1-H4` from the `[Interface]` section, and the 9 form fields fill instantly. Robust regex handles CRLF, tabs, mixed case, and the `H10`/`H11` false-positive trap. Plain WireGuard configs (no AWG fields) are rejected with a clear error.
+- **Same smart-fill UX in the Add Server form's "Reuse obfuscation params" advanced section** — proactive migrators can pre-set params at creation time instead of editing afterwards.
+- **`awg_jc/jmin/jmax/s1/s2/h1/h2/h3/h4/mtu` in `ServerUpdate` API schema** with `ge=1` validation on H1-H4 (zero is invalid for AWG kernel module). For non-AWG servers the route layer silently strips these fields rather than 422-ing.
+- **Full RU/DE/FR/ES translations** for all 22 new strings in the modal.
+
+### Changed
+
+- **`ServerManager.update_server` `allowed_fields` whitelist** extended to include `awg_jc/jmin/jmax/s1/s2/h1/h2/h3/h4/mtu`. Pre-existing field-level gating still applies (unknown keys are silently dropped).
+- **`PUT /servers/{id}` handler** detects whether any AWG obfuscation field is in the update payload and, if so, runs `save_server_config` + `restart_server` via `asyncio.to_thread` after the DB commit. Non-AWG updates (rename, endpoint, etc.) still skip the interface bounce. If the config push fails after the DB write succeeds, the API returns 500 with an actionable message pointing at the manual Apply Config + Restart fallback — operator can retry without losing the saved values.
+
+---
+
 ## v1.6.15 — 2026-05-16
 
 Dashboard "Traffic used" card now matches the "Traffic over time" chart.

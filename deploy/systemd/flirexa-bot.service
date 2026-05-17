@@ -1,0 +1,18 @@
+[Unit]
+Description=Flirexa Admin Telegram Bot (poller)
+After=network-online.target license-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/license-server
+EnvironmentFile=/opt/license-server/.env
+ExecStart=/opt/license-server/venv/bin/python3 -m license_server.bot.poller
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+User=root
+
+[Install]
+WantedBy=multi-user.target

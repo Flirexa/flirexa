@@ -133,6 +133,21 @@ class ServerUpdate(BaseModel):
     supports_peer_visibility: Optional[bool] = None
     split_tunnel_support: Optional[bool] = None
     ipv4_only: Optional[bool] = None
+    # AmneziaWG obfuscation parameters. Editable post-creation so a server
+    # migrated from another box can be made to match the old box's headers,
+    # keeping existing client configs working without re-issuing them.
+    # When any of these change the PUT handler redeploys the AWG config to
+    # disk and restarts the interface so the kernel module picks them up.
+    awg_jc: Optional[int] = Field(None, ge=1, le=128)
+    awg_jmin: Optional[int] = Field(None, ge=0, le=65535)
+    awg_jmax: Optional[int] = Field(None, ge=0, le=65535)
+    awg_s1: Optional[int] = Field(None, ge=0, le=65535)
+    awg_s2: Optional[int] = Field(None, ge=0, le=65535)
+    awg_h1: Optional[int] = Field(None, ge=1)
+    awg_h2: Optional[int] = Field(None, ge=1)
+    awg_h3: Optional[int] = Field(None, ge=1)
+    awg_h4: Optional[int] = Field(None, ge=1)
+    awg_mtu: Optional[int] = Field(None, ge=576, le=9000)
 
 
 class ProxyInstallRequest(BaseModel):
@@ -2248,14 +2263,52 @@ async def update_server(
 
     update_data = server_data.model_dump(exclude_unset=True)
 
+    is_awg = getattr(server, 'server_type', 'wireguard') == 'amneziawg'
+
+    # AWG obfuscation params are only meaningful for AmneziaWG servers; drop
+    # them silently for plain WG/proxy so the API doesn't 400 on a noise field.
+    awg_fields = {
+        'awg_jc', 'awg_jmin', 'awg_jmax', 'awg_s1', 'awg_s2',
+        'awg_h1', 'awg_h2', 'awg_h3', 'awg_h4', 'awg_mtu',
+    }
+    if not is_awg:
+        for f in awg_fields:
+            update_data.pop(f, None)
+
     # split_tunnel_support has no effect on AWG servers — silently drop it
-    if update_data and getattr(server, 'server_type', 'wireguard') == 'amneziawg':
+    if update_data and is_awg:
         update_data.pop('split_tunnel_support', None)
+
+    awg_param_changed = is_awg and bool(set(update_data) & awg_fields)
 
     if update_data:
         server = core.servers.update_server(server_id, **update_data)
         if not server:
             raise HTTPException(status_code=500, detail="Failed to update server")
+
+    # When AWG obfuscation params change, push the new values to the
+    # interface config on disk and restart so the kernel module picks them
+    # up — otherwise the DB knows the new headers but the live interface
+    # still uses the old ones, and existing client configs keep failing.
+    if awg_param_changed:
+        try:
+            await asyncio.to_thread(core.servers.save_server_config, server_id)
+            await asyncio.to_thread(core.servers.restart_server, server_id)
+            logger.info(
+                f"AWG obfuscation params updated on server {server.name}; "
+                "config redeployed + interface restarted"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to redeploy AWG config after param update on {server.name}: {e}"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Database updated but pushing config to the interface failed: {e}. "
+                    "Use Apply config + Restart from the server menu to retry."
+                ),
+            )
 
     return ServerResponse.from_server(server, db=db)
 

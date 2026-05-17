@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.responses import Response, FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+from sqlalchemy import func as sa_func
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
@@ -605,6 +606,40 @@ async def get_subscription(
     ).count()
     over_limit = subscription.max_devices and devices_used > subscription.max_devices
 
+    # ── Traffic counter — sum live Client.traffic_used_* across this user's
+    # linked devices, NOT subscription.traffic_used_rx/tx. The Subscription
+    # columns are never written today (no code path increments them), so
+    # subscription.traffic_used_total_gb always reads back 0 even when the
+    # peer has gigabytes through it. Aggregating Client counters here matches
+    # the source the /dashboard/traffic-series chart uses, so the "Traffic
+    # used" card and the chart line up.
+    from src.database.models import Client as _Client
+    client_ids = db.query(ClientUserClients.client_id).filter(
+        ClientUserClients.client_user_id == user_id
+    ).all()
+    client_id_list = [r.client_id for r in client_ids]
+    if client_id_list:
+        bytes_row = db.query(
+            sa_func.coalesce(sa_func.sum(_Client.traffic_used_rx), 0).label("rx"),
+            sa_func.coalesce(sa_func.sum(_Client.traffic_used_tx), 0).label("tx"),
+        ).filter(_Client.id.in_(client_id_list)).first()
+        rx_bytes = int(bytes_row.rx or 0)
+        tx_bytes = int(bytes_row.tx or 0)
+    else:
+        rx_bytes = tx_bytes = 0
+    traffic_used_gb_live = (rx_bytes + tx_bytes) / (1024 ** 3)
+
+    limit_gb = subscription.traffic_limit_gb
+    if limit_gb is None:
+        traffic_remaining_gb = None
+        traffic_percentage    = None
+    else:
+        traffic_remaining_gb = max(0.0, limit_gb - traffic_used_gb_live)
+        traffic_percentage   = (
+            100 if limit_gb == 0
+            else min(100, int((traffic_used_gb_live / limit_gb) * 100))
+        )
+
     return {
         "id": subscription.id,
         "tier": subscription.tier,
@@ -613,10 +648,10 @@ async def get_subscription(
         "devices_used": devices_used,
         "over_device_limit": bool(over_limit),
         "excess_devices": max(0, devices_used - (subscription.max_devices or 0)),
-        "traffic_limit_gb": subscription.traffic_limit_gb,
-        "traffic_used_gb": round(subscription.traffic_used_total_gb, 2),
-        "traffic_remaining_gb": round(subscription.traffic_remaining_gb, 2) if subscription.traffic_remaining_gb else None,
-        "traffic_percentage": subscription.traffic_percentage_used,
+        "traffic_limit_gb": limit_gb,
+        "traffic_used_gb": round(traffic_used_gb_live, 2),
+        "traffic_remaining_gb": round(traffic_remaining_gb, 2) if traffic_remaining_gb is not None else None,
+        "traffic_percentage": traffic_percentage,
         "bandwidth_limit_mbps": subscription.bandwidth_limit_mbps,
         "price_monthly_usd": subscription.price_monthly_usd,
         "expiry_date": subscription.expiry_date.isoformat() if subscription.expiry_date else None,
