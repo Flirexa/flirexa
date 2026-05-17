@@ -148,8 +148,17 @@ async def lifespan(app: FastAPI):
             logger.warning("NOWPayments init failed: {}", e)
 
     # Load payment plugins from plugins/payments/
+    #
+    # Must go through `importlib.import_module` (not the older
+    # `spec_from_file_location` path), otherwise pyarmor-protected plugin
+    # bundles import as no-op stubs on customer installs: `spec_from_file_location`
+    # bypasses Python's package import hooks, so the pyarmor runtime never
+    # initializes and the module body executes without ever setting
+    # PROVIDER_CLASS. The plain-source dev tree happens to work either way,
+    # which is how the bug shipped to production undetected until a customer
+    # tried to add Stripe and got "no providers" in the client portal.
     try:
-        import importlib.util
+        import importlib
         from pathlib import Path as _P
         _plugins_dir = _P(__file__).resolve().parents[2] / "plugins" / "payments"
         if _plugins_dir.is_dir():
@@ -158,9 +167,7 @@ async def lifespan(app: FastAPI):
                 if _pf.name.startswith("_"):
                     continue  # skip __init__.py and _template.py
                 try:
-                    _spec = importlib.util.spec_from_file_location(f"plugin_{_pf.stem}", str(_pf))
-                    _mod = importlib.util.module_from_spec(_spec)
-                    _spec.loader.exec_module(_mod)
+                    _mod = importlib.import_module(f"plugins.payments.{_pf.stem}")
                     _cls = getattr(_mod, "PROVIDER_CLASS", None)
                     if _cls:
                         _instance = _cls()
@@ -168,6 +175,8 @@ async def lifespan(app: FastAPI):
                         setattr(client_portal, f"{_instance.name}_provider", _instance)
                         logger.info(f"Payment plugin loaded: {_instance.display_name} ({_pf.name})")
                         _loaded += 1
+                    else:
+                        logger.debug(f"Payment plugin {_pf.name}: no PROVIDER_CLASS exposed — skipping")
                 except Exception as _pe:
                     logger.warning(f"Payment plugin {_pf.name} failed to load: {_pe}")
             if _loaded:
