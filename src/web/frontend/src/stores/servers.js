@@ -55,6 +55,18 @@ export const useServersStore = defineStore('servers', {
       }
     },
 
+    async updateServer(id, data) {
+      try {
+        const { data: server } = await serversApi.update(id, data)
+        const idx = this.servers.findIndex((s) => s.id === id)
+        if (idx >= 0) this.servers[idx] = server
+        return server
+      } catch (err) {
+        this.error = err.response?.data?.detail || err.message
+        throw err
+      }
+    },
+
     async deleteServer(id) {
       try {
         await serversApi.delete(id)

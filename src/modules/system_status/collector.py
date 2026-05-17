@@ -524,7 +524,8 @@ def collect_system_status(db_session: Session | None = None) -> SystemStatus:
     license_summary = _license_summary(api_active=bool(api_service and api_service.active))
     worker_last_heartbeat, worker_age_minutes = _worker_heartbeat(db.connected, db_session=db_session)
 
-    api_health = _component_from_http("http://localhost:10086/health?detail=true")
+    _api_port = os.getenv("API_PORT", "10086")
+    api_health = _component_from_http(f"http://localhost:{_api_port}/health?detail=true")
     portal_service = next((svc for svc in services if svc.unit.endswith("-client-portal")), None)
     if portal_service and portal_service.enabled is False:
         portal_health = ComponentHealth(status="unknown", message="portal disabled", details={})

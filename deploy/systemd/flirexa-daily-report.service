@@ -1,0 +1,12 @@
+[Unit]
+Description=Flirexa daily Telegram report
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/license-server
+EnvironmentFile=/opt/license-server/.env
+ExecStart=/opt/license-server/venv/bin/python3 -m license_server.tools.daily_report
+StandardOutput=journal
+StandardError=journal
+User=root

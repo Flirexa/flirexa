@@ -127,7 +127,7 @@ Examples:
 
     # API options
     parser.add_argument("--host", default="0.0.0.0", help="API host")
-    parser.add_argument("--port", type=int, default=10086, help="API port")
+    parser.add_argument("--port", type=int, default=int(os.getenv("API_PORT", "10086")), help="API port")
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
 
     # Migration options

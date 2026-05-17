@@ -119,6 +119,10 @@
                   <div class="srv-menu__sep"></div>
                   <button v-if="server.agent_mode !== 'mikrotik'" class="srv-menu__item" @click="menuAction(() => openExpandPool(server))"><i class="mdi mdi-arrow-expand-horizontal me-1"></i>{{ $t('servers.expandPool') || 'Expand address pool' }}</button>
                   <button class="srv-menu__item" @click="menuAction(() => openExportKeypair(server))"><i class="mdi mdi-key-outline me-1"></i>{{ $t('servers.exportKeypair') || 'Export keypair' }}</button>
+                  <button v-if="server.server_type === 'amneziawg'" class="srv-menu__item"
+                    @click="menuAction(() => openEditObfuscationModal(server))">
+                    <i class="mdi mdi-tune-vertical me-1"></i>{{ $t('servers.editObfuscation') || 'Edit obfuscation params' }}
+                  </button>
                   <button v-if="server.agent_mode !== 'mikrotik'" class="srv-menu__item" @click="menuAction(() => openMigrateClients(server))"><i class="mdi mdi-account-switch-outline me-1"></i>{{ $t('servers.migrateClients') || 'Migrate clients' }}</button>
                 </template>
                 <template v-if="!server.is_default">
@@ -509,6 +513,111 @@
                     <input v-model="newServer.proxy_obfs_password" type="text" class="form-control"
                            :placeholder="$t('servers.obfsPasswordPlaceholder')" />
                     <div class="form-text">{{ $t('servers.obfsHelp') }}</div>
+                  </div>
+
+                  <!-- AmneziaWG: reuse obfuscation params from existing server.
+                       Same use case as "Reuse private key" — when migrating an
+                       AWG server to a new box, paste the old box's h1-h4 (and
+                       optionally jc/jmin/jmax/s1/s2) so issued client configs
+                       keep handshaking. Blank fields → backend auto-generates. -->
+                  <div v-if="newServer.server_type === 'amneziawg'" class="mb-3">
+                    <button type="button" class="advanced-toggle" @click="reuseObfuscationOpen = !reuseObfuscationOpen">
+                      <span class="d-flex align-items-center gap-1">
+                        <svg class="advanced-chevron" :class="{ 'advanced-chevron--open': reuseObfuscationOpen }"
+                             xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                        {{ $t('servers.reuseObfuscation') || 'Reuse obfuscation params (for migration)' }}
+                      </span>
+                    </button>
+                    <div class="advanced-body" :class="{ 'advanced-body--open': reuseObfuscationOpen }">
+                      <div class="pt-2 small text-muted mb-2">
+                        {{ $t('servers.reuseObfuscationHint') || "Leave blank to auto-generate. Paste values from the old AWG server here to keep existing client configs working after migration — they must match exactly to handshake." }}
+                      </div>
+                      <!-- Pick-source dropdown — when migrating with both old+new
+                           rows in the panel, single click instead of paste. -->
+                      <div v-if="addAwgSourceCandidates.length > 0"
+                           class="mb-3 p-2 rounded" style="background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.22)">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                          <i class="mdi mdi-source-branch"></i>
+                          <span class="small fw-bold">{{ $t('servers.copyFromAnotherAwg') || 'Copy from another AWG server in this panel' }}</span>
+                        </div>
+                        <div class="d-flex gap-2">
+                          <select v-model="addCopyFromServerId" class="form-select form-select-sm" style="flex:1">
+                            <option :value="null" disabled>{{ $t('servers.selectSourceServer') || 'Select source server…' }}</option>
+                            <option v-for="s in addAwgSourceCandidates" :key="s.id" :value="s.id">
+                              {{ s.name }}<template v-if="s.endpoint"> · {{ s.endpoint }}</template>
+                            </option>
+                          </select>
+                          <button type="button" class="btn btn-sm btn-success" :disabled="!addCopyFromServerId" @click="copyObfuscationFromServerForAdd">
+                            <i class="mdi mdi-content-copy me-1"></i>{{ $t('servers.copy') || 'Copy' }}
+                          </button>
+                        </div>
+                        <div v-if="addCopyFromMessage" class="small mt-2"
+                             :class="addCopyFromOk ? 'text-success' : 'text-danger'">
+                          <i class="mdi me-1" :class="addCopyFromOk ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'"></i>
+                          {{ addCopyFromMessage }}
+                        </div>
+                      </div>
+                      <!-- Smart-fill: paste working client config, we extract values -->
+                      <div class="mb-3 p-2 rounded" style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.18)">
+                        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none d-flex align-items-center gap-1"
+                                @click="addDetectOpen = !addDetectOpen">
+                          <svg class="advanced-chevron" :class="{ 'advanced-chevron--open': addDetectOpen }"
+                               xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+                               fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                          </svg>
+                          <i class="mdi mdi-magnify-scan"></i>
+                          {{ $t('servers.detectFromClientConfig') || 'Auto-fill from a working client config' }}
+                        </button>
+                        <div v-if="addDetectOpen" class="pt-2">
+                          <textarea v-model="addDetectInput" rows="5" class="form-control form-control-sm font-monospace"
+                                    :placeholder="`[Interface]\nPrivateKey = ...\nJc = 4\nJmin = 50\nJmax = 100\nS1 = 80\nS2 = 40\nH1 = ...\nH2 = ...\nH3 = ...\nH4 = ...`"></textarea>
+                          <div class="d-flex align-items-center gap-2 mt-2">
+                            <button type="button" class="btn btn-sm btn-primary" @click="detectObfuscationForNewServer">
+                              <i class="mdi mdi-auto-fix me-1"></i>{{ $t('servers.detectAndFill') || 'Detect & fill' }}
+                            </button>
+                            <span v-if="addDetectMessage" class="small"
+                                  :class="addDetectOk ? 'text-success' : 'text-danger'">
+                              <i class="mdi me-1" :class="addDetectOk ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'"></i>
+                              {{ addDetectMessage }}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="row g-2 mb-2">
+                        <div class="col-6 col-sm-3">
+                          <label class="form-label small mb-1">H1</label>
+                          <input v-model.number="newServer.awg_h1" type="number" min="1" class="form-control form-control-sm font-monospace" placeholder="auto">
+                        </div>
+                        <div class="col-6 col-sm-3">
+                          <label class="form-label small mb-1">H2</label>
+                          <input v-model.number="newServer.awg_h2" type="number" min="1" class="form-control form-control-sm font-monospace" placeholder="auto">
+                        </div>
+                        <div class="col-6 col-sm-3">
+                          <label class="form-label small mb-1">H3</label>
+                          <input v-model.number="newServer.awg_h3" type="number" min="1" class="form-control form-control-sm font-monospace" placeholder="auto">
+                        </div>
+                        <div class="col-6 col-sm-3">
+                          <label class="form-label small mb-1">H4</label>
+                          <input v-model.number="newServer.awg_h4" type="number" min="1" class="form-control form-control-sm font-monospace" placeholder="auto">
+                        </div>
+                      </div>
+                      <div class="row g-2">
+                        <div class="col-4 col-sm-2"><label class="form-label small mb-1">JC</label>
+                          <input v-model.number="newServer.awg_jc" type="number" min="1" max="128" class="form-control form-control-sm font-monospace" placeholder="4"></div>
+                        <div class="col-4 col-sm-2"><label class="form-label small mb-1">JMin</label>
+                          <input v-model.number="newServer.awg_jmin" type="number" min="0" max="65535" class="form-control form-control-sm font-monospace" placeholder="50"></div>
+                        <div class="col-4 col-sm-2"><label class="form-label small mb-1">JMax</label>
+                          <input v-model.number="newServer.awg_jmax" type="number" min="0" max="65535" class="form-control form-control-sm font-monospace" placeholder="100"></div>
+                        <div class="col-6 col-sm-3"><label class="form-label small mb-1">S1</label>
+                          <input v-model.number="newServer.awg_s1" type="number" min="0" max="65535" class="form-control form-control-sm font-monospace" placeholder="80"></div>
+                        <div class="col-6 col-sm-3"><label class="form-label small mb-1">S2</label>
+                          <input v-model.number="newServer.awg_s2" type="number" min="0" max="65535" class="form-control form-control-sm font-monospace" placeholder="40"></div>
+                      </div>
+                    </div>
                   </div>
 
                   <!-- Location -->
@@ -1255,6 +1364,164 @@
     </div>
     <div class="modal-backdrop fade show" v-if="exportKeypairServer"></div>
 
+    <!-- ════════ Edit AWG Obfuscation Params Modal ════════ -->
+    <!-- Lets the operator paste obfuscation headers from another AWG box
+         (e.g. when migrating servers with the same private key) so existing
+         client configs keep handshaking after the swap. Save → DB update +
+         config rewrite on disk + interface restart in one atomic step. -->
+    <div v-if="editObfuscationServer" class="modal fade show" style="display:block" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">
+              <i class="mdi mdi-tune-vertical me-2"></i>{{ $t('servers.editObfuscationTitle') || 'Edit AmneziaWG obfuscation params' }}
+            </h5>
+            <button type="button" class="btn-close" @click="closeEditObfuscationModal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-3">
+              {{ $t('servers.editObfuscationHint') || "Existing client configs reference these exact values to handshake. Paste the values from the old AWG server here, save, and the interface will be restarted so existing clients reconnect without re-issuing configs." }}
+            </p>
+
+            <div class="alert alert-warning small d-flex gap-2 align-items-start mb-3">
+              <i class="mdi mdi-alert-outline" style="font-size:1.1rem"></i>
+              <div>
+                {{ $t('servers.editObfuscationWarn') || 'Saving restarts the AmneziaWG interface. Active clients will reconnect within a few seconds.' }}
+              </div>
+            </div>
+
+            <!-- Smart-fill: two paths, both populate the 9 fields below.
+                 Path 1 (recommended when possible): pick another AWG server
+                 in this panel — usually the old one if both rows still
+                 exist after migration. Zero typing, zero pasting.
+                 Path 2 (fallback): paste a working client .conf — for when
+                 the old server entry was already deleted from the panel. -->
+            <div v-if="awgSourceCandidates.length > 0"
+                 class="mb-3 p-2 rounded" style="background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.22)">
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <i class="mdi mdi-source-branch"></i>
+                <span class="small fw-bold">{{ $t('servers.copyFromAnotherAwg') || 'Copy from another AWG server in this panel' }}</span>
+              </div>
+              <div class="small text-muted mb-2">
+                {{ $t('servers.copyFromAnotherAwgHint') || 'Pick the old server (or any AWG server whose params you want to inherit). All 9 values copy instantly.' }}
+              </div>
+              <div class="d-flex gap-2">
+                <select v-model="copyFromServerId" class="form-select form-select-sm" style="flex:1">
+                  <option :value="null" disabled>{{ $t('servers.selectSourceServer') || 'Select source server…' }}</option>
+                  <option v-for="s in awgSourceCandidates" :key="s.id" :value="s.id">
+                    {{ s.name }}
+                    <template v-if="s.endpoint"> · {{ s.endpoint }}</template>
+                    <template v-if="editObfuscationServer && s.public_key === editObfuscationServer.public_key">
+                       — {{ $t('servers.samePrivateKey') || 'same keypair' }}
+                    </template>
+                  </option>
+                </select>
+                <button class="btn btn-sm btn-success" :disabled="!copyFromServerId" @click="copyObfuscationFromServer">
+                  <i class="mdi mdi-content-copy me-1"></i>{{ $t('servers.copy') || 'Copy' }}
+                </button>
+              </div>
+              <div v-if="copyFromMessage" class="small mt-2"
+                   :class="copyFromOk ? 'text-success' : 'text-danger'">
+                <i class="mdi me-1" :class="copyFromOk ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'"></i>
+                {{ copyFromMessage }}
+              </div>
+            </div>
+
+            <!-- Auto-fill from an existing client config — fallback for when
+                 the old server entry was already removed from the panel. -->
+            <div class="mb-3 p-2 rounded" style="background:rgba(99,102,241,.06);border:1px solid rgba(99,102,241,.18)">
+              <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none d-flex align-items-center gap-1"
+                      @click="obfuscationDetectOpen = !obfuscationDetectOpen">
+                <svg class="advanced-chevron" :class="{ 'advanced-chevron--open': obfuscationDetectOpen }"
+                     xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+                <i class="mdi mdi-magnify-scan"></i>
+                {{ awgSourceCandidates.length > 0
+                    ? ($t('servers.detectFromClientConfigOr') || 'Or auto-fill from a working client config')
+                    : ($t('servers.detectFromClientConfig') || 'Auto-fill from a working client config') }}
+              </button>
+              <div v-if="obfuscationDetectOpen" class="pt-2">
+                <div class="small text-muted mb-2">
+                  {{ $t('servers.detectFromClientConfigHint') || 'Paste any client .conf that still works against the old server (.conf has Jc/H1-H4 in its [Interface] section). We extract all 9 values automatically — no manual entry.' }}
+                </div>
+                <textarea v-model="obfuscationDetectInput" rows="6" class="form-control form-control-sm font-monospace"
+                          :placeholder="`[Interface]\nPrivateKey = ...\nJc = 4\nJmin = 50\nJmax = 100\nS1 = 80\nS2 = 40\nH1 = 3251671305\nH2 = 4062148898\nH3 = 286888380\nH4 = 1301557386\n...`"></textarea>
+                <div class="d-flex align-items-center gap-2 mt-2">
+                  <button class="btn btn-sm btn-primary" @click="detectObfuscationFromInput">
+                    <i class="mdi mdi-auto-fix me-1"></i>{{ $t('servers.detectAndFill') || 'Detect & fill' }}
+                  </button>
+                  <span v-if="obfuscationDetectMessage" class="small"
+                        :class="obfuscationDetectOk ? 'text-success' : 'text-danger'">
+                    <i class="mdi me-1" :class="obfuscationDetectOk ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline'"></i>
+                    {{ obfuscationDetectMessage }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="row g-2 mb-3">
+              <div class="col-12"><div class="small fw-bold text-muted">{{ $t('servers.obfuscationHeaders') || 'Packet headers (h1-h4)' }}</div></div>
+              <div class="col-6 col-sm-3">
+                <label class="form-label small mb-1">H1</label>
+                <input v-model.number="obfuscationForm.awg_h1" type="number" min="1" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-6 col-sm-3">
+                <label class="form-label small mb-1">H2</label>
+                <input v-model.number="obfuscationForm.awg_h2" type="number" min="1" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-6 col-sm-3">
+                <label class="form-label small mb-1">H3</label>
+                <input v-model.number="obfuscationForm.awg_h3" type="number" min="1" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-6 col-sm-3">
+                <label class="form-label small mb-1">H4</label>
+                <input v-model.number="obfuscationForm.awg_h4" type="number" min="1" class="form-control form-control-sm font-monospace">
+              </div>
+            </div>
+
+            <div class="row g-2 mb-3">
+              <div class="col-12"><div class="small fw-bold text-muted">{{ $t('servers.obfuscationJunk') || 'Junk + magic (jc, jmin, jmax, s1, s2)' }}</div></div>
+              <div class="col-4 col-sm-2">
+                <label class="form-label small mb-1">JC</label>
+                <input v-model.number="obfuscationForm.awg_jc" type="number" min="1" max="128" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-4 col-sm-2">
+                <label class="form-label small mb-1">JMin</label>
+                <input v-model.number="obfuscationForm.awg_jmin" type="number" min="0" max="65535" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-4 col-sm-2">
+                <label class="form-label small mb-1">JMax</label>
+                <input v-model.number="obfuscationForm.awg_jmax" type="number" min="0" max="65535" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-6 col-sm-3">
+                <label class="form-label small mb-1">S1</label>
+                <input v-model.number="obfuscationForm.awg_s1" type="number" min="0" max="65535" class="form-control form-control-sm font-monospace">
+              </div>
+              <div class="col-6 col-sm-3">
+                <label class="form-label small mb-1">S2</label>
+                <input v-model.number="obfuscationForm.awg_s2" type="number" min="0" max="65535" class="form-control form-control-sm font-monospace">
+              </div>
+            </div>
+
+            <div v-if="obfuscationError" class="alert alert-danger small mb-0">{{ obfuscationError }}</div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" @click="closeEditObfuscationModal" :disabled="savingObfuscation">
+              {{ $t('common.cancel') || 'Cancel' }}
+            </button>
+            <button class="btn btn-primary" @click="saveObfuscationParams" :disabled="savingObfuscation">
+              <span v-if="savingObfuscation" class="spinner-border spinner-border-sm me-2"></span>
+              <i v-else class="mdi mdi-content-save-outline me-1"></i>
+              {{ $t('servers.saveAndApply') || 'Save & restart interface' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-backdrop fade show" v-if="editObfuscationServer"></div>
+
     <!-- ════════ Migrate Clients Modal ════════ -->
     <div v-if="migrateSourceServer" class="modal fade show" style="display:block" tabindex="-1">
       <div class="modal-dialog modal-dialog-centered">
@@ -1662,9 +1929,49 @@ const newServer = ref({
   proxy_key_path: '',
   proxy_obfs_password: '',
   private_key: '',
+  // AmneziaWG obfuscation params — empty means "auto-generate on the backend".
+  // Filled when the operator is migrating from another AWG box and needs the
+  // new server to use the old box's headers so existing client configs work.
+  awg_jc: null,
+  awg_jmin: null,
+  awg_jmax: null,
+  awg_s1: null,
+  awg_s2: null,
+  awg_h1: null,
+  awg_h2: null,
+  awg_h3: null,
+  awg_h4: null,
 })
 
 const reuseKeyOpen = ref(false)
+const reuseObfuscationOpen = ref(false)
+const addDetectOpen = ref(false)
+const addDetectInput = ref('')
+const addDetectMessage = ref('')
+const addDetectOk = ref(false)
+
+// ── Edit AWG Obfuscation Params modal state ──────────────────────────────
+const editObfuscationServer = ref(null)
+const obfuscationForm = ref({
+  awg_jc: null, awg_jmin: null, awg_jmax: null, awg_s1: null, awg_s2: null,
+  awg_h1: null, awg_h2: null, awg_h3: null, awg_h4: null,
+})
+const savingObfuscation = ref(false)
+const obfuscationError = ref('')
+// Auto-fill panel inside the modal: collapsible textarea where the operator
+// pastes a working client .conf, we extract Jc/Jmin/Jmax/S1/S2/H1-H4.
+const obfuscationDetectOpen = ref(false)
+const obfuscationDetectInput = ref('')
+const obfuscationDetectMessage = ref('')
+const obfuscationDetectOk = ref(false)
+// Copy-from-another-server dropdown state (Edit modal)
+const copyFromServerId = ref(null)
+const copyFromMessage = ref('')
+const copyFromOk = ref(false)
+// Copy-from-another-server dropdown state (Add form)
+const addCopyFromServerId = ref(null)
+const addCopyFromMessage = ref('')
+const addCopyFromOk = ref(false)
 
 const showDiscoverModal = ref(false)
 const discoverError = ref('')
@@ -1986,6 +2293,16 @@ async function addServer() {
     payload.private_key = payload.private_key.trim()
   }
 
+  // AmneziaWG obfuscation params: blank/null = "let the backend auto-generate".
+  // Pydantic's ge=1 validators would reject `null` / `""` outright, so drop
+  // them rather than sending falsy values that turn into 422s.
+  for (const k of ['awg_jc','awg_jmin','awg_jmax','awg_s1','awg_s2','awg_h1','awg_h2','awg_h3','awg_h4']) {
+    const v = payload[k]
+    if (v === null || v === '' || (typeof v === 'number' && !Number.isFinite(v))) {
+      delete payload[k]
+    }
+  }
+
   if (!payload.ssh_host) {
     delete payload.ssh_host
     delete payload.ssh_port
@@ -2068,6 +2385,17 @@ async function addServer() {
     nameAutoGenerated.value = false
     newServer.value.private_key = ''
     reuseKeyOpen.value = false
+    reuseObfuscationOpen.value = false
+    addDetectOpen.value = false
+    addDetectInput.value = ''
+    addDetectMessage.value = ''
+    addDetectOk.value = false
+    addCopyFromServerId.value = null
+    addCopyFromMessage.value = ''
+    addCopyFromOk.value = false
+    for (const k of ['awg_jc','awg_jmin','awg_jmax','awg_s1','awg_s2','awg_h1','awg_h2','awg_h3','awg_h4']) {
+      newServer.value[k] = null
+    }
     // Show success toast
     const createdName = newServerData?.name || payload.name || t('servers.addServer')
     const createdId = newServerData?.id
@@ -2693,6 +3021,205 @@ function formatAwgParams(params) {
     .filter(k => params[k] != null)
     .map(k => `${k.padEnd(5)} = ${params[k]}`)
     .join('\n')
+}
+
+// --- Source-server candidates for "Copy from another AWG server" --------
+// Edit-modal: list every OTHER AWG server in the panel that has at least
+// h1-h4 populated. Sort same-keypair matches first since those are the
+// "obvious right answer" for a migration.
+const awgSourceCandidates = computed(() => {
+  if (!editObfuscationServer.value) return []
+  const self = editObfuscationServer.value
+  return store.servers
+    .filter(s =>
+      s.id !== self.id &&
+      (s.server_type || '') === 'amneziawg' &&
+      s.awg_h1 != null && s.awg_h2 != null && s.awg_h3 != null && s.awg_h4 != null
+    )
+    .sort((a, b) => {
+      // Same private/public keypair first (likely the migration source).
+      const aMatch = a.public_key === self.public_key ? 0 : 1
+      const bMatch = b.public_key === self.public_key ? 0 : 1
+      if (aMatch !== bMatch) return aMatch - bMatch
+      return (a.name || '').localeCompare(b.name || '')
+    })
+})
+
+// Add-form: any AWG server with populated obfuscation params.
+const addAwgSourceCandidates = computed(() => {
+  return store.servers
+    .filter(s =>
+      (s.server_type || '') === 'amneziawg' &&
+      s.awg_h1 != null && s.awg_h2 != null && s.awg_h3 != null && s.awg_h4 != null
+    )
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+})
+
+function _copyAwgFromServer(srv, target) {
+  // Returns count of fields copied. `target` is a reactive object (form).
+  const mapping = {
+    awg_jc: 'awg_jc', awg_jmin: 'awg_jmin', awg_jmax: 'awg_jmax',
+    awg_s1: 'awg_s1', awg_s2: 'awg_s2',
+    awg_h1: 'awg_h1', awg_h2: 'awg_h2', awg_h3: 'awg_h3', awg_h4: 'awg_h4',
+  }
+  let n = 0
+  for (const [src, dest] of Object.entries(mapping)) {
+    if (srv[src] != null) { target[dest] = srv[src]; n++ }
+  }
+  return n
+}
+
+function copyObfuscationFromServer() {
+  copyFromMessage.value = ''
+  copyFromOk.value = false
+  const srv = store.servers.find(s => s.id === copyFromServerId.value)
+  if (!srv) {
+    copyFromMessage.value = t('servers.copyFailed') || 'Source server not found.'
+    return
+  }
+  const n = _copyAwgFromServer(srv, obfuscationForm.value)
+  copyFromOk.value = true
+  copyFromMessage.value = (t('servers.copyOk') || 'Copied {n} values from {name} — review and save.')
+    .replace('{n}', n).replace('{name}', srv.name)
+}
+
+function copyObfuscationFromServerForAdd() {
+  addCopyFromMessage.value = ''
+  addCopyFromOk.value = false
+  const srv = store.servers.find(s => s.id === addCopyFromServerId.value)
+  if (!srv) {
+    addCopyFromMessage.value = t('servers.copyFailed') || 'Source server not found.'
+    return
+  }
+  const n = _copyAwgFromServer(srv, newServer.value)
+  addCopyFromOk.value = true
+  addCopyFromMessage.value = (t('servers.copyOk') || 'Copied {n} values from {name} — review and Add Server.')
+    .replace('{n}', n).replace('{name}', srv.name)
+}
+
+// --- Edit AWG obfuscation params ----------------------------------------
+// The server response already carries awg_jc/jmin/jmax/s1/s2/h1-h4, so we
+// can pre-fill the form directly from the card data — no extra fetch.
+function openEditObfuscationModal(server) {
+  editObfuscationServer.value = server
+  obfuscationForm.value = {
+    awg_jc:   server.awg_jc   ?? null,
+    awg_jmin: server.awg_jmin ?? null,
+    awg_jmax: server.awg_jmax ?? null,
+    awg_s1:   server.awg_s1   ?? null,
+    awg_s2:   server.awg_s2   ?? null,
+    awg_h1:   server.awg_h1   ?? null,
+    awg_h2:   server.awg_h2   ?? null,
+    awg_h3:   server.awg_h3   ?? null,
+    awg_h4:   server.awg_h4   ?? null,
+  }
+  obfuscationError.value = ''
+  savingObfuscation.value = false
+  obfuscationDetectOpen.value = false
+  obfuscationDetectInput.value = ''
+  obfuscationDetectMessage.value = ''
+  obfuscationDetectOk.value = false
+  copyFromServerId.value = null
+  copyFromMessage.value = ''
+  copyFromOk.value = false
+}
+function closeEditObfuscationModal() {
+  if (savingObfuscation.value) return
+  editObfuscationServer.value = null
+  obfuscationError.value = ''
+  obfuscationDetectInput.value = ''
+  obfuscationDetectMessage.value = ''
+  copyFromServerId.value = null
+  copyFromMessage.value = ''
+}
+
+// Extract AmneziaWG obfuscation params from any AWG .conf text — works
+// for both client AND server configs since both put Jc/Jmin/Jmax/S1/S2/
+// H1-H4 in the [Interface] section. We only read up to the first [Peer]
+// to avoid picking up stray digits from peer comments.
+function parseAwgConfig(text) {
+  if (!text || typeof text !== 'string') return null
+  const ifaceSection = text.split(/^\s*\[Peer\]/m)[0]
+  const keys = ['Jc','Jmin','Jmax','S1','S2','H1','H2','H3','H4']
+  const out = {}
+  for (const k of keys) {
+    const re = new RegExp(`^\\s*${k}\\s*=\\s*(\\d+)\\s*$`, 'mi')
+    const m = ifaceSection.match(re)
+    if (m) out[k] = parseInt(m[1], 10)
+  }
+  // Need at least H1-H4 to be useful — those are the per-server-unique
+  // bits. Jc/Jmin/Jmax/S1/S2 are constant defaults across most installs.
+  if (out.H1 == null || out.H2 == null || out.H3 == null || out.H4 == null) return null
+  return out
+}
+
+function detectObfuscationForNewServer() {
+  addDetectMessage.value = ''
+  addDetectOk.value = false
+  const parsed = parseAwgConfig(addDetectInput.value)
+  if (!parsed) {
+    addDetectMessage.value = t('servers.detectFailed')
+      || 'No H1-H4 found in [Interface] section. Make sure you pasted an AmneziaWG client config (not plain WireGuard).'
+    return
+  }
+  const mapping = { Jc:'awg_jc', Jmin:'awg_jmin', Jmax:'awg_jmax', S1:'awg_s1', S2:'awg_s2',
+                    H1:'awg_h1', H2:'awg_h2', H3:'awg_h3', H4:'awg_h4' }
+  let filled = 0
+  for (const [src, dest] of Object.entries(mapping)) {
+    if (parsed[src] != null) { newServer.value[dest] = parsed[src]; filled++ }
+  }
+  addDetectOk.value = true
+  addDetectMessage.value = (t('servers.detectOk') || 'Detected {n} values — review and Add Server.')
+    .replace('{n}', filled)
+}
+
+function detectObfuscationFromInput() {
+  obfuscationDetectMessage.value = ''
+  obfuscationDetectOk.value = false
+  const parsed = parseAwgConfig(obfuscationDetectInput.value)
+  if (!parsed) {
+    obfuscationDetectMessage.value = t('servers.detectFailed')
+      || 'No H1-H4 found in [Interface] section. Make sure you pasted an AmneziaWG client config (not plain WireGuard).'
+    return
+  }
+  // Map AWG config-style keys (H1) → form-style keys (awg_h1). Only
+  // overwrite if the parser found a value — partial configs (just H1-H4)
+  // keep the existing Jc/Jmin/etc.
+  const mapping = { Jc:'awg_jc', Jmin:'awg_jmin', Jmax:'awg_jmax', S1:'awg_s1', S2:'awg_s2',
+                    H1:'awg_h1', H2:'awg_h2', H3:'awg_h3', H4:'awg_h4' }
+  let filled = 0
+  for (const [src, dest] of Object.entries(mapping)) {
+    if (parsed[src] != null) { obfuscationForm.value[dest] = parsed[src]; filled++ }
+  }
+  obfuscationDetectOk.value = true
+  obfuscationDetectMessage.value = (t('servers.detectOk') || 'Detected {n} values — review and Save.')
+    .replace('{n}', filled)
+}
+async function saveObfuscationParams() {
+  if (!editObfuscationServer.value) return
+  // Send every field — empty values are validated as "required" since
+  // having one missing on the box would break handshakes. The backend
+  // refuses h1-h4 < 1, so a 0/null value will be rejected with a clear
+  // error before we touch the interface.
+  const required = ['awg_h1','awg_h2','awg_h3','awg_h4','awg_jc','awg_jmin','awg_jmax','awg_s1','awg_s2']
+  for (const k of required) {
+    const v = obfuscationForm.value[k]
+    if (v === null || v === '' || (typeof v === 'number' && !Number.isFinite(v))) {
+      obfuscationError.value = (t('servers.obfuscationFieldRequired') || 'All fields must be set — leaving one blank would break handshakes.')
+      return
+    }
+  }
+  savingObfuscation.value = true
+  obfuscationError.value = ''
+  try {
+    await store.updateServer(editObfuscationServer.value.id, { ...obfuscationForm.value })
+    await store.fetchServers()
+    editObfuscationServer.value = null
+  } catch (err) {
+    obfuscationError.value = err.response?.data?.detail || err.message || 'Failed to save obfuscation params'
+  } finally {
+    savingObfuscation.value = false
+  }
 }
 
 // --- Migrate clients (move every client from server X to server Y) ---

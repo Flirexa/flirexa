@@ -1,0 +1,13 @@
+# deploy/systemd/license-renewals.service
+[Unit]
+Description=Flirexa subscription renewal pass (daily)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/license-server
+EnvironmentFile=/opt/license-server/.env
+ExecStart=/opt/license-server/venv/bin/python3 -m license_server.tools.check_renewals
+StandardOutput=journal
+StandardError=journal
+User=root
