@@ -211,6 +211,8 @@ export default {
     downloadYaml: 'Télécharger .yaml',
     downloadJson: 'Télécharger .json',
     selectedServerProtocol: 'Protocole sélectionné',
+    deviceLimitReached: "Vous avez atteint la limite d'appareils ({used} sur {max}). Améliorez votre forfait ou supprimez un appareil pour en ajouter un autre.",
+    openUpgrade: "Ouvrir la page d'amélioration maintenant ?",
   },
   plans: {
     upgrade: 'Améliorer le plan',
@@ -266,6 +268,14 @@ export default {
     notReceived: 'Paiement non re\u00e7u. Veuillez patienter ou r\u00e9essayer.',
     dev: 'app.',
     unlim: 'Illim.',
+    maxDevices: "Jusqu'à {n} appareils",
+    unlimitedData: 'Données illimitées',
+    trafficGb: '{gb} Go de données',
+    maxBandwidth: 'Bande passante max.',
+    promoPlaceholder: 'Code promo ?',
+    applyPromo: 'Appliquer',
+    payByCard: 'Payer par carte',
+    cardCheckoutHint: 'Vous serez redirigé vers une page de paiement sécurisée.',
   },
   auth: {
     signIn: 'Connexion',

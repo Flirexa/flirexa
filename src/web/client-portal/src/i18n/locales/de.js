@@ -211,6 +211,8 @@ export default {
     downloadYaml: '.yaml herunterladen',
     downloadJson: '.json herunterladen',
     selectedServerProtocol: 'Ausgewähltes Protokoll',
+    deviceLimitReached: 'Gerätelimit erreicht ({used} von {max}). Upgraden Sie Ihren Plan oder entfernen Sie ein Gerät, um ein weiteres hinzuzufügen.',
+    openUpgrade: 'Upgrade-Seite jetzt öffnen?',
   },
   plans: {
     upgrade: 'Plan upgraden',
@@ -266,6 +268,14 @@ export default {
     notReceived: 'Zahlung noch nicht eingegangen. Bitte warten oder erneut versuchen.',
     dev: 'Ger.',
     unlim: 'Unlim.',
+    maxDevices: 'Bis zu {n} Geräte',
+    unlimitedData: 'Unbegrenzte Daten',
+    trafficGb: '{gb} GB Daten',
+    maxBandwidth: 'Max. Bandbreite',
+    promoPlaceholder: 'Promo-Code?',
+    applyPromo: 'Anwenden',
+    payByCard: 'Mit Karte zahlen',
+    cardCheckoutHint: 'Sie werden zu einer sicheren Zahlungsseite weitergeleitet.',
   },
   auth: {
     signIn: 'Anmelden',

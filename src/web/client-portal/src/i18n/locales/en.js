@@ -269,6 +269,8 @@ export default {
     devicesNoneConnected: 'No devices configured',
     devicesAllUsed: 'Device limit reached',
     devicesAvailable: '{count} slots available',
+    deviceLimitReached: "You've reached your device limit ({used} of {max}). Upgrade your plan or remove a device to add another.",
+    openUpgrade: 'Open the upgrade screen now?',
   },
   plans: {
     title: 'Choose Your Plan',
@@ -365,6 +367,14 @@ export default {
     notReceived: 'Payment not received yet. Please wait or try again.',
     dev: 'dev',
     unlim: 'Unlim',
+    maxDevices: 'Up to {n} devices',
+    unlimitedData: 'Unlimited data',
+    trafficGb: '{gb} GB data',
+    maxBandwidth: 'Max bandwidth',
+    promoPlaceholder: 'Have a promo code?',
+    applyPromo: 'Apply',
+    payByCard: 'Pay by card',
+    cardCheckoutHint: "You'll be redirected to a secure checkout page to complete the payment.",
   },
   auth: {
     signIn: 'Sign In',

@@ -15,9 +15,13 @@
               <div class="plan-option-name">{{ plan.name }}</div>
               <div class="plan-option-price">${{ plan.price_monthly_usd }}<small>{{ $t('pay.perMonth') }}</small></div>
               <div class="plan-option-info">
-                {{ plan.max_devices }} {{ $t('pay.dev') }} &middot;
-                {{ plan.traffic_limit_gb ? plan.traffic_limit_gb + ' GB' : $t('pay.unlim') }} &middot;
-                {{ plan.bandwidth_limit_mbps ? plan.bandwidth_limit_mbps + ' Mbps' : 'Max' }}
+                {{ $t('pay.maxDevices', { n: plan.max_devices }) }} &middot;
+                {{ plan.traffic_limit_gb
+                    ? $t('pay.trafficGb', { gb: plan.traffic_limit_gb })
+                    : $t('pay.unlimitedData') }} &middot;
+                {{ plan.bandwidth_limit_mbps
+                    ? plan.bandwidth_limit_mbps + ' Mbps'
+                    : $t('pay.maxBandwidth') }}
               </div>
             </div>
           </div>
@@ -71,26 +75,38 @@
             </div>
           </div>
 
-          <!-- Currency Selection (for crypto providers) -->
-          <div v-if="selectedProvider !== 'paypal'">
-            <label class="form-label fw-bold small">{{ $t('pay.selectCurrency') }}</label>
-            <div class="crypto-grid">
-              <div v-for="currency in cryptoCurrencies" :key="currency.code" class="crypto-option"
-                :class="{ selected: selectedCurrency === currency.code }" @click="selectedCurrency = currency.code">
-                <span class="crypto-option-icon">{{ getCryptoIcon(currency.code) }}</span>
-                <span class="crypto-option-name">{{ currency.code }}</span>
+          <!-- Card provider (Stripe, Mollie, Razorpay, Payme): single currency,
+               no picker — checkout decides the actual card type on its end. -->
+          <div v-if="providerKind === 'card'" class="card-pay-summary">
+            <div class="card-pay-line">
+              <span class="card-pay-icon">{{ getProviderIcon(selectedProvider) }}</span>
+              <div>
+                <div class="card-pay-title">{{ $t('pay.payByCard') }}</div>
+                <div class="card-pay-sub">{{ $t('pay.cardCheckoutHint') }}</div>
               </div>
             </div>
           </div>
 
-          <!-- PayPal currency -->
-          <div v-else>
+          <!-- PayPal currency picker (USD / EUR) -->
+          <div v-else-if="providerKind === 'paypal'">
             <label class="form-label fw-bold small">{{ $t('pay.selectCurrency') }}</label>
             <div class="crypto-grid">
               <div v-for="cur in paypalCurrencies" :key="cur.code" class="crypto-option"
                 :class="{ selected: selectedCurrency === cur.code }" @click="selectedCurrency = cur.code">
                 <span class="crypto-option-icon">{{ cur.icon }}</span>
                 <span class="crypto-option-name">{{ cur.code }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Crypto currency picker (CryptoPay, NOWPayments) -->
+          <div v-else>
+            <label class="form-label fw-bold small">{{ $t('pay.selectCurrency') }}</label>
+            <div class="crypto-grid">
+              <div v-for="currency in cryptoCurrencies" :key="currency.code" class="crypto-option"
+                :class="{ selected: selectedCurrency === currency.code }" @click="selectedCurrency = currency.code">
+                <span class="crypto-option-icon">{{ getCryptoIcon(currency.code) }}</span>
+                <span class="crypto-option-name">{{ currency.code }}</span>
               </div>
             </div>
           </div>
@@ -137,7 +153,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 
@@ -211,8 +227,39 @@ const invoiceDisplayAmount = computed(() => {
   return `$${invoice.value.amount_usd || totalPrice.value}`
 })
 
+// Card-style providers go through their own hosted checkout (Stripe Checkout,
+// Mollie hosted, Razorpay popup, Payme). For these we skip currency picking —
+// the gateway shows its own currency conversion / supported-cards UI — and
+// just fire createInvoice() with USD. Crypto providers and PayPal still need
+// per-currency picking client-side because amount must be encoded in the
+// invoice. Keep this set in sync with the backend provider plugin set.
+const CARD_PROVIDERS = ['stripe', 'mollie', 'razorpay', 'payme']
+
+const providerKind = computed(() => {
+  if (CARD_PROVIDERS.includes(selectedProvider.value)) return 'card'
+  if (selectedProvider.value === 'paypal') return 'paypal'
+  return 'crypto'
+})
+
+// When the operator switches provider, reset the currency to one that
+// the new provider supports so the next /payments/invoice request doesn't
+// 422 ("currency not supported by stripe" etc.).
+watch(selectedProvider, (id) => {
+  if (CARD_PROVIDERS.includes(id)) selectedCurrency.value = 'USD'
+  else if (id === 'paypal') selectedCurrency.value = 'USD'
+  else selectedCurrency.value = 'USDT'
+})
+
 const getProviderIcon = (id) => {
-  const icons = { cryptopay: '💎', paypal: '🅿️', nowpayments: '🔗' }
+  const icons = {
+    cryptopay:   '💎',
+    paypal:      '🅿️',
+    nowpayments: '🔗',
+    stripe:      '💳',
+    mollie:      '💳',
+    razorpay:    '💳',
+    payme:       '💳',
+  }
   return icons[id] || '💰'
 }
 
@@ -344,6 +391,20 @@ onUnmounted(() => {
 .crypto-option.selected { border-color: var(--vxy-warning); background: var(--vxy-warning-light); }
 .crypto-option-icon { font-size: 1.75rem; display: block; margin-bottom: .25rem; }
 .crypto-option-name { font-size: .8rem; font-weight: 700; }
+
+/* Card-checkout summary panel: no currency picker, just "you'll be redirected
+   to the hosted card page" framing so the user understands why the picker
+   they saw with crypto/PayPal isn't here. */
+.card-pay-summary {
+  border: 1px solid var(--vxy-border);
+  border-radius: .5rem;
+  padding: 1rem 1.1rem;
+  background: var(--vxy-hover-bg);
+}
+.card-pay-line { display: flex; align-items: center; gap: .85rem; }
+.card-pay-icon { font-size: 1.75rem; line-height: 1; flex-shrink: 0; }
+.card-pay-title { font-weight: 700; font-size: .95rem; color: var(--vxy-text); }
+.card-pay-sub { font-size: .8rem; color: var(--vxy-muted); margin-top: 2px; line-height: 1.4; }
 
 @media (max-width: 768px) {
   /* Bottom sheet on mobile */

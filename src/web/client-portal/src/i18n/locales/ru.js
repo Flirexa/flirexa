@@ -269,6 +269,8 @@ export default {
     devicesNoneConnected: 'Устройств не настроено',
     devicesAllUsed: 'Лимит устройств исчерпан',
     devicesAvailable: 'Доступно слотов: {count}',
+    deviceLimitReached: 'Достигнут лимит устройств ({used} из {max}). Повысьте тариф или удалите одно устройство, чтобы добавить новое.',
+    openUpgrade: 'Открыть страницу повышения тарифа?',
   },
   plans: {
     upgrade: 'Улучшить план',
@@ -366,6 +368,14 @@ export default {
     notReceived: 'Платёж ещё не получен. Подождите или попробуйте снова.',
     dev: 'устр',
     unlim: 'Безлим',
+    maxDevices: 'До {n} устройств',
+    unlimitedData: 'Безлимитный трафик',
+    trafficGb: '{gb} ГБ трафика',
+    maxBandwidth: 'Макс. скорость',
+    promoPlaceholder: 'Есть промокод?',
+    applyPromo: 'Применить',
+    payByCard: 'Оплата картой',
+    cardCheckoutHint: 'Вы будете перенаправлены на защищённую страницу оплаты.',
   },
   auth: {
     signIn: 'Войти',
