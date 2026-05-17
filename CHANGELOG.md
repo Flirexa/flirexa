@@ -4,6 +4,22 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.20 — 2026-05-17
+
+Hotfix: payment plugins (Stripe, Mollie, Payme, Razorpay) now register correctly at startup on production installs.
+
+### Fixed
+
+- **Payment plugins silently fail to register on package-built installs.** The startup loader in `src/api/main.py` was using `importlib.util.spec_from_file_location` to import each plugin from `plugins/payments/*.py`. That helper bypasses Python's package import hooks, so for any plugin that ships as part of a packaged install (where the `plugins/payments/` directory is treated as a package with an active import-time runtime in the package `__init__`), the module body executed in a degraded context and `PROVIDER_CLASS = …` at the bottom of each plugin file never bound. The loader then saw `PROVIDER_CLASS = None`, logged nothing, and moved on — leaving `client_portal.stripe_provider` (and friends) as `None` even though the admin had saved valid keys and `test_connection()` was passing against Stripe's API. Symptom in the wild: admin Settings → Payment shows "Stripe Active", but the client portal's `/payments/providers` endpoint returns only NowPayments (or the empty-state fallback), so customers never see a card-payment option. The startup loader now uses `importlib.import_module("plugins.payments.<stem>")`, which goes through the normal package import path and lets every plugin register properly. Dev/source-checkout installs were unaffected — the bug only surfaced on packaged customer deployments, which is why it shipped undetected. Affects all four card/crypto plugins (Stripe, Mollie, Payme, Razorpay) equally.
+
+### Workaround for existing installs (pre-1.6.20)
+
+If you're on an older build and Stripe isn't showing up in the client portal even though admin Settings says "Active": open admin Settings → Payment → Stripe and click Save & Connect once more. The hot-reload path on save (in `POST /system/payment-settings`) uses normal `from plugins.payments.stripe_provider import StripeProvider` and registers the provider in the running process correctly. The new build makes this stick across restarts; until you upgrade, every service restart will need a fresh Save click.
+
+---
+
+---
+
 ## v1.6.19 — 2026-05-17
 
 AmneziaWG obfuscation parameters (Jc/Jmin/Jmax/S1/S2/H1-H4) are now editable from the panel after server creation, with three smart-fill paths so an operator migrating to a new AWG box can preserve existing client configs without re-issuing anything.
