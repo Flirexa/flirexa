@@ -601,9 +601,12 @@ async def get_subscription(
     # devices than their plan permits (because they switched to a smaller tier
     # mid-cycle), the portal banner needs to know so it can prompt the user to
     # remove the excess before the next renewal auto-prunes the oldest.
-    devices_used = db.query(ClientUserClients).filter(
-        ClientUserClients.client_user_id == user_id
-    ).count()
+    #
+    # Use the canonical helper (which JOINs against Client) so the count
+    # matches what GET /wireguard/clients returns AND what the POST limit
+    # check sees — otherwise a stale link to a deleted Client would show
+    # "1/1 over limit" here while the device list renders empty.
+    devices_used = len(_get_user_client_ids(db, user_id))
     over_limit = subscription.max_devices and devices_used > subscription.max_devices
 
     # ── Traffic counter — sum live Client.traffic_used_* across this user's
@@ -614,10 +617,10 @@ async def get_subscription(
     # the source the /dashboard/traffic-series chart uses, so the "Traffic
     # used" card and the chart line up.
     from src.database.models import Client as _Client
-    client_ids = db.query(ClientUserClients.client_id).filter(
-        ClientUserClients.client_user_id == user_id
-    ).all()
-    client_id_list = [r.client_id for r in client_ids]
+    # Same canonical helper — orphan links don't have Client rows to sum
+    # traffic from anyway, so filtering them out here keeps the traffic
+    # sum consistent with the device list.
+    client_id_list = _get_user_client_ids(db, user_id)
     if client_id_list:
         bytes_row = db.query(
             sa_func.coalesce(sa_func.sum(_Client.traffic_used_rx), 0).label("rx"),
@@ -1801,11 +1804,26 @@ async def get_exchange_rates():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _get_user_client_ids(db: Session, user_id: int) -> list:
-    """Get list of WG client IDs linked to a portal user"""
-    links = db.query(ClientUserClients).filter(
-        ClientUserClients.client_user_id == user_id
-    ).all()
-    return [link.client_id for link in links]
+    """
+    Get list of WG client IDs linked to a portal user.
+
+    JOINs against Client so orphaned links (ClientUserClients pointing at
+    a Client row that has since been deleted) don't count. Without this
+    JOIN the limit-check at POST /wireguard/clients sees the orphan as a
+    device-in-use while GET /wireguard/clients hides it (the Admin API
+    filters out unknown ids), causing the dashboard to show "0/1" while
+    every "Add device" click 409s with "limit reached". Reported by a
+    customer on the first install where a portal user had a stale link
+    in 1.6.20.
+    """
+    from src.database.models import Client as _Client
+    rows = (
+        db.query(ClientUserClients.client_id)
+        .join(_Client, _Client.id == ClientUserClients.client_id)
+        .filter(ClientUserClients.client_user_id == user_id)
+        .all()
+    )
+    return [r.client_id for r in rows]
 
 
 def _user_owns_client(db: Session, user_id: int, client_id: int) -> bool:

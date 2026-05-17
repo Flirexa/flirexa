@@ -4,6 +4,24 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.21 — 2026-05-18
+
+Client portal: card payments (Stripe + similar gateways) now actually appear in the customer-facing payment picker, device counters stay consistent across display and limit-check, missing translations no longer leak as raw keys, and plan cards spell out what's in each tier in plain English.
+
+### Fixed
+
+- **Card payment providers were invisible in the Choose-Plan → Payment-Method flow.** The picker rendered a hardcoded crypto-currency grid (USDT/BTC/TON/…) for any provider other than `paypal`. So even when admin Settings showed Stripe as Active and `GET /client-portal/payments/providers` correctly returned `{id:"stripe", type:"plugin"}`, choosing Stripe in the picker still pushed the user into a "select your crypto" screen — Stripe Checkout never opened. The modal now classifies each provider as `card | paypal | crypto`, and `card` providers (Stripe, Mollie, Razorpay, Payme) skip the currency picker entirely and go straight to the gateway's hosted checkout URL. The `selectedCurrency` watcher resets the currency when the operator flips between provider types, so the next `POST /client-portal/payments/invoice` call doesn't 422 with "currency not supported by stripe". Card-style providers get a `💳` icon next to the existing `💎` / `🔗` / `🅿️`.
+
+- **Device counter inconsistency: dashboard shows `0/1` but Add Device returns `409 device_limit_reached`.** The display path (`GET /client-portal/wireguard/clients`) fetched the linked client IDs from `ClientUserClients` and then asked the Admin API for the actual `Client` rows — orphan links (rows pointing at a `Client.id` that's been deleted from the admin side, for any reason: manual cleanup, migration, schema reset) silently dropped out, so the dashboard rendered as if those devices didn't exist. The limit check on `POST /client-portal/wireguard/clients`, however, used the raw `ClientUserClients` count via `_get_user_client_ids`, which still saw the orphan rows and refused to add a new device. From the subscriber's seat the dashboard says "you have 0 devices, max 1" while every Add Device click fails with "limit reached". `_get_user_client_ids` now `JOIN`s against `Client` so orphan rows are filtered out at the source, making both paths agree. `GET /client-portal/subscription` and the traffic-aggregation query were switched to the same helper so the dashboard, the limit check, and the over-limit banner all read the same number.
+
+- **i18n keys leaking to the UI as raw text.** Four keys (`dash.deviceLimitReached`, `dash.openUpgrade`, `pay.promoPlaceholder`, `pay.applyPromo`) existed in the Vue code but not in any locale file. `vue-i18n` falls back to returning the key itself as a truthy string when a translation is missing, which defeats the `t(key) || 'English fallback'` defensive pattern in the codebase — the truthy key wins and customers see literal `dash.deviceLimitReached` in their device-limit confirm dialog and `pay.promoPlaceholder` in their promo-code input. All four added to en/ru/de/es/fr with real translations.
+
+### Changed
+
+- **Plan-card description on the Choose Plan step** went from the cryptic `1 dev · Unlim · Max` to plain English: `Up to 1 devices · Unlimited data · Max bandwidth` (and equivalent phrasings on ru/de/es/fr). New keys `pay.maxDevices`, `pay.unlimitedData`, `pay.trafficGb`, `pay.maxBandwidth` added to all five locales.
+
+---
+
 ## v1.6.20 — 2026-05-17
 
 Hotfix: payment plugins (Stripe, Mollie, Payme, Razorpay) now register correctly at startup on production installs.
