@@ -105,6 +105,42 @@ async def lifespan(app: FastAPI):
     else:
         print("ℹ️  NOWPayments not configured (set NOWPAYMENTS_API_KEY)")
 
+    # Load payment plugins from plugins/payments/ (Stripe, Mollie, Payme,
+    # Razorpay). Mirrors the admin lifespan in src/api/main.py — the portal
+    # process serves /client-portal/payments/providers AND /payments/invoice,
+    # so without this block customers see only CryptoPay/PayPal/NOWPayments
+    # in the picker even when admin Settings shows Stripe as Active. The
+    # admin process loading plugins doesn't help here: it's a separate
+    # PID with its own client_portal module instance.
+    #
+    # Uses importlib.import_module (not spec_from_file_location) so the
+    # pyarmor package hooks fire correctly on packaged installs — same
+    # rationale as the fix in 1.6.20.
+    try:
+        import importlib
+        from pathlib import Path as _P
+        _plugins_dir = _P(__file__).resolve().parent / "plugins" / "payments"
+        if _plugins_dir.is_dir():
+            _loaded = 0
+            for _pf in sorted(_plugins_dir.glob("*.py")):
+                if _pf.name.startswith("_"):
+                    continue
+                try:
+                    _mod = importlib.import_module(f"plugins.payments.{_pf.stem}")
+                    _cls = getattr(_mod, "PROVIDER_CLASS", None)
+                    if _cls:
+                        _instance = _cls()
+                        setattr(client_portal, f"{_instance.name}_provider", _instance)
+                        print(f"✅ Payment plugin loaded: {_instance.display_name} ({_pf.name})")
+                        _loaded += 1
+                except Exception as _pe:
+                    logger.warning(f"Payment plugin {_pf.name} failed to load: {_pe}")
+                    print(f"⚠️  Payment plugin {_pf.name} skipped: {_pe}")
+            if _loaded:
+                print(f"✅ Loaded {_loaded} payment plugin(s)")
+    except Exception as _pe:
+        logger.debug(f"Plugin loader: {_pe}")
+
     yield
 
     # Shutdown
