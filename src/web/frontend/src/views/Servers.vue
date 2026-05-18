@@ -59,6 +59,10 @@
               <span v-else-if="server.server_type === 'hysteria2'" class="srv-proto srv-proto--hy2"><i class="mdi mdi-web me-1"></i>HY2</span>
               <span v-else-if="server.server_type === 'tuic'" class="srv-proto srv-proto--tuic"><i class="mdi mdi-web me-1"></i>TUIC</span>
               <span v-if="server.is_default" class="srv-proto srv-proto--default"><i class="mdi mdi-star me-1"></i>Default</span>
+              <span v-if="server.customer_visible === false" class="srv-proto srv-proto--hidden"
+                :title="$t('servers.hiddenFromCustomersHint') || 'This server is hidden from the customer portal'">
+                <i class="mdi mdi-eye-off-outline me-1"></i>{{ $t('servers.hiddenFromCustomersBadge') || 'Hidden' }}
+              </span>
               <button v-if="server.agent_mode === 'agent'"
                 class="srv-agent-badge"
                 :class="{ 'srv-agent-badge--down': server.agent_breaker?.open }"
@@ -115,6 +119,12 @@
                 </template>
                 <div class="srv-menu__sep"></div>
                 <button class="srv-menu__item" @click="menuAction(() => openRenameModal(server))"><i class="mdi mdi-pencil-outline me-1"></i>{{ $t('servers.rename') || 'Rename (display)' }}</button>
+                <button class="srv-menu__item" @click="menuAction(() => toggleCustomerVisible(server))">
+                  <i class="mdi me-1" :class="(server.customer_visible !== false) ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"></i>
+                  {{ (server.customer_visible !== false)
+                      ? ($t('servers.hideFromCustomers') || 'Hide from customer portal')
+                      : ($t('servers.showToCustomers') || 'Show in customer portal') }}
+                </button>
                 <template v-if="server.server_category !== 'proxy'">
                   <div class="srv-menu__sep"></div>
                   <button v-if="server.agent_mode !== 'mikrotik'" class="srv-menu__item" @click="menuAction(() => openExpandPool(server))"><i class="mdi mdi-arrow-expand-horizontal me-1"></i>{{ $t('servers.expandPool') || 'Expand address pool' }}</button>
@@ -2899,6 +2909,19 @@ async function saveDisplayName() {
   }
 }
 
+// Toggle whether this server is offered to customers in /client-portal/servers.
+// Useful for keeping test/staging boxes out of the location picker. The
+// admin always sees every server here; only the customer portal is filtered.
+async function toggleCustomerVisible(server) {
+  const next = !(server.customer_visible !== false)
+  try {
+    await store.updateServer(server.id, { customer_visible: next })
+    await store.fetchServers()
+  } catch (err) {
+    alert('Error: ' + (err.response?.data?.detail || err.message))
+  }
+}
+
 // --- Expand address pool (grow CIDR without disrupting current clients) ---
 
 const showExpandPoolModal = ref(false)
@@ -3537,6 +3560,8 @@ onUnmounted(() => {
   line-height: 1.4;
 }
 .srv-proto--awg     { background: rgba(111,66,193,.13); color: #7c3aed; }
+.srv-proto--hidden  { background: rgba(148,163,184,.16); color: #64748b; }
+[data-theme="dark"] .srv-proto--hidden { background: rgba(148,163,184,.18); color: #94a3b8; }
 .srv-proto--hy2     { background: rgba(253,126,20,.13);  color: #c05621; }
 .srv-proto--tuic    { background: rgba(32,201,151,.13);  color: #047857; }
 .srv-proto--default { background: rgba(115,103,240,.12); color: var(--vxy-primary); }

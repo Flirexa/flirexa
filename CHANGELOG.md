@@ -4,6 +4,19 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.29 — 2026-05-18
+
+Admin can now hide test / staging servers from the customer portal's location picker without deleting them.
+
+### Added
+
+- **`servers.customer_visible` toggle.** New `BOOLEAN NOT NULL DEFAULT true` column on the `servers` table (alembic migration `036_srv_visible`). Defaults to `True` for every existing row so no behaviour change on upgrade — admin can flip a server `False` from the Servers card menu when they want it kept around for internal testing but not offered to subscribers.
+- **`GET /client-portal/servers`** now filters by `customer_visible = True`. The admin-side `GET /api/v1/servers` still returns every row (admin sees test boxes), only the customer-facing list narrows.
+- **`POST /client-portal/wireguard/create`** rejects with 404 if the customer tries to create a device on a hidden server — defence in depth in case a stale frontend or a forged request slips through the picker filter.
+- **Admin UI**: new menu item on each server card ("Hide from customer portal" / "Show in customer portal") that toggles `customer_visible` and a `Hidden` badge on the card so the admin sees at a glance which servers are gated. EN/RU/DE/ES/FR strings included.
+
+---
+
 ## v1.6.28 — 2026-05-18
 
 Client portal shows the customer's devices again on installs that ran `configure-web-access.sh` to put SSL on the admin panel — the script bumped the admin API to a new internal port but didn't propagate the new URL to the portal process, so the portal's "list my devices" call was hitting nginx HTTPS with plain HTTP and silently returning zero results.

@@ -253,6 +253,16 @@ class Server(Base):
         Boolean, default=False, nullable=False, server_default="false"
     )
 
+    # Customer-portal visibility: when False, the server is hidden from the
+    # /client-portal/servers list. Used by operators to keep test / staging
+    # servers in the admin panel without surfacing them to subscribers (who
+    # would otherwise be free to pick a flaky test box as their VPN exit and
+    # then complain). Defaults to True so existing rows behave as before;
+    # admin can flip individual servers from the Servers card menu.
+    customer_visible: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="true"
+    )
+
     # Drift detection (migration 010)
     drift_detected: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"
