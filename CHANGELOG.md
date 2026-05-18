@@ -4,6 +4,26 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.33 — 2026-05-19
+
+PayPal, NowPayments and CryptoPay webhooks now actually reach their handlers. Until this release every webhook delivery for those three providers returned `404 Not Found` and the matching customer payment never auto-completed.
+
+### Fixed
+
+- **`/webhooks/paypal`, `/webhooks/nowpayments`, `/webhooks/cryptopay` all 404'd** because the generic `@router.post("/webhooks/{provider_name}")` catch-all (which dispatches to plugin providers like Stripe / Mollie / Razorpay / Payme) was registered in source order *before* the three dedicated routes. FastAPI matches route templates in registration order, so a `POST /webhooks/paypal` hit the catch-all first; the catch-all explicitly raised `404` for `paypal / nowpayments / cryptopay` (since those need their own handler signatures), and the dedicated routes underneath were dead code. From the provider's seat: webhook delivery looked permanently broken — the provider kept retrying, gave up, and the customer's payment stayed `pending` until an admin manually approved it from the panel. Same class of bug as the Stripe webhook fix in v1.6.27 (`Event.get()` AttributeError) and the v1.6.28 ADMIN_API_URL drift: a routing layer silently dropped real customer events. The catch-all is now registered *after* the dedicated handlers so FastAPI picks the right one for each URL.
+
+### Audit summary
+
+While diagnosing this, ran a full audit of every payment provider against every class of bug we fixed for Stripe between v1.6.20–v1.6.32. Other providers are clean:
+
+- Plugin loader (v1.6.22): all four plugins (Stripe / Mollie / Razorpay / Payme) load via the same fixed loader path on both admin and portal processes.
+- `PaymentMethod` ENUM (v1.6.25): all six provider names (`STRIPE`, `MOLLIE`, `RAZORPAY`, `PAYME`, `CRYPTOPAY`, `NOWPAYMENTS`) added in the right (uppercase) form for SQLAlchemy's enum serialization.
+- Webhook payload parsing (v1.6.27, Stripe `Event.get()`): Mollie / Razorpay / Payme parse `json.loads(body)` directly on the raw bytes, so they never hit the SDK-object-stripped-of-`.get()` shape that broke Stripe. PayPal / NOWPayments / CryptoPay do the same in their dedicated route handlers.
+
+End-to-end verified on a live install: forged-signature webhooks now reach `paypal_webhook` (returns `400 Invalid webhook signature`), `nowpayments_webhook` and `cryptopay_webhook` (return `503 not configured` when keys aren't set) instead of all three returning `404`.
+
+---
+
 ## v1.6.32 — 2026-05-18
 
 Stripe Checkout can now offer Alipay, WeChat Pay, SEPA Debit and any other payment method the operator has enabled in their Stripe Dashboard. Defaults to cards only so nothing changes on installs that haven't opted in.
