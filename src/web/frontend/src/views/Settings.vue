@@ -458,6 +458,27 @@
               <div class="mb-2"><label class="form-label small fw-bold">Webhook Secret <small class="text-muted">(optional)</small></label><input type="password" class="form-control form-control-sm" v-model="pluginKeys.stripe_webhook_secret" placeholder="whsec_..." /></div>
               <small class="text-muted d-block mb-2">Get keys at <a href="https://dashboard.stripe.com/apikeys" target="_blank">dashboard.stripe.com/apikeys</a></small>
               <div class="webhook-url-row"><label class="form-label small fw-bold mb-1">Webhook endpoint URL <small class="text-muted fw-normal">(register in Stripe Dashboard → Developers → Webhooks)</small></label><div class="input-group input-group-sm"><input type="text" class="form-control" :value="webhookUrls.stripe" readonly /><button class="btn btn-outline-secondary" type="button" @click="copyWebhookUrl('stripe')"><i class="mdi" :class="copiedUrl === 'stripe' ? 'mdi-check text-success' : 'mdi-content-copy'"></i></button></div><small class="text-muted">Listen to event: <code>checkout.session.completed</code></small></div>
+
+              <!-- Payment methods help block. Stripe Checkout shows cards by
+                   default. Operators who've enabled additional methods in
+                   their Stripe Dashboard (Alipay, WeChat Pay, SEPA, …) need
+                   to also list them in STRIPE_PAYMENT_METHODS so the
+                   Checkout page actually offers them. -->
+              <div class="stripe-methods-help">
+                <div class="d-flex align-items-center gap-1 mb-1">
+                  <strong class="small">Extra payment methods</strong>
+                  <HelpTooltip text="Stripe Checkout shows only credit cards by default. To also offer Alipay, WeChat Pay, SEPA Debit, iDEAL, etc., (1) enable each method in your Stripe Dashboard → Settings → Payment methods, then (2) add it to STRIPE_PAYMENT_METHODS in /opt/vpnmanager/.env and restart vpnmanager-client-portal. Restarting is automatic when you click Save & Connect above." />
+                </div>
+                <small class="text-muted d-block mb-1">
+                  <code>STRIPE_PAYMENT_METHODS</code> in <code>.env</code>, e.g.
+                  <code>card,alipay,wechat_pay</code> (comma-separated). Default: <code>card</code>.
+                </small>
+                <small class="text-muted d-block">
+                  Each method must be enabled in your Stripe Dashboard first
+                  (<a href="https://dashboard.stripe.com/settings/payment_methods" target="_blank">dashboard.stripe.com/settings/payment_methods</a>),
+                  otherwise Stripe rejects the Checkout Session and the customer sees an error.
+                </small>
+              </div>
               <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary btn-sm" @click="savePlugin('stripe')" :disabled="saving">Save & Connect</button><button v-if="pluginProviders.stripe" class="btn btn-outline-info btn-sm" @click="runTest('stripe')" :disabled="testing === 'stripe'">{{ testing === 'stripe' ? 'Testing…' : 'Test' }}</button><button v-if="pluginProviders.stripe" class="btn btn-outline-danger btn-sm" @click="disconnectPlugin('stripe')" :disabled="saving">Disconnect</button></div>
               <PaymentTestResult v-if="testResults.stripe" :result="testResults.stripe" />
               <div v-if="pluginAlert.stripe" class="alert mt-2 py-1 small" :class="pluginAlert.stripe.type">{{ pluginAlert.stripe.msg }}</div>
@@ -919,9 +940,10 @@
 import { systemApi, authApi, backupApi } from '../api'
 import { useSystemStore } from '../stores/system'
 import PaymentTestResult from '../components/PaymentTestResult.vue'
+import HelpTooltip from '../components/HelpTooltip.vue'
 
 export default {
-  components: { PaymentTestResult },
+  components: { PaymentTestResult, HelpTooltip },
   data() {
     return {
       // License
@@ -1817,6 +1839,19 @@ export default {
 .pm-info strong { display: block; font-size: .9rem; }
 .pm-info small { display: block; color: var(--vxy-muted); font-size: .75rem; }
 .pm-card-body { padding: .75rem 1rem; border-top: 1px solid var(--vxy-border); background: var(--vxy-hover-bg, rgba(255,255,255,.02)); }
+.stripe-methods-help {
+  margin-top: .75rem;
+  padding: .65rem .8rem;
+  border-radius: 8px;
+  background: var(--vxy-card-bg, rgba(115,103,240,.04));
+  border: 1px dashed var(--vxy-border, rgba(115,103,240,.18));
+}
+.stripe-methods-help code {
+  background: rgba(115,103,240,.10);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: .78rem;
+}
 .webhook-url-row {
   margin: .5rem 0;
   padding: .55rem .65rem;

@@ -4,6 +4,17 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.32 — 2026-05-18
+
+Stripe Checkout can now offer Alipay, WeChat Pay, SEPA Debit and any other payment method the operator has enabled in their Stripe Dashboard. Defaults to cards only so nothing changes on installs that haven't opted in.
+
+### Added
+
+- **`STRIPE_PAYMENT_METHODS` env var** (`stripe_provider.py`). Comma-separated list of Stripe `payment_method_types` to enable on every Checkout Session — e.g. `card,alipay,wechat_pay,sepa_debit`. Defaults to `card` so existing installs keep their current behaviour. WeChat Pay needs `payment_method_options.wechat_pay.client="web"` for Checkout to work; the provider adds that automatically when `wechat_pay` is in the list, so operators don't have to know about the API quirk.
+- **Help block in admin Settings → Payment → Stripe** explaining the new env var. A standard tooltip question mark expands to the full setup steps: (1) enable the method in Stripe Dashboard → Settings → Payment methods, (2) add it to `STRIPE_PAYMENT_METHODS` in `/opt/vpnmanager/.env`, click Save & Connect. The portal service restart that already happens on Save picks up the new env. Each value listed must already be enabled on the operator's Stripe account, otherwise Stripe rejects Checkout Session creation with a 400.
+
+---
+
 ## v1.6.30 — 2026-05-18
 
 Follow-up to v1.6.29: the "Hide from customer portal" toggle in the admin UI now actually toggles. The hide direction worked already; unhide silently re-sent `customer_visible=false` on every click.
