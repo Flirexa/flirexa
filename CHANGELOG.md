@@ -4,6 +4,16 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.26 — 2026-05-18
+
+Granting or renewing a subscription that was previously cancelled or expired now starts the new period fresh instead of stacking on top of leftover days from the cancelled cycle.
+
+### Fixed
+
+- **`cancel → admin grants 1 month` resurrected the cancelled subscription with the leftover days added on top of the new month.** `SubscriptionManager.upgrade_subscription` / `renew_subscription` set `expiry_date = max(old_expiry, now) + timedelta(days=duration)` for any subscription with a future `expiry_date`. That makes sense for an active subscription being extended mid-cycle (the customer keeps the days they already paid for), but it's wrong for a cancellation — the customer's cancel was meant to end the period, and `manager.cancel_subscription` keeps `expiry_date` intact only because the original design lets the user enjoy the rest of the paid period before the downgrade. So an admin grant after cancel walked back the cancellation: status flipped to ACTIVE, and the leftover days from the cancelled cycle stacked under the new period (cancel with 15 days remaining + grant 30 days → 45 active days instead of 30). Both methods now snapshot `was_terminated = status in (CANCELLED, EXPIRED)` before flipping to ACTIVE and use that flag to decide whether to stack: active → stack as before, cancelled / expired → start counting from now. Active-subscription extension (the original use case) is unchanged.
+
+---
+
 ## v1.6.25 — 2026-05-18
 
 Stripe (and Mollie/Razorpay/Payme/CryptoPay/NOWPayments) checkout now actually completes the invoice write — the third part of the bug that v1.6.22 → v1.6.23 → v1.6.24 chipped away at.

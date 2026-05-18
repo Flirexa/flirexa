@@ -242,6 +242,19 @@ class SubscriptionManager:
         if not plan:
             return None, "Plan not found"
 
+        # Snapshot whether this subscription was effectively over before we
+        # flip it back to ACTIVE. A CANCELLED/EXPIRED row may still carry an
+        # expiry_date in the future (cancellation is a soft "stop renewing"
+        # signal that leaves the paid period intact), so without this check
+        # the grant below would stack the new duration on top of the leftover
+        # days and resurrect a subscription the customer had already
+        # cancelled. Reported by an operator who saw `cancel → grant 1mo`
+        # produce 1mo + remaining-of-cancelled-cycle instead of just 1mo.
+        was_terminated = subscription.status in (
+            SubscriptionStatus.CANCELLED,
+            SubscriptionStatus.EXPIRED,
+        )
+
         # Update subscription — use canonical tier name from DB (preserves original casing)
         subscription.tier = plan.tier
         subscription.status = SubscriptionStatus.ACTIVE
@@ -251,8 +264,10 @@ class SubscriptionManager:
         subscription.price_monthly_usd = plan.price_monthly_usd
         subscription.billing_cycle_days = duration_days
 
-        # Extend expiry date
-        if subscription.expiry_date:
+        # Extend expiry date: stack on remaining time only if the prior
+        # subscription was still active. Cancelled / expired rows start
+        # fresh from now — the cancellation already meant "stop here".
+        if subscription.expiry_date and not was_terminated:
             expiry = subscription.expiry_date.replace(tzinfo=timezone.utc) if subscription.expiry_date.tzinfo is None else subscription.expiry_date
             subscription.expiry_date = max(expiry, datetime.now(timezone.utc)) + timedelta(days=duration_days)
         else:
@@ -278,6 +293,15 @@ class SubscriptionManager:
         if not subscription:
             return None, "No subscription found"
 
+        # See upgrade_subscription for the rationale — a CANCELLED/EXPIRED
+        # subscription with leftover days should NOT have its remaining time
+        # stacked on top of the renewed period; the cancellation already
+        # signalled "stop here".
+        was_terminated = subscription.status in (
+            SubscriptionStatus.CANCELLED,
+            SubscriptionStatus.EXPIRED,
+        )
+
         # Soft-downgrade auto-prune: if the user picked a smaller plan during
         # the previous cycle, they got to keep all their devices for the rest
         # of the period (with a banner). Now that we're starting a fresh
@@ -289,8 +313,9 @@ class SubscriptionManager:
         except Exception as e:
             logger.warning(f"Auto-prune at renewal failed for user {user_id}: {e}")
 
-        # Extend expiry date
-        if subscription.expiry_date:
+        # Extend expiry date: stack on remaining time only if the prior
+        # subscription was still active.
+        if subscription.expiry_date and not was_terminated:
             expiry = subscription.expiry_date.replace(tzinfo=timezone.utc) if subscription.expiry_date.tzinfo is None else subscription.expiry_date
             subscription.expiry_date = max(expiry, datetime.now(timezone.utc)) + timedelta(days=duration_days)
         else:
