@@ -4,6 +4,16 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.27 — 2026-05-18
+
+Stripe webhooks now actually mark the payment as paid on their own — operators previously had to approve every successful card payment by hand from the admin panel.
+
+### Fixed
+
+- **Real Stripe webhook deliveries 400'd while the diagnostic page reported them as fine.** `stripe.Event` (what `Webhook.construct_event` returns once a signature passes) is a `StripeObject` in stripe-python 7+, not a `dict` subclass — `.get()` was dropped from the public surface even though `[…]` subscripting and attribute access still work. Our `process_webhook` did `event.get("type", "")` immediately after verification, which raised `AttributeError: get` on every real delivery; the wrapping route caught it as `Exception` and returned 400 to Stripe, so Stripe retried a few times and then gave up. Customers paid successfully on Stripe Checkout, but the panel's payment row stayed `pending` and the subscription never activated until an admin manually clicked "Approve" in the admin payments view. The diagnostic page in Settings → Payment → Test happened to work because it builds its own JSON-dict event and never goes through `construct_event`, masking the bug. The handler now normalizes the Event to a real `dict` via `event.to_dict_recursive()` (with a `dict(event)` fallback) right after signature verification, so all the downstream parsing is impervious to whichever Stripe SDK version is installed. Verified end-to-end: signed `checkout.session.completed` POST → 200, payment row flips to `completed`, subscription transitions to `ACTIVE` with the correct `expiry_date`.
+
+---
+
 ## v1.6.26 — 2026-05-18
 
 Granting or renewing a subscription that was previously cancelled or expired now starts the new period fresh instead of stacking on top of leftover days from the cancelled cycle.
