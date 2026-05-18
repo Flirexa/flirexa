@@ -4,6 +4,17 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.24 — 2026-05-18
+
+Re-ship of v1.6.23's `paymentmethod` ENUM migration without the broken AUTOCOMMIT trickery that made it look like it ran while leaving `alembic_version` un-bumped — auto-update rolled the whole release back when the health check noticed.
+
+### Fixed
+
+- **v1.6.23 auto-update failed with `Alembic revision mismatch: current=033 head=034`.** Migration `034_pm_card` wrapped its `ALTER TYPE ... ADD VALUE` statements in `bind.execution_options(isolation_level="AUTOCOMMIT")` to side-step Postgres's old "cannot run inside a transaction" restriction. That call returns a new SQLAlchemy `Connection` wrapper but does NOT commit or close alembic's outer transaction — the underlying DBAPI connection is still inside the transaction alembic opened to bump `alembic_version`. The result on packaged installs: the ALTER TYPE statements either ran on a state that got rolled back, OR raised silently, leaving alembic in a half-applied state where the ENUM migration looked complete but `alembic_version` still read `033`. update_apply.sh's post-update health check (`alembic current` vs `alembic heads`) caught the mismatch, exited with code 1, and auto-rollback restored the previous release + PostgreSQL dump. So nobody actually got the new ENUM values, every Stripe checkout still 500'd, and the panel kept showing "Update failed: update_apply.sh exited with code 1".
+- Migration now just calls `op.execute("ALTER TYPE paymentmethod ADD VALUE IF NOT EXISTS '<v>'")` directly. Postgres 12+ allows this inside a transaction provided the new value isn't read in the same transaction, which is the case here — we only add values, no INSERT references them in `upgrade()`. `IF NOT EXISTS` keeps the migration idempotent across re-runs (relevant when an admin has already added values manually as a workaround).
+
+---
+
 ## v1.6.23 — 2026-05-18
 
 Follow-up to v1.6.22: card-provider invoices stop 500-ing at the database write. The Postgres ENUM that backs `client_portal_payments.payment_method` was missing the values the code already writes.

@@ -43,14 +43,16 @@ def upgrade():
     # stores the string directly, so nothing to migrate).
     if bind.dialect.name != "postgresql":
         return
-    # Each ADD VALUE runs as its own statement; AUTOCOMMIT escapes the
-    # surrounding alembic transaction on Postgres < 12 where ALTER TYPE
-    # is non-transactional.
-    conn = bind.execution_options(isolation_level="AUTOCOMMIT")
+    # Postgres 12+ allows `ALTER TYPE ... ADD VALUE` inside a transaction
+    # as long as the new value isn't used within that same transaction —
+    # which is the case here, we only add values, no INSERT references
+    # them. Earlier attempts in this migration tried to switch to AUTOCOMMIT
+    # via `bind.execution_options(...)` but that returns a new Connection
+    # wrapper without actually closing alembic's outer transaction, leaving
+    # the migration in a half-committed state where alembic_version never
+    # got bumped — health check then saw current≠head and auto-rolled back.
     for v in NEW_VALUES:
-        conn.exec_driver_sql(
-            f"ALTER TYPE paymentmethod ADD VALUE IF NOT EXISTS '{v}'"
-        )
+        op.execute(f"ALTER TYPE paymentmethod ADD VALUE IF NOT EXISTS '{v}'")
 
 
 def downgrade():
