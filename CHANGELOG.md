@@ -4,6 +4,17 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.22 — 2026-05-18
+
+Follow-up to v1.6.20/v1.6.21: payment plugins (Stripe, Mollie, Payme, Razorpay) now register on the client-portal process too, not just the admin process. Saving payment settings in the admin auto-restarts the portal so it picks up the new keys.
+
+### Fixed
+
+- **Payment plugins missing from the customer-facing portal even after v1.6.21.** The admin process (`main.py api`) and the client-portal process (`client_portal_main.py`) run as separate systemd services with separate Python interpreters. v1.6.20 fixed the plugin loader in the admin process, and the admin's diagnostic + `/api/v1/system/payment-test/stripe` saw Stripe as Active — but the portal process has its own copy of the `client_portal` module and its own startup lifespan, which never imported the `plugins/payments/*` files at all. So `/client-portal/payments/providers` (served by the portal) returned `[{nowpayments, configured:false}]` while the admin's diagnostic returned the full provider list, and customers saw the empty-fallback crypto picker in the Payment Method modal. The portal's lifespan now runs the same `importlib.import_module("plugins.payments.<stem>")` loop the admin does (with the same pyarmor-safe import path), so Stripe / Mollie / Payme / Razorpay register on both processes from a single set of env vars.
+- **Hot-reloading payment settings only updated the admin process.** `POST /api/v1/system/payment-settings` instantiates each provider and sets it on `client_portal.<provider>_provider` — but that mutation lands on the admin process's copy of the module, not the portal's. The portal kept serving stale (or absent) provider state until a manual restart. The save handler now best-effort `systemctl restart`s `vpnmanager-client-portal.service` after writing the env file, so the next customer request hits the portal with the fresh keys loaded. `check=False` + `timeout=10` so a missing systemctl (Docker, dev installs) doesn't 500 the settings save.
+
+---
+
 ## v1.6.21 — 2026-05-18
 
 Client portal: card payments (Stripe + similar gateways) now actually appear in the customer-facing payment picker, device counters stay consistent across display and limit-check, missing translations no longer leak as raw keys, and plan cards spell out what's in each tier in plain English.

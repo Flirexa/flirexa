@@ -1045,6 +1045,25 @@ async def update_payment_settings(data: PaymentSettingsUpdate):
 
     # Determine overall status
     any_connected = any(r.get("connected") for r in results.values())
+
+    # The portal process (vpnmanager-client-portal.service) runs as a separate
+    # PID with its own copy of the client_portal module. Hot-reloading
+    # providers above only updates THIS (admin) process's in-memory state —
+    # the portal keeps serving the old (or absent) provider objects until it
+    # restarts. So when the admin changes payment settings, kick the portal
+    # so the next /client-portal/payments/providers and /payments/invoice
+    # calls reflect the new state. Best-effort: a missing systemctl or a
+    # non-systemd install (Docker, dev) shouldn't 500 the settings save.
+    try:
+        import subprocess as _sp
+        _sp.run(
+            ["systemctl", "restart", "vpnmanager-client-portal.service"],
+            check=False, capture_output=True, timeout=10,
+        )
+        logger.info("payment-settings: requested vpnmanager-client-portal restart so portal picks up new keys")
+    except Exception as _re:
+        logger.debug(f"could not restart client-portal service: {_re}")
+
     return {
         "status": "ok",
         "connected": any_connected,
