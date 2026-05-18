@@ -4,6 +4,22 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.25 — 2026-05-18
+
+Stripe (and Mollie/Razorpay/Payme/CryptoPay/NOWPayments) checkout now actually completes the invoice write — the third part of the bug that v1.6.22 → v1.6.23 → v1.6.24 chipped away at.
+
+### Fixed
+
+- **Card-provider invoice creation still 500'd in v1.6.24** with `invalid input value for enum paymentmethod: "STRIPE"` (note the casing) even though v1.6.23 added `'stripe'` to the Postgres ENUM. Root cause: SQLAlchemy's `Enum(PaymentMethod)` column writes the enum MEMBER NAME, not its value. `PaymentMethod.STRIPE` (with `value="stripe"`) serializes to `'STRIPE'` in SQL. The DB ENUM had `'stripe'` (lowercase) but the INSERT was sending `'STRIPE'` (uppercase), so Postgres rejected it. Two fixes shipped together:
+  1. Migration `035_pm_upper` adds the UPPERCASE values (`'STRIPE'`, `'MOLLIE'`, `'RAZORPAY'`, `'PAYME'`, `'CRYPTOPAY'`, `'NOWPAYMENTS'`) that SQLAlchemy actually emits, matching the existing uppercase scheme (`'BTC'`, `'USDT_TRC20'`, `'PAYPAL'`, etc.). The lowercase v1.6.23/v1.6.24 values stay (Postgres has no `DROP VALUE`) but are harmless dead weight — no code path writes them.
+  2. `client_portal.create_invoice` now wraps the provider string in `PaymentMethod(data.provider)` before handing it to `SubscriptionManager.create_payment`. Previously a raw string `'stripe'` flowed through, which then crashed on `f".. via {payment_method.value}"` in the subscription-manager logging call right after the INSERT — even when the ENUM finally accepted the row, the next line raised `AttributeError: 'str' object has no attribute 'value'` and the response was still 500.
+
+### Why this took three releases
+
+The v1.6.23 migration attempted to side-step a mistakenly-assumed Postgres "ALTER TYPE in transaction" restriction by setting `isolation_level="AUTOCOMMIT"` on the bind. That returned a new SQLAlchemy Connection wrapper without actually escaping alembic's outer transaction, so the migration left `alembic_version` un-bumped, health-check noticed `current != head`, and auto-rollback restored the previous release. v1.6.24 dropped the AUTOCOMMIT hack — at which point the lowercase ENUM values went in cleanly, exposing the second bug (SQLAlchemy writes member name, not value), which v1.6.25 fixes by adding the correct UPPERCASE values plus the string-to-enum conversion at the write site. End-to-end verified by creating a real Stripe Checkout session against the customer-facing portal API and confirming the `cs_live_…` URL came back with the invoice row committed.
+
+---
+
 ## v1.6.24 — 2026-05-18
 
 Re-ship of v1.6.23's `paymentmethod` ENUM migration without the broken AUTOCOMMIT trickery that made it look like it ran while leaving `alembic_version` un-bumped — auto-update rolled the whole release back when the health check noticed.

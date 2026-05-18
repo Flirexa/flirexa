@@ -1149,7 +1149,21 @@ async def create_invoice(
                     ),
                     "stripe_session_id": _inv.metadata.get("stripe_session_id"),
                 }
-                payment_method = data.provider
+                # Convert the raw provider string ('stripe', 'mollie', etc.) to
+                # the matching PaymentMethod enum member so SubscriptionManager
+                # can do `.value` on it and SQLAlchemy serializes the canonical
+                # member NAME (`'STRIPE'`) into the Postgres ENUM column — which
+                # is what the column was created with for all the old crypto
+                # values (BTC, USDT_TRC20, …). Passing the raw string here used
+                # to either crash on `.value` or insert lowercase 'stripe' that
+                # the ENUM didn't recognize.
+                try:
+                    payment_method = PaymentMethod(data.provider)
+                except ValueError:
+                    # Unknown provider — keep the raw string flowing through;
+                    # SQLAlchemy will raise a clearer error than the silent
+                    # ENUM mismatch we used to ship.
+                    payment_method = data.provider
                 provider_name = data.provider
             except Exception as _e:
                 logger.error(f"Plugin provider {data.provider} error: {_e}")
