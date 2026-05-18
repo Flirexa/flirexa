@@ -4,6 +4,21 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.28 — 2026-05-18
+
+Client portal shows the customer's devices again on installs that ran `configure-web-access.sh` to put SSL on the admin panel — the script bumped the admin API to a new internal port but didn't propagate the new URL to the portal process, so the portal's "list my devices" call was hitting nginx HTTPS with plain HTTP and silently returning zero results.
+
+### Fixed
+
+- **Portal dashboard shows zero devices while the subscription card says "1/1 used".** Reported as "devices became invisible after migrating a server", but the migration was a red herring — the bug applied to any install where `configure-web-access.sh` had been run in `portal_admin_domain` or `portal_admin_ip` mode. That script puts nginx with a Let's Encrypt cert on the admin panel's public port (10086 by default) and moves the python admin process to `API_PORT=10087` so they don't conflict. `ADMIN_API_URL` in `.env` (used by the portal process to call the admin process's internal endpoints) is left at the legacy default `http://localhost:10086` — pointed at the HTTPS-only nginx port. Every `GET /api/v1/internal/clients/by-ids` from the portal then gets `400 The plain HTTP request was sent to HTTPS port` back from nginx, the `AdminAPIClient.get_clients_by_ids` catch-all logs the error and returns `[]`, and the dashboard renders zero devices even though the database row + WG peer are both fine. The limit check (`POST /wireguard/clients`) reads device count straight from the DB and didn't see the disconnect, so it kept rejecting `Add Device` with `device_limit_reached` — the operator saw a "0/1, can't add, can't delete" device list that still worked over VPN.
+
+### Changed
+
+- **`client_portal_main.py`** now derives the default `ADMIN_API_URL` from `API_PORT` (`http://localhost:${API_PORT}`) instead of hardcoding `:10086`. Bumping `API_PORT` alone is now enough to keep the portal pointed at the right place — no separate `ADMIN_API_URL` knob needed for the common case.
+- **`scripts/configure-web-access.sh`** writes `ADMIN_API_URL=http://localhost:${API_PORT}` to `.env` in both `apply_mode_none` and `apply_domain_mode` paths, so the variable can't drift away from the API port the script just set. Defensive — covers the case where an operator's `.env` was populated under a different version of the script.
+
+---
+
 ## v1.6.27 — 2026-05-18
 
 Stripe webhooks now actually mark the payment as paid on their own — operators previously had to approve every successful card payment by hand from the admin panel.

@@ -603,6 +603,11 @@ apply_mode_none() {
     update_env_file "CERTBOT_EMAIL" ""
     update_env_file "CLIENT_PORTAL_URL" "http://${ip}:${CLIENT_PORTAL_PORT}"
     update_env_file "ADMIN_PANEL_URL" "http://${ip}:${API_PORT}"
+    # Internal URL the portal process uses to call the admin process —
+    # MUST stay on the plain-HTTP API port (never nginx HTTPS), otherwise
+    # GET /clients/by-ids 400s with "plain HTTP request sent to HTTPS port"
+    # and the portal silently shows zero devices.
+    update_env_file "ADMIN_API_URL" "http://localhost:${API_PORT}"
     update_env_file "ADMIN_ACCESS_MODE" "raw_ports"
     log "Web access left on raw ports"
 }
@@ -668,6 +673,11 @@ apply_domain_mode() {
         update_env_file "ADMIN_PANEL_URL" "https://${server_ip}"
         update_env_file "ADMIN_ACCESS_MODE" "ip_self_signed"
     fi
+
+    # Internal URL for portal→admin RPC. Always plain HTTP at the API port —
+    # see apply_mode_none for the rationale (nginx HTTPS on the public port
+    # rejects plain HTTP and the portal then silently shows zero devices).
+    update_env_file "ADMIN_API_URL" "http://localhost:${API_PORT}"
 
     log "Web access configured"
 }

@@ -39,8 +39,23 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     print("✅ Database initialized")
 
-    # Initialize Admin API client
-    admin_api_url = os.getenv("ADMIN_API_URL", "http://localhost:10086")
+    # Initialize Admin API client.
+    #
+    # ADMIN_API_URL is the INTERNAL URL the portal uses to talk to the
+    # admin process — it should point at the admin's plain-HTTP port,
+    # never at the nginx HTTPS port. When `configure-web-access.sh` puts
+    # nginx with a Let's Encrypt cert on 10086 (admin-domain mode), it
+    # bumps the admin python service to API_PORT=10087 and leaves 10086
+    # HTTPS-only. If ADMIN_API_URL stays at the legacy default
+    # `http://localhost:10086`, the portal hits nginx with a plain-HTTP
+    # request and gets `400 The plain HTTP request was sent to HTTPS port`
+    # — every device list / device add / device delete silently fails,
+    # the portal shows zero devices, and the customer can't manage what
+    # the admin already issued. So we derive the default from API_PORT
+    # instead of hardcoding the old port; an explicit ADMIN_API_URL in
+    # .env still wins.
+    api_port = os.getenv("API_PORT", "10086")
+    admin_api_url = os.getenv("ADMIN_API_URL", f"http://localhost:{api_port}")
     service_token = os.getenv("SERVICE_API_TOKEN", "")
     if service_token:
         client_portal.admin_api = AdminAPIClient(
