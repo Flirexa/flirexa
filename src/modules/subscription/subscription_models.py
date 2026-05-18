@@ -32,7 +32,14 @@ class SubscriptionStatus(str, Enum):
 
 
 class PaymentMethod(str, Enum):
-    """Payment methods"""
+    """Payment methods.
+
+    Adding any value here MUST be paired with an `ALTER TYPE paymentmethod
+    ADD VALUE` migration — `client_portal_payments.payment_method` is a
+    Postgres ENUM column locked to the values it was created with, so
+    inserting a string the type doesn't know about raises
+    `psycopg2.errors.InvalidTextRepresentation` at commit time.
+    """
     BTC = "btc"
     USDT_TRC20 = "usdt_trc20"
     USDT_ERC20 = "usdt_erc20"
@@ -41,6 +48,17 @@ class PaymentMethod(str, Enum):
     PAYPAL = "paypal"
     USD = "usd"
     EUR = "eur"
+    # Hosted-checkout / card providers — written when the customer picks a
+    # card-style provider (Stripe/Mollie/Razorpay/Payme). Added 1.6.23 after
+    # the portal 500'd with `invalid input value for enum paymentmethod: "stripe"`.
+    STRIPE = "stripe"
+    MOLLIE = "mollie"
+    RAZORPAY = "razorpay"
+    PAYME = "payme"
+    # Other providers — the portal sometimes writes the provider name verbatim,
+    # so include them too to avoid future enum-mismatch crashes.
+    CRYPTOPAY = "cryptopay"
+    NOWPAYMENTS = "nowpayments"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

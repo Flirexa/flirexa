@@ -4,6 +4,16 @@ All notable changes to VPN Manager are documented here.
 
 ---
 
+## v1.6.23 — 2026-05-18
+
+Follow-up to v1.6.22: card-provider invoices stop 500-ing at the database write. The Postgres ENUM that backs `client_portal_payments.payment_method` was missing the values the code already writes.
+
+### Fixed
+
+- **Stripe (and Mollie/Razorpay/Payme) invoice creation 500s with `invalid input value for enum paymentmethod`.** The portal's `POST /client-portal/payments/create-invoice` handler writes the provider id verbatim into `client_portal_payments.payment_method` for hosted-checkout providers — `'stripe'`, `'mollie'`, etc. That column is a Postgres ENUM type called `paymentmethod`, created originally with only crypto + paypal/usd/eur values; the type itself rejects any string it doesn't recognize, so the INSERT fails at commit time with `psycopg2.errors.InvalidTextRepresentation: invalid input value for enum paymentmethod: "stripe"`. From the customer's seat the Stripe Checkout session created successfully (`cs_live_…` URL was already minted by Stripe's API), but the portal returned 500 and they saw "Failed to create invoice" without ever being redirected to checkout — and the orphaned Stripe session was never recorded locally. Added the missing values (`stripe`, `mollie`, `razorpay`, `payme`, `cryptopay`, `nowpayments`) to the `PaymentMethod` Python enum and shipped Alembic migration `034_pm_card` that does `ALTER TYPE paymentmethod ADD VALUE IF NOT EXISTS '<value>'` for each, with `IF NOT EXISTS` for re-run safety. The migration runs at AUTOCOMMIT isolation so it works on Postgres <12 where `ALTER TYPE` is non-transactional. Downgrade is a no-op — Postgres has no `DROP VALUE` and recreating the type would copy every row for a metadata-only change.
+
+---
+
 ## v1.6.22 — 2026-05-18
 
 Follow-up to v1.6.20/v1.6.21: payment plugins (Stripe, Mollie, Payme, Razorpay) now register on the client-portal process too, not just the admin process. Saving payment settings in the admin auto-restarts the portal so it picks up the new keys.
