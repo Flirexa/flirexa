@@ -4,6 +4,16 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.30 — 2026-05-18
+
+Follow-up to v1.6.29: the "Hide from customer portal" toggle in the admin UI now actually toggles. The hide direction worked already; unhide silently re-sent `customer_visible=false` on every click.
+
+### Fixed
+
+- **`Hide → Show` direction of the customer-visibility menu item never flipped the server back.** `ServerResponse.from_server()` is an explicit field-by-field constructor (not `from_attributes` / `from_orm`), so any new column on the `Server` model has to be added to its body to flow into the API response. v1.6.29 added `customer_visible` to the Pydantic schema and to the SQLAlchemy model, but the line `customer_visible=getattr(server, 'customer_visible', True)` was missing from `from_server`. `GET /api/v1/servers` therefore always returned `customer_visible=True` for every row, regardless of what the database stored. The Vue toggle button's label and the `next = !(server.customer_visible !== false)` calculation both read that field, so the admin's local view of the server stayed `visible=true` even after a successful hide PUT, and the next click computed `next = false` and re-sent `customer_visible=false`. From the admin's seat: "I clicked hide, the button still says Hide, every click does nothing". Adding the missing constructor line in `from_server` makes the response carry the real column value and the toggle starts behaving the way it always read in the template.
+
+---
+
 ## v1.6.29 — 2026-05-18
 
 Admin can now hide test / staging servers from the customer portal's location picker without deleting them.
