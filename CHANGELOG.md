@@ -4,6 +4,23 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.7.3 — 2026-05-19
+
+Hotfix release with three independently shippable fixes for the 1.7 series.
+
+### Fixed
+
+- **Client portal `/devices` returned 500.** `list_device_slots` referenced the `Client` ORM model but the module's other functions import it locally per-function, so the name wasn't in scope when the device-listing endpoint ran. The endpoint NameError'd, the portal showed an empty Devices page, the customer clicked "Add device" anyway, and the create endpoint correctly answered 409 device_limit_reached because the slot was actually already there. Added the local import.
+- **`update_apply.sh` reported "VERSION mismatch after update" on every successful rollback.** When a failed apply rolled back to the previous release, the smoke-check reread VERSION from `effective_runtime_root()`, which still pointed at the failed-and-now-stranded target release dir. That dir's VERSION file said 1.7.1 while the `current/` symlink had already been restored to 1.6.37, so the check reported a spurious mismatch and exit-code'd 1 on a rollback that had actually succeeded. The rollback path now forces `ROLLBACK=1` into the smoke-check so it reads VERSION through the restored symlink instead.
+
+### Tooling
+
+- **`push_test.sh` now auto-detects DB migrations** in `alembic/versions/` since the last shipped tag and passes `--migrations` to `publish_update.py` automatically. Forgetting the manual flag is what broke the 1.7.1 rollout — every stable customer's auto-apply tried to migrate inside the API/worker lifespan hooks instead of pre-swap, the two processes raced each other, and the post-update health check rolled the upgrade back.
+- **New `tools/lint_migrations.py`** runs from `push_test.sh` against migrations changed since the last tag. Catches the PG-only family of bugs that fresh-install test VMs don't surface: `drop_index` on a UNIQUE-backed column (the 037 bug), `AUTOCOMMIT` isolation combined with `ALTER TYPE ADD VALUE` (the 034 bug from 1.6.24), and unguarded `drop_column`/`drop_table` calls without an `inspect()` probe.
+- **`push_all.sh` now also tags the private mirror.** Previously only the public mirror got `v1.7.x` tags, so `git describe --tags` from the local checkout returned an ancient `v1.4.61` baseline and the linter walked through all historical migrations every run.
+
+---
+
 ## v1.7.1 — 2026-05-19
 
 Two themes in this release: a new multi-server "device slot" model that lets one VPN device roam between regions, and a fix for an installer false-alarm that was scaring guests off mid-install.

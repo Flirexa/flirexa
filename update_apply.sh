@@ -590,7 +590,15 @@ rollback_from_backup() {
     start_services || true
     local rollback_target=""
     [[ -f "$BACKUP_DIR/VERSION" ]] && rollback_target=$(cat "$BACKUP_DIR/VERSION")
-    smoke_check "$rollback_target" || return 1
+    # IMPORTANT: smoke_check reads VERSION from effective_runtime_root() which
+    # defaults to $TARGET_RELEASE_DIR (the *failed* new release, e.g.
+    # /opt/vpnmanager/releases/1.7.1) — that VERSION file still says 1.7.1
+    # even though current/ now points back at 1.6.37, so the check reports a
+    # spurious "expected 1.6.37, got 1.7.1" and the rollback gets marked
+    # failed (exit code 1) when it actually succeeded. Force the smoke check
+    # into rollback-aware mode so it reads VERSION from the current symlink
+    # we just restored.
+    ROLLBACK=1 smoke_check "$rollback_target" || return 1
 
     write_marker "phase_rollback_complete" "$(date --iso-8601=seconds)"
     clear_maintenance_flag

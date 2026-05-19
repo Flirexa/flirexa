@@ -112,16 +112,34 @@ def upgrade():
     # server pubkeys are still unique. Use a partial expression so proxy
     # clients (NULL public_key) don't fight each other.
     #
-    # Different DBs name the auto-generated UNIQUE index differently —
-    # introspect and drop whichever we find.
-    cli_indexes = insp.get_indexes("clients")
+    # In PostgreSQL `UNIQUE` on a column creates BOTH a constraint
+    # (``clients_public_key_key``) AND its backing index of the same name.
+    # ``op.drop_index`` fails with "cannot drop index … because constraint
+    # … requires it" — you have to drop the constraint, which auto-drops
+    # the index. Different DBs (and different schema versions) name these
+    # objects differently, so introspect and drop whatever we find.
     cli_uniques = insp.get_unique_constraints("clients")
-    for ix in cli_indexes:
-        if ix.get("unique") and ix.get("column_names") == ["public_key"]:
-            op.drop_index(ix["name"], table_name="clients")
+    dropped_constraint_names = set()
     for uc in cli_uniques:
         if uc.get("column_names") == ["public_key"]:
             op.drop_constraint(uc["name"], "clients", type_="unique")
+            dropped_constraint_names.add(uc["name"])
+    # After constraint drops the backing indexes are gone, but if a bare
+    # standalone unique index also exists (e.g. created via op.create_index
+    # in some historical revision rather than as a column UNIQUE) — clean
+    # that too. Skip names we already dropped via the constraint path.
+    cli_indexes = insp.get_indexes("clients")
+    for ix in cli_indexes:
+        if (ix.get("unique")
+                and ix.get("column_names") == ["public_key"]
+                and ix["name"] not in dropped_constraint_names):
+            try:
+                op.drop_index(ix["name"], table_name="clients")
+            except Exception:
+                # If the index is still backing some other constraint,
+                # the constraint loop will get it. Don't fail the migration
+                # on this best-effort cleanup.
+                pass
 
     # Composite unique — partial WHERE public_key IS NOT NULL works on
     # PostgreSQL; on SQLite Alembic emits a plain unique index (which is
