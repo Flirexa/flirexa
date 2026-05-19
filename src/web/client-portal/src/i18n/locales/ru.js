@@ -215,6 +215,8 @@ export default {
     deviceDeleted: 'Устройство удалено',
     deviceConnected: 'Подключено',
     deviceDisconnected: 'Отключено',
+    deviceReady: 'Готово',
+    statusReady: 'Устройство готово — не подключено',
     statusActive: 'Активна',
     statusInactive: 'Неактивна',
     statusExpired: 'Истекла',

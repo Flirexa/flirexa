@@ -342,8 +342,8 @@
               <div class="fx-device-info">
                 <div class="fx-device-name">
                   {{ device.name }}
-                  <span class="fx-badge" :class="device.enabled ? 'fx-badge-success' : 'fx-badge-neutral'">
-                    {{ device.enabled ? $t('dash.deviceConnected') : $t('dash.deviceDisconnected') }}
+                  <span class="fx-badge" :class="deviceBadgeClass(device)">
+                    {{ deviceBadgeLabel(device) }}
                   </span>
                 </div>
                 <div class="fx-device-meta">
@@ -610,15 +610,40 @@ const statusBadgeFx = computed(() => {
   if (s === 'expired') return 'fx-badge-danger'
   return 'fx-badge-neutral'
 })
-// Pick the most likely "active" device — prefer enabled, then first one.
+// Per-device badge — three states:
+//   • online (handshake within ~3 min)  → "Connected" / green
+//   • enabled but stale (no handshake)  → "Ready" / neutral
+//   • disabled by admin                 → "Disconnected" / neutral
+const deviceBadgeClass = (d) => {
+  if (!d.enabled) return 'fx-badge-neutral'
+  if (d.online) return 'fx-badge-success'
+  return 'fx-badge-neutral'
+}
+const deviceBadgeLabel = (d) => {
+  if (!d.enabled) return t('dash.deviceDisconnected')
+  if (d.online) return t('dash.deviceConnected')
+  return t('dash.deviceReady') || t('dash.deviceDisconnected')
+}
+
+// Pick the most likely "active" device — prefer one that's actually
+// connected (live handshake), then any enabled one, then anything.
 const primaryDevice = computed(() => {
   if (!devices.value.length) return null
-  return devices.value.find(d => d.enabled) || devices.value[0] || null
+  return devices.value.find(d => d.online)
+      || devices.value.find(d => d.enabled)
+      || devices.value[0]
+      || null
 })
 
+// Indicator is GREEN only when a device has a fresh WG handshake. The
+// `enabled` flag stays True after the user disconnects in their VPN app,
+// so using it alone made the orb look online forever — switch to `online`
+// (handshake within ~3 min, computed server-side in /clients/by-ids).
 const orbClass = computed(() => {
   if (subscription.value.status !== 'active') return 'off'
-  if (!primaryDevice.value || !primaryDevice.value.enabled) return 'warn'
+  if (!primaryDevice.value) return 'warn'
+  if (!primaryDevice.value.enabled) return 'warn'
+  if (!primaryDevice.value.online) return 'warn'
   return ''
 })
 
@@ -628,7 +653,7 @@ const statusTitle = computed(() => {
       ? t('dash.statusBannerExpired')
       : t('dash.statusBannerInactive')
   }
-  if (primaryDevice.value && primaryDevice.value.enabled) {
+  if (primaryDevice.value && primaryDevice.value.online) {
     const name = primaryDevice.value.server_name
       || (primaryDevice.value.name)
       || t('dash.statusVpnReady')
@@ -636,6 +661,11 @@ const statusTitle = computed(() => {
   }
   if (primaryDevice.value && !primaryDevice.value.enabled) {
     return t('dash.statusDeviceDisabled', { name: primaryDevice.value.name })
+  }
+  if (primaryDevice.value) {
+    // Enabled in the DB but no fresh handshake — user just isn't connected
+    // in their VPN app right now. Show a "ready, not active" line.
+    return t('dash.statusReady') || t('dash.statusVpnReady') || 'Ready — not connected'
   }
   return t('dash.statusNoDevice')
 })

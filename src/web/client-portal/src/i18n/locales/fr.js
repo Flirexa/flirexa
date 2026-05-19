@@ -189,6 +189,8 @@ export default {
     deviceDeleted: 'Appareil supprimé',
     deviceConnected: 'Connecté',
     deviceDisconnected: 'Déconnecté',
+    deviceReady: 'Prêt',
+    statusReady: 'Appareil prêt — non connecté',
     statusActive: 'Active',
     statusInactive: 'Inactive',
     statusExpired: 'Expirée',

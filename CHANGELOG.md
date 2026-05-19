@@ -4,6 +4,21 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.37 — 2026-05-19
+
+Client-portal connection indicator now reflects actual VPN state.
+
+### Fixed
+
+- **Status orb stayed green even with VPN disconnected.** The portal's connection badge and the dashboard's status orb were both wired to `device.enabled`, which is just the admin-side enable flag — it stays true after the user turns off WireGuard in their app, so the indicator looked permanently online. The orb now lights green only when a device has a fresh WG handshake (within ~3 minutes); otherwise it shows "Ready — not connected" with a neutral colour. Same fix on the per-device badge: three states (Connected / Ready / Disconnected) instead of the old two.
+
+### Added
+
+- `online: bool` and `last_handshake: str|null` fields on the internal `/clients/by-ids` response, computed by reusing the same `_enrich_handshakes` helper the admin Clients tab already uses. Operators with custom portals can read `online` directly instead of re-implementing handshake freshness logic.
+- New i18n strings (`dash.deviceReady`, `dash.statusReady`) in all five portal locales (en / ru / de / fr / es) for the third connection state.
+
+---
+
 ## v1.6.36 — 2026-05-19
 
 Installer hardening release. The bootstrap and main `install.sh` now produce useful diagnostic output when something goes wrong, and the bootstrap auto-creates swap on memory-starved VPS images instead of dying silently to the OOM killer.

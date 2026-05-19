@@ -64,6 +64,12 @@ class ClientInfoResponse(BaseModel):
     ipv4: Optional[str] = None
     status: str
     enabled: bool
+    online: bool = False  # live WG handshake within ~3 min — what the portal
+                          # should render as the green "Connected" indicator.
+                          # `enabled` is just the admin-side enable flag and
+                          # stays True even after the user disconnects in
+                          # their VPN app.
+    last_handshake: Optional[str] = None
     server_id: int
     server_name: Optional[str] = None
     server_type: Optional[str] = None
@@ -156,6 +162,38 @@ def get_clients_by_ids(
 
     clients = db.query(Client).filter(Client.id.in_(client_ids)).all()
 
+    # Enrich with live WG handshake — what the portal renders as the green
+    # "Connected" indicator. Without this, a peer that's enabled in the DB
+    # but disconnected in the user's VPN app keeps showing online forever.
+    try:
+        from .clients import _enrich_handshakes
+        _enrich_handshakes(clients, db)
+    except Exception:
+        # If handshake polling fails (e.g. node agent unreachable), leave the
+        # online flag false rather than blocking the request — better to
+        # under-report than to ship a stale always-green indicator.
+        pass
+
+    from datetime import datetime, timezone, timedelta
+    online_threshold = datetime.now(timezone.utc) - timedelta(minutes=3)
+
+    def _last_handshake_iso(c) -> Optional[str]:
+        hs = getattr(c, 'last_handshake', None)
+        if not hs:
+            return None
+        if isinstance(hs, datetime):
+            return (hs if hs.tzinfo else hs.replace(tzinfo=timezone.utc)).isoformat()
+        return None
+
+    def _is_online(c) -> bool:
+        if not c.enabled:
+            return False
+        hs = getattr(c, 'last_handshake', None)
+        if not hs:
+            return False
+        hs_aware = hs if hs.tzinfo else hs.replace(tzinfo=timezone.utc)
+        return hs_aware >= online_threshold
+
     return [
         ClientInfoResponse(
             id=c.id,
@@ -163,6 +201,8 @@ def get_clients_by_ids(
             ipv4=c.ipv4,
             status=c.status.value if hasattr(c.status, 'value') else str(c.status),
             enabled=c.enabled,
+            online=_is_online(c),
+            last_handshake=_last_handshake_iso(c),
             server_id=c.server_id,
             server_name=c.server.name if c.server else None,
             server_type=getattr(c.server, "server_type", None) if c.server else None,
