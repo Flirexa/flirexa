@@ -128,10 +128,19 @@ class ExpiryRequest(BaseModel):
 
 
 def _enrich_handshakes(clients: list, db: Session):
-    """Fetch live WG handshake timestamps and inject into client objects."""
+    """Fetch live WG handshake timestamps and inject into client objects.
+
+    Map key is ``(server_id, public_key)``, not just ``public_key``. Device
+    slots reuse the same client keypair across every region (so one config
+    works in multiple places), so a single pubkey identifies different
+    Client rows on different servers. Keying the map only by pubkey would
+    let a live handshake on, say, the Texas peer propagate to the Cali
+    Client row too — the admin "Online Users" tab would then show both
+    regions online even though traffic only ever hit one.
+    """
     servers = db.query(Server).filter(Server.is_active == True).all()  # noqa
 
-    # Build pubkey → handshake_timestamp map
+    # Build (server_id, pubkey) → handshake_timestamp map
     hs_map = {}
     for server in servers:
         server_type = getattr(server, 'server_type', 'wireguard') or 'wireguard'
@@ -174,13 +183,13 @@ def _enrich_handshakes(clients: list, db: Session):
         for peer in peers:
             hs = getattr(peer, 'latest_handshake', None)
             if hs and isinstance(hs, (int, float)) and hs > 0:
-                hs_map[peer.public_key] = datetime.fromtimestamp(hs, tz=timezone.utc)
+                hs_map[(server.id, peer.public_key)] = datetime.fromtimestamp(hs, tz=timezone.utc)
             elif hs and isinstance(hs, datetime):
-                hs_map[peer.public_key] = hs if hs.tzinfo else hs.replace(tzinfo=timezone.utc)
+                hs_map[(server.id, peer.public_key)] = hs if hs.tzinfo else hs.replace(tzinfo=timezone.utc)
 
     # Inject into client objects (transient, not saved to DB)
     for client in clients:
-        hs = hs_map.get(client.public_key)
+        hs = hs_map.get((client.server_id, client.public_key))
         if hs:
             client.last_handshake = hs
 

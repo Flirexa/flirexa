@@ -4,6 +4,14 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.7.8 — 2026-05-19
+
+### Fixed
+
+- **Admin "Online Users" tab false-flagged slot peers across regions as online.** `_enrich_handshakes` built a global `{pubkey → last_handshake}` map and then assigned the timestamp to every `Client` row whose pubkey matched. That's fine for legacy single-server peers, but device-slot peers intentionally share one keypair across every region — so a live handshake on the Texas peer was being applied to the Cali Client row too, and the panel reported both regions online while only one was actually carrying traffic. Same false positive surfaced anywhere consuming `Client.last_handshake` (the Clients page handshake column, the map-data endpoint, the client-portal `online` flag). The map is now keyed by `(server_id, pubkey)`, so each server's handshakes stay scoped to its own Client rows.
+
+---
+
 ## v1.7.7 — 2026-05-19
 
 ### Fixed
