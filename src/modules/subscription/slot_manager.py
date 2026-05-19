@@ -232,14 +232,19 @@ class SlotManager:
                     )
 
                 # 2. Compute ipv4 / ipv6 from CIDR — works for any prefix.
+                # Storage convention: bare address, no /32 or /128 suffix.
+                # The legacy clients in the DB look like "10.66.66.5" or
+                # "172.27.0.5". Existing callsites add the suffix when
+                # they actually need CIDR form, so writing it here would
+                # double up to "X/32/32" and break the client config.
                 net4 = _ipaddress.IPv4Network(server.address_pool_ipv4, strict=False)
-                ipv4 = f"{net4.network_address + ip_index}/32"
+                ipv4 = str(net4.network_address + ip_index)
 
                 ipv6 = None
                 if server.address_pool_ipv6:
                     try:
                         net6 = _ipaddress.IPv6Network(server.address_pool_ipv6, strict=False)
-                        ipv6 = f"{net6.network_address + ip_index}/128"
+                        ipv6 = str(net6.network_address + ip_index)
                     except Exception:
                         ipv6 = None
 
@@ -275,9 +280,11 @@ class SlotManager:
                     try:
                         wg = self.core.clients._get_wg(server)
                         try:
-                            allowed_ips = [ipv4]
+                            # WireGuard `wg set peer … allowed-ips X/32` needs
+                            # CIDR form; storage holds the bare address.
+                            allowed_ips = [f"{ipv4}/32"]
                             if ipv6:
-                                allowed_ips.append(ipv6)
+                                allowed_ips.append(f"{ipv6}/128")
                             ok = wg.add_peer(
                                 public_key=public_key,
                                 allowed_ips=allowed_ips,
@@ -380,18 +387,21 @@ class SlotManager:
 
         # Apply: disable old, enable new. Order matters — disable first to
         # avoid a brief window where two peers with the same key are live
-        # on different interfaces. (Same key on two interfaces is fine in
-        # principle, but the client config only points at one endpoint so
-        # only the new one will actually carry traffic.)
+        # on different interfaces.
+        #
+        # IMPORTANT: don't pre-flip ``enabled`` here. ``ClientManager.
+        # disable_client`` early-returns if it reads ``enabled=False``
+        # from the session (short-circuit), skipping the actual
+        # ``wg remove_peer`` call. The peer then stays live on the node
+        # interface even though the DB reports DISABLED, and handshakes
+        # continue to succeed against a region the customer thought they
+        # had toggled off. Let enable/disable do both the DB flip and
+        # the wg-set call themselves.
         old_peer = next((p for p in peers if p.server_id == slot.active_server_id), None)
         if old_peer and old_peer.enabled:
-            old_peer.enabled = False
-            self.db.add(old_peer)
             _agent_apply(self.core, old_peer, "disable")
 
         if not target_peer.enabled:
-            target_peer.enabled = True
-            self.db.add(target_peer)
             _agent_apply(self.core, target_peer, "enable")
 
         slot.active_server_id = target_server_id

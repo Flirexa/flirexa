@@ -4,6 +4,18 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.7.6 — 2026-05-19
+
+Three fixes for the device-slot system caught by an operator testing multi-server toggling against a production panel.
+
+### Fixed
+
+- **`Address = X/32/32` in client `.conf`.** The `clients.ipv4` column has always stored bare addresses ("10.66.66.5") by convention, and every consumer adds the `/32` suffix at read time. A recent refactor of `ClientManager.create_client` and the new `SlotManager.create_slot` started writing `"10.66.66.5/32"` into the column, so the existing `f"{client.ipv4}/32"` callsites doubled up to `"10.66.66.5/32/32"`. AmneziaWG / WireGuard mobile apps reject that as malformed. Restored the bare-address convention in both writers, and the `wg add_peer` calls that needed CIDR form now apply the suffix themselves. Same fix applied to `ipv6` / `/128`.
+- **Region toggle didn't actually disable the old peer on the node.** `SlotManager.switch_active_server` pre-flipped `client.enabled = False` in the session before calling `core.disable_client(client.id)`. `ClientManager.disable_client` re-reads the same session object, sees `enabled=False`, treats the peer as "already disabled" and short-circuits — skipping the `wg remove_peer` call. The peer stayed live on the interface even though the panel reported DISABLED, so customers could keep handshaking against a region they'd toggled off. Removed the pre-flip; `enable_client` / `disable_client` now drive both the DB flag and the wg-set call themselves.
+- **Subscription device-count double-counted across slot and legacy paths.** Adding a device via the Dashboard "Quick Actions" went through `/wireguard/create` (legacy single-server peer), adding via the Devices page went through `/devices` (multi-region slot), and the two endpoints applied the cap differently — legacy counted every `ClientUserClients` row including each slot's per-region peers (so one slot inflated the count by N), while `/devices` counted only `device_slots`. A subscriber could therefore create one slot AND one legacy peer with a `max_devices=1` plan. Both endpoints now count uniformly: `slot_count + legacy_count`, where each slot is one device unit regardless of how many regions it fans across.
+
+---
+
 ## v1.7.4 — 2026-05-19
 
 ### Changed
