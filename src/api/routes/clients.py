@@ -1082,3 +1082,174 @@ async def get_peer_devices(
         "devices": devices,
         "count": len(devices),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# DEVICE SLOTS — admin view
+# ═══════════════════════════════════════════════════════════════════════════
+# One row per slot, aggregating its per-server peers. Used by the
+# admin "Slots" tab in the panel so the operator sees devices grouped
+# the same way the customer sees them in /devices, instead of N rows
+# per device in the flat Clients table.
+
+@router.get("/slots/admin")
+def list_all_slots(db: Session = Depends(get_db)):
+    """Return every DeviceSlot in the system with aggregated peer info.
+
+    Shape per slot:
+        {
+            "id": 12,
+            "label": "Phone",
+            "client_user": {"id": 4, "email": "alice@example.com", "username": "alice"},
+            "active_server_id": 7,
+            "active_server_name": "TexasUSA",
+            "created_at": "...",
+            "last_switched_at": "..." | null,
+            "peers": [
+                {
+                    "client_id": 246,
+                    "server_id": 7,
+                    "server_name": "TexasUSA",
+                    "ipv4": "10.66.10.2",
+                    "enabled": true,
+                    "is_active": true,
+                    "last_handshake": "...",
+                    "traffic_used_rx": 12345,
+                    "traffic_used_tx": 67890,
+                },
+                …
+            ],
+            "totals": {
+                "regions": 3,                # how many regions this device spans
+                "traffic_rx_bytes": …,       # summed across all regions
+                "traffic_tx_bytes": …,
+                "traffic_total_bytes": …,
+            },
+        }
+
+    Sorted: newest-first by ``slot.created_at`` so freshly-added customers
+    bubble to the top of the operator's view.
+    """
+    from ...modules.subscription.subscription_models import (
+        DeviceSlot, ClientUserClients, ClientUser,
+    )
+
+    slots = (
+        db.query(DeviceSlot)
+        .order_by(DeviceSlot.created_at.desc())
+        .all()
+    )
+    if not slots:
+        return []
+
+    slot_ids = [s.id for s in slots]
+
+    # Bulk-load all peers for all slots via the link table — avoids
+    # N queries per slot. Then bucket by slot_id in Python.
+    peer_rows = (
+        db.query(
+            ClientUserClients.slot_id,
+            Client.id,
+            Client.server_id,
+            Client.ipv4,
+            Client.enabled,
+            Client.traffic_used_rx,
+            Client.traffic_used_tx,
+        )
+        .join(Client, Client.id == ClientUserClients.client_id)
+        .filter(ClientUserClients.slot_id.in_(slot_ids))
+        .all()
+    )
+    by_slot: dict = {}
+    for r in peer_rows:
+        by_slot.setdefault(r.slot_id, []).append(r)
+
+    # Load all referenced server IDs in one query.
+    server_ids = {r.server_id for r in peer_rows} | {
+        s.active_server_id for s in slots if s.active_server_id
+    }
+    servers_by_id = {}
+    if server_ids:
+        for s in db.query(Server).filter(Server.id.in_(server_ids)).all():
+            servers_by_id[s.id] = s
+
+    # Same for ClientUser.
+    user_ids = {s.client_user_id for s in slots}
+    users_by_id = {}
+    if user_ids:
+        for u in db.query(ClientUser).filter(ClientUser.id.in_(user_ids)).all():
+            users_by_id[u.id] = u
+
+    # Enrich peers with live handshake — reuse the same helper the
+    # Clients tab uses so what the operator sees in Slots matches what
+    # they see in Clients (both lit by the same handshake snapshot).
+    client_ids_for_handshake = [r.id for r in peer_rows]
+    if client_ids_for_handshake:
+        client_objs = (
+            db.query(Client).filter(Client.id.in_(client_ids_for_handshake)).all()
+        )
+        try:
+            _enrich_handshakes(client_objs, db)
+        except Exception as e:
+            logger.warning(f"Failed to enrich handshakes for /slots/admin: {e}")
+        handshake_by_client = {
+            c.id: getattr(c, "last_handshake", None) for c in client_objs
+        }
+    else:
+        handshake_by_client = {}
+
+    out = []
+    for s in slots:
+        peers = by_slot.get(s.id, [])
+        peer_objs = []
+        total_rx = 0
+        total_tx = 0
+        for r in peers:
+            srv = servers_by_id.get(r.server_id)
+            hs = handshake_by_client.get(r.id)
+            hs_iso = (
+                hs.isoformat() if hs and hasattr(hs, "isoformat") else None
+            )
+            rx = r.traffic_used_rx or 0
+            tx = r.traffic_used_tx or 0
+            total_rx += rx
+            total_tx += tx
+            peer_objs.append({
+                "client_id":       r.id,
+                "server_id":       r.server_id,
+                "server_name":     srv.name if srv else f"server-{r.server_id}",
+                "server_display":  (getattr(srv, "display_name", None) if srv else None)
+                                    or (getattr(srv, "location", None) if srv else None)
+                                    or (srv.name if srv else None),
+                "ipv4":            r.ipv4,
+                "enabled":         bool(r.enabled),
+                "is_active":       r.server_id == s.active_server_id,
+                "last_handshake":  hs_iso,
+                "traffic_used_rx": rx,
+                "traffic_used_tx": tx,
+            })
+
+        user = users_by_id.get(s.client_user_id)
+        active_srv = servers_by_id.get(s.active_server_id) if s.active_server_id else None
+
+        out.append({
+            "id":               s.id,
+            "label":            s.label or "Device",
+            "client_user": {
+                "id":       s.client_user_id,
+                "email":    user.email if user else None,
+                "username": user.username if user else None,
+            },
+            "active_server_id":     s.active_server_id,
+            "active_server_name":   active_srv.name if active_srv else None,
+            "created_at":           s.created_at.isoformat() if s.created_at else None,
+            "last_switched_at":     s.last_switched_at.isoformat() if s.last_switched_at else None,
+            "peers":                sorted(peer_objs, key=lambda p: p["server_id"]),
+            "totals": {
+                "regions":              len(peer_objs),
+                "traffic_rx_bytes":     total_rx,
+                "traffic_tx_bytes":     total_tx,
+                "traffic_total_bytes":  total_rx + total_tx,
+            },
+        })
+    return out

@@ -198,6 +198,9 @@ export const clientsApi = {
   },
   setExpiry: (id, data) => api.post(`/clients/${id}/expiry`, data),
   getMapData: () => api.get('/clients/map-data'),
+  // Device slots — aggregated multi-region devices. One row per slot,
+  // showing all regional peers, totals, and the slot's active server.
+  listSlots: () => api.get('/clients/slots/admin'),
 }
 
 // ===== Servers =====

@@ -12,6 +12,7 @@ export default {
     dashboard: 'Dashboard',
     clients: 'Clients',
     onlineUsers: 'Online Users',
+    slots: 'Device Slots',
     servers: 'Servers',
     subscriptions: 'Subscriptions',
     payments: 'Payments',

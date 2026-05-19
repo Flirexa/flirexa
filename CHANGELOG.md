@@ -4,6 +4,27 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.0 — 2026-05-20
+
+### Added
+
+- **Admin "Device Slots" tab.** New sidebar entry between Clients and Servers. One row per slot showing the customer, label, active region, total traffic across all regions, and an expandable per-peer view (server, IPv4, enabled/disabled, last handshake, RX/TX). Aggregated server-side via a new `GET /api/clients/slots/admin` endpoint that bulk-loads peers/users/servers and reuses the existing `_enrich_handshakes` helper so the live status matches the Clients page exactly.
+- **Email notifications for subscription lifecycle.** Two new templates in `EmailService`:
+  - `send_expiry_warning_email` — fires from the scheduler at the 7-day / 3-day / 1-day marks alongside the existing Telegram / portal-push notifications. EN + RU copy with portal CTA.
+  - `send_payment_received_email` — fires from `subscription_manager.complete_payment` right after the existing payment-confirmed notification. Includes amount, currency, plan, new expiry date, portal CTA. EN + RU.
+  Both paths are best-effort: SMTP misconfigured / user has no email / template error all silently no-op so the underlying notification flow never breaks.
+
+### Changed
+
+- **Slot peer names are now label-based instead of `slot-{id}`.** The old name (`slot-9-TexasUSA` → `slot-10-TexasUSA` after a recreate) leaked the auto-increment of `device_slots.id`, which is fine in a DB but reads as "wat" in the admin Clients list. Names now combine the customer's chosen device label (sanitised to `[A-Za-z0-9._-]`) with a 4-character SHA-256 suffix of the slot's shared public key and the server name. Stable across recreate-with-same-label-and-keypair, disambiguates two same-labelled slots via the key-derived suffix.
+
+### Tooling (no runtime impact for installs)
+
+- **pytest suite for the slot system.** 24 tests covering peer-name shape, free-tier toggle (truthy/falsy variants), slot creation (one peer per visible server, shared keypair, exactly one enabled), bare-address storage convention, `heal_slot` idempotency, backfill onto a newly-added server, hidden-server skip. Run in 1.2s against in-memory SQLite + a mocked WireGuard adapter.
+- **GitHub Actions workflow** (`.github/workflows/tests.yml`) — runs the logger-style linter, the migration linter scoped since the last release tag, and the full pytest suite on every push to master and every PR. Catches the family of regressions that previously only surfaced on a customer's production DB.
+
+---
+
 ## v1.7.10 — 2026-05-19
 
 ### Changed

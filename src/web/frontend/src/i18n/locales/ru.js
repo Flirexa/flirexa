@@ -11,6 +11,7 @@ export default {
     dashboard: 'Панель',
     clients: 'Клиенты',
     onlineUsers: 'Online',
+    slots: 'Слоты устройств',
     servers: 'Серверы',
     subscriptions: 'Подписки',
     payments: 'Платежи',

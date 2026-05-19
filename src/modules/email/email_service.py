@@ -475,3 +475,162 @@ class EmailService:
 
         except Exception as e:
             return {"connected": False, "message": str(e)}
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Subscription-lifecycle notifications
+    # ─────────────────────────────────────────────────────────────────────
+    # These run from src/api/scheduler.py once a subscription gets
+    # within N days of expiry, and from the payment-confirmed hook in
+    # src/modules/subscription/subscription_manager.py. Both are
+    # best-effort: SMTP can be misconfigured, the user may have unset
+    # their email, or templating may fail — none of that should stop
+    # the underlying expiry tracker / payment flow.
+
+    def send_expiry_warning_email(
+        self,
+        to: str,
+        username: str,
+        tier: str,
+        days_left: int,
+        expiry_date: str,
+        portal_url: str = "",
+        app_name: str = "Flirexa",
+        support_email: str = "",
+        lang: str = "en",
+        logo_url: str = "",
+    ) -> bool:
+        """Tell the customer their plan is about to expire. Sent at the
+        7-day / 3-day / 1-day marks by the scheduler (see scheduler.py).
+        Each marker fires once per subscription via the
+        ``notification_sent_at`` JSON column."""
+        lang = "ru" if (lang or "").lower().startswith("ru") else "en"
+        logo_url = self._resolve_logo_url(logo_url, portal_url)
+        if lang == "ru":
+            label   = "Подписка скоро истечёт"
+            title   = (f"Осталось всего {days_left} дн." if days_left > 1
+                       else "Подписка истекает завтра")
+            intro   = (
+                f"Здравствуйте, {username}! Ваша подписка <b>{tier}</b> истекает "
+                f"<b>{expiry_date}</b>. Продлите её сейчас, чтобы не остаться без VPN."
+            )
+            cta     = "Открыть портал и продлить"
+            subject = f"{app_name}: подписка истекает через {days_left} дн."
+            plain   = (
+                f"{app_name}\n\n"
+                f"Здравствуйте, {username}.\n"
+                f"Подписка {tier} истекает {expiry_date} ({days_left} дн. осталось).\n"
+                f"Чтобы продлить — войдите в портал: {portal_url}\n"
+            )
+        else:
+            label   = "Subscription expiring soon"
+            title   = (f"{days_left} days left on your {tier} plan"
+                       if days_left > 1 else "Your subscription expires tomorrow")
+            intro   = (
+                f"Hi {username}, your <b>{tier}</b> subscription is set to expire on "
+                f"<b>{expiry_date}</b>. Renew now to keep your VPN tunnels online."
+            )
+            cta     = "Open portal to renew"
+            subject = f"{app_name}: {days_left} day(s) left on your subscription"
+            plain   = (
+                f"{app_name}\n\n"
+                f"Hi {username},\n"
+                f"Your {tier} subscription expires on {expiry_date} ({days_left} day(s) left).\n"
+                f"Renew at: {portal_url}\n"
+            )
+
+        support_hint = self._copy(lang, "support", support_email=support_email) if support_email else ""
+        cta_html = (
+            f'<a href="{portal_url}" style="display:inline-block;margin:18px 0 4px;'
+            f'padding:10px 22px;background:#0f3460;color:#fff;text-decoration:none;'
+            f'border-radius:6px;font-size:14px;">{cta}</a>'
+        ) if portal_url else ""
+        footer_html = (
+            f'<p style="margin:18px 0 0;color:#64748b;font-size:13px;line-height:1.6;">{support_hint}</p>'
+            if support_hint else ""
+        )
+        html = self._render_email(
+            app_name=app_name,
+            section_label=label,
+            title=title,
+            intro_html=f"<p>{intro}</p>",
+            body_html=cta_html,
+            footer_html=footer_html,
+            logo_url=logo_url,
+        )
+        return self._send(to, subject, html, plain)
+
+    def send_payment_received_email(
+        self,
+        to: str,
+        username: str,
+        tier: str,
+        amount: str,
+        currency: str,
+        period_days: int,
+        new_expiry_date: str,
+        portal_url: str = "",
+        app_name: str = "Flirexa",
+        support_email: str = "",
+        lang: str = "en",
+        logo_url: str = "",
+    ) -> bool:
+        """Confirm a successful payment. Fired by subscription_manager
+        after the provider-specific webhook (Stripe, PayPal, NOWPayments,
+        CryptoPay) has marked the payment complete."""
+        lang = "ru" if (lang or "").lower().startswith("ru") else "en"
+        logo_url = self._resolve_logo_url(logo_url, portal_url)
+        if lang == "ru":
+            label   = "Оплата подтверждена"
+            title   = "Спасибо!"
+            intro   = (
+                f"Здравствуйте, {username}! Мы получили вашу оплату <b>{amount} {currency}</b> "
+                f"за тариф <b>{tier}</b>. Подписка активна ещё <b>{period_days} дн.</b> "
+                f"— до <b>{new_expiry_date}</b>."
+            )
+            cta     = "Открыть портал"
+            subject = f"{app_name}: оплата подтверждена ({amount} {currency})"
+            plain   = (
+                f"{app_name}\n\n"
+                f"Здравствуйте, {username}.\n"
+                f"Спасибо за оплату {amount} {currency} за тариф {tier}.\n"
+                f"Срок подписки: {period_days} дн., до {new_expiry_date}.\n"
+                f"Портал: {portal_url}\n"
+            )
+        else:
+            label   = "Payment confirmed"
+            title   = "Thanks for the payment"
+            intro   = (
+                f"Hi {username}, we received your <b>{amount} {currency}</b> payment for "
+                f"the <b>{tier}</b> plan. Your subscription is now active for the next "
+                f"<b>{period_days} days</b>, through <b>{new_expiry_date}</b>."
+            )
+            cta     = "Open the portal"
+            subject = f"{app_name}: payment confirmed ({amount} {currency})"
+            plain   = (
+                f"{app_name}\n\n"
+                f"Hi {username},\n"
+                f"Thanks for your payment of {amount} {currency} for the {tier} plan.\n"
+                f"Active for {period_days} days, through {new_expiry_date}.\n"
+                f"Portal: {portal_url}\n"
+            )
+
+        support_hint = self._copy(lang, "support", support_email=support_email) if support_email else ""
+        cta_html = (
+            f'<a href="{portal_url}" style="display:inline-block;margin:18px 0 4px;'
+            f'padding:10px 22px;background:#16a34a;color:#fff;text-decoration:none;'
+            f'border-radius:6px;font-size:14px;">{cta}</a>'
+        ) if portal_url else ""
+        footer_html = (
+            f'<p style="margin:18px 0 0;color:#64748b;font-size:13px;line-height:1.6;">{support_hint}</p>'
+            if support_hint else ""
+        )
+        html = self._render_email(
+            app_name=app_name,
+            section_label=label,
+            title=title,
+            intro_html=f"<p>{intro}</p>",
+            body_html=cta_html,
+            footer_html=footer_html,
+            logo_url=logo_url,
+        )
+        return self._send(to, subject, html, plain)

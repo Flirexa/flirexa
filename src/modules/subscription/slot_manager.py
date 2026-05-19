@@ -49,6 +49,48 @@ logger = logging.getLogger(__name__)
 SLOT_SWITCH_COOLDOWN_SECONDS = int(os.getenv("SLOT_SWITCH_COOLDOWN_SECONDS", "30"))
 
 
+def _slot_peer_name(slot: "DeviceSlot", server: "Server") -> str:
+    """Build the per-server peer name shown to admins in the Clients list.
+
+    Prefer the customer's chosen label ("Phone", "Laptop") over the
+    internal ``slot-{id}`` form, because:
+
+    1. Admin scanning the Clients list cares about *which device* a
+       peer belongs to, not about a slot's database row ID.
+    2. ``slot.id`` is an auto-increment column — deleting and recreating
+       a device hands out a higher ID each time, which looks like
+       leaking IDs but is just postgres's standard sequence behaviour.
+       Switching to label makes the name stable across recreates as long
+       as the customer reuses the same label.
+    3. ``Client.name`` is unique per server, so two devices in one
+       account both labelled "Phone" would collide. Append a short
+       suffix from the slot's keypair (deterministic, 4 chars from the
+       pubkey hash, base64-style) to disambiguate while staying readable.
+
+    Output is sanitised to ``[A-Za-z0-9._-]`` and capped at 100 chars to
+    fit the ``clients.name`` column.
+    """
+    import re
+    import hashlib
+
+    label = (getattr(slot, "label", None) or "Device").strip()
+    label_clean = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-") or "Device"
+
+    # 4-char suffix derived from the slot's shared public key. Stable per
+    # slot, unpredictable enough to disambiguate two same-labelled slots.
+    pubkey = (getattr(slot, "public_key", None) or "").encode("utf-8")
+    if pubkey:
+        suffix = hashlib.sha256(pubkey).hexdigest()[:4]
+    else:
+        suffix = format(getattr(slot, "id", 0) or 0, "x")[-4:].rjust(4, "0")
+
+    server_part = re.sub(r"[^A-Za-z0-9._-]+", "-",
+                        (getattr(server, "name", None) or "srv")).strip("-") or "srv"
+
+    raw = f"{label_clean}-{suffix}-{server_part}"
+    return raw[:100]
+
+
 class SlotManagerError(Exception):
     """Surface-level error from slot ops with a customer-facing message."""
 
@@ -253,7 +295,7 @@ class SlotManager:
                     expiry_date = datetime.now(timezone.utc) + timedelta(days=expiry_days)
 
                 # 3. Create the Client row with the SHARED keypair.
-                peer_name = f"slot-{slot.id}-{server.name}"[:100]
+                peer_name = _slot_peer_name(slot, server)
                 is_active_peer = (server.id == active.id)
                 client = Client(
                     name=peer_name,
@@ -490,7 +532,7 @@ class SlotManager:
 
         # 5. Create Client row with the slot's shared keypair.
         is_active_peer = (server.id == slot.active_server_id)
-        peer_name = f"slot-{slot.id}-{server.name}"[:100]
+        peer_name = _slot_peer_name(slot, server)
         client = Client(
             name=peer_name,
             server_id=server.id,

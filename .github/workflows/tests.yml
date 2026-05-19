@@ -1,0 +1,67 @@
+name: tests
+
+# Runs on every push to master and every PR. Cheap (under a minute on
+# the warm path) so don't gate it behind "only when X changed" — false
+# negatives from skipped runs are worse than the runner minutes.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install runtime dependencies
+        # Heavy WG/AWG / pyarmor deps aren't needed for the unit suite —
+        # tests stub the wg adapter and use SQLite. Install only what
+        # the test modules actually import.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            sqlalchemy \
+            'pydantic>=2,<3' \
+            fastapi \
+            httpx \
+            cryptography \
+            loguru \
+            'python-jose[cryptography]' \
+            python-dotenv \
+            psutil \
+            bcrypt \
+            pytest \
+            pytest-asyncio \
+            qrcode
+
+      - name: Lint logger style (catches stdlib %s vs loguru {} drift)
+        run: python3 tools/lint_logger_style.py src/
+
+      - name: Lint migrations since last release tag
+        # If there's no tag yet (fresh fork) the linter no-ops by design;
+        # otherwise it flags PG-only foot-guns (drop_index on UNIQUE,
+        # AUTOCOMMIT+ALTER TYPE, unguarded drops).
+        run: |
+          last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+          if [ -n "$last_tag" ]; then
+            python3 tools/lint_migrations.py --since "$last_tag" alembic/versions/
+          else
+            echo "No release tag found, skipping migration scope check"
+          fi
+
+      - name: Run pytest
+        env:
+          DATABASE_URL: "sqlite://"
+          AUTH_ENABLED: "false"
+        run: python3 -m pytest tests/ -q --tb=short
