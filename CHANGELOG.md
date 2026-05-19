@@ -4,6 +4,16 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.35 — 2026-05-19
+
+Follow-up to v1.6.34: the **Free tier** admin setting only had English strings, so non-English operators saw the i18n key name (`settings.freeTierToggle`) instead of a translated label.
+
+### Fixed
+
+- Translations for `settings.freeTierTitle`, `settings.freeTierHint` and `settings.freeTierToggle` added to all five admin locales (en / ru / de / fr / es). The inline `$t(key) || 'English fallback'` pattern used in v1.6.34 doesn't work the way it looks: vue-i18n returns the *key name* (not an empty string) when a translation is missing, so the `||` fallback never triggered. The fix is to ship the actual translations.
+
+---
+
 ## v1.6.34 — 2026-05-19
 
 Operators can now turn the free tier on or off from the admin panel. Until this release every new portal sign-up automatically got a free subscription with 1 device and 10 GB — fine as a try-before-you-buy default, but operators running a paid-only service had no way to opt out short of hand-editing the database.
