@@ -2,16 +2,15 @@
   <div class="slots-page">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <div>
-        <h2 class="mb-1">{{ $t('slots.title') || 'Device Slots' }}</h2>
+        <h2 class="mb-1">{{ $t('slots.title') }}</h2>
         <p class="text-muted small mb-0">
-          {{ $t('slots.subtitle') ||
-            "Each row is one customer device that spans every customer-visible region. The active region is the one currently accepting handshakes; toggling happens from the customer's portal." }}
+          {{ $t('slots.subtitle') }}
         </p>
       </div>
       <div class="d-flex gap-2">
         <button class="btn btn-outline-secondary btn-sm" @click="loadSlots" :disabled="loading">
           <i class="mdi mdi-refresh me-1"></i>
-          {{ loading ? ($t('common.loading') || 'Loading…') : ($t('common.refresh') || 'Refresh') }}
+          {{ loading ? ($t('common.loading')) : ($t('common.refresh')) }}
         </button>
       </div>
     </div>
@@ -19,10 +18,9 @@
     <div v-if="!loading && !slots.length" class="card">
       <div class="card-body text-center text-muted py-5">
         <i class="mdi mdi-cellphone-link" style="font-size:48px;opacity:0.4"></i>
-        <h5 class="mt-3">{{ $t('slots.empty') || 'No device slots yet' }}</h5>
+        <h5 class="mt-3">{{ $t('slots.empty') }}</h5>
         <p class="small mb-0">
-          {{ $t('slots.emptyHint') ||
-            "Slots are created when a portal customer adds a device from the Devices page. Legacy single-server peers (from the old Quick Action flow) still show up in the Clients tab." }}
+          {{ $t('slots.emptyHint') }}
         </p>
       </div>
     </div>
@@ -33,13 +31,13 @@
           <table class="table table-hover mb-0 align-middle">
             <thead>
               <tr>
-                <th>{{ $t('slots.colDevice') || 'Device' }}</th>
-                <th>{{ $t('slots.colCustomer') || 'Customer' }}</th>
-                <th>{{ $t('slots.colRegions') || 'Regions' }}</th>
-                <th>{{ $t('slots.colActive') || 'Active' }}</th>
-                <th>{{ $t('slots.colTraffic') || 'Traffic' }}</th>
-                <th>{{ $t('slots.colCreated') || 'Created' }}</th>
-                <th class="text-end">{{ $t('common.actions') || '' }}</th>
+                <th>{{ $t('slots.colDevice') }}</th>
+                <th>{{ $t('slots.colCustomer') }}</th>
+                <th>{{ $t('slots.colRegions') }}</th>
+                <th>{{ $t('slots.colActive') }}</th>
+                <th>{{ $t('slots.colTraffic') }}</th>
+                <th>{{ $t('slots.colCreated') }}</th>
+                <th class="text-end">{{ $t('common.actions') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -73,23 +71,23 @@
                   </td>
                   <td class="text-end" @click.stop>
                     <button class="btn btn-sm btn-link p-0" @click="toggleExpand(slot.id)">
-                      {{ expanded[slot.id] ? ($t('common.collapse') || 'Hide') : ($t('common.expand') || 'Details') }}
+                      {{ expanded[slot.id] ? ($t('common.collapse')) : ($t('common.expand')) }}
                     </button>
                   </td>
                 </tr>
                 <tr v-if="expanded[slot.id]" class="slot-detail-row">
                   <td colspan="7" class="bg-light">
                     <div class="p-3">
-                      <h6 class="mb-3">{{ $t('slots.peersTitle') || 'Regional peers' }}</h6>
+                      <h6 class="mb-3">{{ $t('slots.peersTitle') }}</h6>
                       <table class="table table-sm mb-2">
                         <thead>
                           <tr>
-                            <th>{{ $t('slots.peerServer') || 'Server' }}</th>
-                            <th>{{ $t('slots.peerIp') || 'IPv4' }}</th>
-                            <th>{{ $t('slots.peerEnabled') || 'Enabled' }}</th>
-                            <th>{{ $t('slots.peerHandshake') || 'Last handshake' }}</th>
-                            <th>{{ $t('slots.peerRx') || 'RX' }}</th>
-                            <th>{{ $t('slots.peerTx') || 'TX' }}</th>
+                            <th>{{ $t('slots.peerServer') }}</th>
+                            <th>{{ $t('slots.peerIp') }}</th>
+                            <th>{{ $t('slots.peerEnabled') }}</th>
+                            <th>{{ $t('slots.peerHandshake') }}</th>
+                            <th>{{ $t('slots.peerRx') }}</th>
+                            <th>{{ $t('slots.peerTx') }}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -120,15 +118,15 @@
                       </table>
                       <div class="d-flex gap-3 text-muted small">
                         <div v-if="slot.last_switched_at">
-                          {{ $t('slots.lastSwitched') || 'Last region switch' }}:
+                          {{ $t('slots.lastSwitched') }}:
                           <strong>{{ relativeTime(slot.last_switched_at) }}</strong>
                         </div>
                         <div>
-                          {{ $t('slots.totalRx') || 'Total RX' }}:
+                          {{ $t('slots.totalRx') }}:
                           <strong>{{ humanBytes(slot.totals.traffic_rx_bytes) }}</strong>
                         </div>
                         <div>
-                          {{ $t('slots.totalTx') || 'Total TX' }}:
+                          {{ $t('slots.totalTx') }}:
                           <strong>{{ humanBytes(slot.totals.traffic_tx_bytes) }}</strong>
                         </div>
                       </div>

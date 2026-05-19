@@ -4,6 +4,14 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.1 — 2026-05-20
+
+### Fixed
+
+- **Device Slots admin tab showed raw i18n keys instead of localised strings.** The `slots.*` translation block was never defined, and the inline `$t('slots.X') || 'fallback'` pattern doesn't work in vue-i18n — when a key is missing, `$t()` returns the key name itself (a truthy string), so the `||` branch never triggers. Both EN and RU locales now ship the full `slots.*` block (titles, column headers, peer detail labels, totals) plus `common.expand` / `common.collapse` for the row toggle. The broken fallback pattern is dropped from the template — clean `$t('slots.…')` calls throughout.
+
+---
+
 ## v1.9.0 — 2026-05-20
 
 ### Added
