@@ -4,6 +4,14 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.7.10 — 2026-05-19
+
+### Changed
+
+- **Client portal Dashboard "Add Device" buttons now route to the Devices page** instead of opening the legacy single-server create modal. Three entry points in the Dashboard (status-banner CTA, Quick Actions card, My Devices header) all become `router-link` → `/devices`. Existing legacy single-server peers continue to display in My Devices as before, but creation of new devices funnels through the slot-based Devices page only. This removes the source of the "3 configs from one device" confusion — when both the Dashboard and the Devices page each had their own creation path, a user could end up with one legacy peer + one slot for a `max_devices=1` plan because the two endpoints didn't count each other's output.
+
+---
+
 ## v1.7.9 — 2026-05-19
 
 ### Added

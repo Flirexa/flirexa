@@ -46,12 +46,10 @@
             <FxIcon name="tag" :size="14" />
             {{ $t('dash.choosePlan') || 'Choose a plan' }}
           </router-link>
-          <button v-else-if="!devices.length && subscription.status === 'active'"
-                  class="fx-btn fx-btn-primary"
-                  :disabled="creatingDevice || (subscription.max_devices || 1) < 1"
-                  @click="showAddDeviceModal = true">
+          <router-link v-else-if="!devices.length && subscription.status === 'active'"
+                       to="/devices" class="fx-btn fx-btn-primary">
             <FxIcon name="plus" :size="14" /> {{ $t('dash.addDevice') }}
-          </button>
+          </router-link>
           <button v-else-if="subscription.tier && subscription.tier.toLowerCase() === 'free'"
                   class="fx-btn fx-btn-primary"
                   @click="showUpgradeModal = true">
@@ -290,15 +288,14 @@
             <h3 class="fx-section-title">{{ $t('dash.quickActions') }}</h3>
           </div>
           <div class="fx-actions-grid">
-            <button class="fx-action primary"
-                    :disabled="creatingDevice || devices.length >= (subscription.max_devices || 1) || subscription.status !== 'active'"
-                    @click="showAddDeviceModal = true">
+            <router-link to="/devices" class="fx-action primary"
+                         :class="{ 'fx-action-disabled': subscription.status !== 'active' }">
               <span class="fx-action-icon"><FxIcon name="plus" :size="16" /></span>
               <span class="fx-action-text">
                 <span class="fx-action-title">{{ $t('dash.addDevice') }}</span>
                 <span class="fx-action-sub">{{ $t('dash.addDeviceSub') }}</span>
               </span>
-            </button>
+            </router-link>
             <button class="fx-action" @click="showUpgradeModal = true">
               <span class="fx-action-icon"><FxIcon name="trafficUp" :size="16" /></span>
               <span class="fx-action-text">
@@ -323,11 +320,9 @@
               {{ $t('dash.myDevices') }}
               <span style="color:var(--text-3); font-weight:500; margin-left:6px">{{ devices.length }} / {{ subscription.max_devices || 1 }}</span>
             </h3>
-            <button class="fx-btn fx-btn-ghost fx-btn-sm"
-                    :disabled="creatingDevice || devices.length >= (subscription.max_devices || 1) || subscription.status !== 'active'"
-                    @click="showAddDeviceModal = true">
+            <router-link to="/devices" class="fx-btn fx-btn-ghost fx-btn-sm">
               <FxIcon name="plus" :size="13" /> {{ $t('common.add') }}
-            </button>
+            </router-link>
           </div>
           <div v-if="!devices.length">
             <div class="fx-empty">
