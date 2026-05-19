@@ -4,6 +4,24 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.34 — 2026-05-19
+
+Operators can now turn the free tier on or off from the admin panel. Until this release every new portal sign-up automatically got a free subscription with 1 device and 10 GB — fine as a try-before-you-buy default, but operators running a paid-only service had no way to opt out short of hand-editing the database.
+
+### Added
+
+- **Settings → Free tier** in the admin panel. Single switch: "Offer free tier to new customers". Defaults to **on** so existing installs behave exactly as before. Flip it off and every new sign-up arrives with no subscription at all; the client portal Dashboard then shows a **Choose a plan** call-to-action instead of the usual stat cards, and the device-create endpoint refuses to issue a peer until the customer has purchased a plan.
+- **`GET / POST /system/subscription-settings`** admin API for the toggle. Backed by `system_config.enable_free_tier` so the value survives restarts and propagates without an `.env` rewrite.
+- **`needs_plan: true`** field on `GET /client-portal/subscription` when the toggle is off and the user has no subscription. The portal renders the no-plan state from this flag instead of treating the missing sub as an error.
+
+### Behaviour
+
+- `SubscriptionManager.ensure_subscription()` and `create_user()` both check the toggle before auto-creating a free row. The same gate covers the Telegram client-bot signup path.
+- The portal `/plans` page no longer paints a "Current" badge on the Free tier when the user actually has no plan — previously it could mislead someone who'd just been told to pick something.
+- `Plans` page selection / payment flow is unchanged; turning the toggle off only blocks the *auto-grant*, not paid upgrades or admin-issued subscriptions.
+
+---
+
 ## v1.6.33 — 2026-05-19
 
 PayPal, NowPayments and CryptoPay webhooks now actually reach their handlers. Until this release every webhook delivery for those three providers returned `404 Not Found` and the matching customer payment never auto-completed.

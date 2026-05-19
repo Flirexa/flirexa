@@ -41,7 +41,12 @@
           </div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <button v-if="!devices.length && subscription.status === 'active'"
+          <router-link v-if="subscription.needs_plan"
+                       to="/plans" class="fx-btn fx-btn-primary">
+            <FxIcon name="tag" :size="14" />
+            {{ $t('dash.choosePlan') || 'Choose a plan' }}
+          </router-link>
+          <button v-else-if="!devices.length && subscription.status === 'active'"
                   class="fx-btn fx-btn-primary"
                   :disabled="creatingDevice || (subscription.max_devices || 1) < 1"
                   @click="showAddDeviceModal = true">
@@ -586,12 +591,16 @@ function userFirstName() {
 const isFreeUser = computed(() => (subscription.value.tier || 'free').toLowerCase() === 'free')
 const planName = computed(() => {
   const tier = subscription.value.tier || 'free'
+  if (subscription.value.needs_plan || tier === 'none') {
+    return t('dash.noPlan') || 'No plan'
+  }
   return tier.charAt(0).toUpperCase() + tier.slice(1)
 })
 const expiryDate = computed(() => subscription.value.expiry_date
   ? new Date(subscription.value.expiry_date).toLocaleDateString()
   : t('dash.never'))
 const statusLabel = computed(() => {
+  if (subscription.value.needs_plan) return t('dash.statusNoPlan') || 'No plan'
   const m = { active: t('dash.statusActive'), inactive: t('dash.statusInactive'), expired: t('dash.statusExpired') }
   return m[subscription.value.status] || subscription.value.status || '—'
 })

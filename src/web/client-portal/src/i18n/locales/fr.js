@@ -125,6 +125,9 @@ export default {
     },
   },
   dash: {
+    choosePlan: 'Choisir un plan',
+    noPlan: 'Aucun plan',
+    statusNoPlan: 'Aucun plan',
     subscriptionPlan: 'Abonnement',
     daysRemaining: 'Jours restants',
     trafficUsed: 'Trafic utilis\u00e9',

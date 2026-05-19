@@ -147,7 +147,10 @@ const loadPlans = async () => {
       portalApi.getSubscription(),
     ])
     plans.value = plansRes.data
-    currentTier.value = subRes.data?.tier || 'free'
+    // When the admin has disabled the free tier the user has no subscription
+    // at all. Backend returns tier="none" + needs_plan=true. Treat that as
+    // "no current plan" so the page doesn't paint a "Current" badge anywhere.
+    currentTier.value = subRes.data?.needs_plan ? '' : (subRes.data?.tier || 'free')
   } catch {
     loadError.value = true
   } finally {

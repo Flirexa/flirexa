@@ -151,6 +151,9 @@ export default {
     },
   },
   dash: {
+    choosePlan: 'Выбрать тариф',
+    noPlan: 'Без тарифа',
+    statusNoPlan: 'Без тарифа',
     subscriptionPlan: 'Тарифный план',
     daysRemaining: 'Осталось дней',
     trafficUsed: 'Трафик использован',

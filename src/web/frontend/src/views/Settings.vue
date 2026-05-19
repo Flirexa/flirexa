@@ -640,6 +640,30 @@
       </div>
     </div>
 
+    <!-- Free tier toggle -->
+    <h4 class="mb-4 settings-page__section-title">{{ $t('settings.freeTierTitle') || 'Free tier' }}</h4>
+    <div class="card mb-4">
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          {{ $t('settings.freeTierHint') || "When enabled, new portal sign-ups get an auto-created free subscription so they can try the service. Turn off if you only want paying customers — the portal will prompt them to choose a paid plan before they can add a device." }}
+        </p>
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" id="enableFreeTier"
+                 v-model="subSettings.enable_free_tier" />
+          <label class="form-check-label" for="enableFreeTier">
+            {{ $t('settings.freeTierToggle') || 'Offer free tier to new customers' }}
+          </label>
+        </div>
+        <button class="btn btn-primary btn-sm"
+                @click="saveSubscriptionSettings" :disabled="saving">
+          {{ saving ? $t('settings.saving') : $t('common.save') }}
+        </button>
+        <span v-if="subSettings.savedMsg" class="ms-3 small text-success">
+          {{ subSettings.savedMsg }}
+        </span>
+      </div>
+    </div>
+
     <!-- Per-customer device cap -->
     <h4 class="mb-4 settings-page__section-title">Device limits</h4>
     <div class="card mb-4">
@@ -1074,6 +1098,11 @@ export default {
         max_devices_per_customer: 0,
         savedMsg: '',
       },
+      // Subscription-level toggles (currently just the free-tier auto-grant)
+      subSettings: {
+        enable_free_tier: true,
+        savedMsg: '',
+      },
       // Branding
       brand: {
         app_name: '',
@@ -1169,7 +1198,7 @@ export default {
     },
   },
   async mounted() {
-    await Promise.all([this.loadLicense(), this.loadPaymentSettings(), this.loadSmtpSettings(), this.loadNotifications(), this.loadDeviceLimits(), this.loadBranding(), this.loadWebAccessSettings()])
+    await Promise.all([this.loadLicense(), this.loadPaymentSettings(), this.loadSmtpSettings(), this.loadNotifications(), this.loadDeviceLimits(), this.loadSubscriptionSettings(), this.loadBranding(), this.loadWebAccessSettings()])
   },
   methods: {
     setTheme(k) { useSystemStore().setTheme(k) },
@@ -1548,6 +1577,28 @@ export default {
         await this.loadSmtpSettings()
       } catch(e) { this.smtp.alertType = 'alert-danger'; this.smtp.alert = String(e.message || e) }
       finally { this.saving = false }
+    },
+
+    // Subscription-settings (free-tier toggle)
+    async loadSubscriptionSettings() {
+      try {
+        var r = await systemApi.getSubscriptionSettings()
+        this.subSettings.enable_free_tier = !!r.data.enable_free_tier
+      } catch (e) { /* ignore */ }
+    },
+    async saveSubscriptionSettings() {
+      this.saving = true
+      try {
+        await systemApi.updateSubscriptionSettings({
+          enable_free_tier: !!this.subSettings.enable_free_tier,
+        })
+        this.subSettings.savedMsg = 'Saved'
+        setTimeout(() => { this.subSettings.savedMsg = '' }, 3000)
+      } catch (e) {
+        alert('Error: ' + (e.response?.data?.detail || e.message))
+      } finally {
+        this.saving = false
+      }
     },
 
     // Device-limits methods
