@@ -411,6 +411,206 @@ class SlotManager:
         self.db.refresh(slot)
         return slot
 
+    # ─────────────────────────────────────────────────────────────────
+    # Backfill / heal — top up missing peers when a new server gets added
+    # ─────────────────────────────────────────────────────────────────
+
+    def provision_slot_on_server(
+        self,
+        slot: DeviceSlot,
+        server: Server,
+    ) -> Optional[Client]:
+        """Ensure ``slot`` has a peer Client row on ``server``. Idempotent.
+
+        Returns the new Client if one was created, ``None`` if the slot
+        already has a peer there (so callers can decide whether to log /
+        emit an event). Uses the slot's shared keypair so the existing
+        downloaded configs on the user's phone don't need to rotate.
+
+        The peer is NOT pushed to the node by default — it sits dormant
+        (``enabled=False``) until the customer toggles to this region.
+        Only exception: if the slot's ``active_server_id`` is the
+        just-added server (vanishingly rare race), we push it live.
+        """
+        import ipaddress as _ipaddress
+
+        # 1. Idempotency check — already provisioned?
+        existing = (
+            self.db.query(Client)
+            .join(ClientUserClients, ClientUserClients.client_id == Client.id)
+            .filter(
+                ClientUserClients.slot_id == slot.id,
+                Client.server_id == server.id,
+            )
+            .first()
+        )
+        if existing:
+            return None
+
+        # 2. Sanity — server must be VPN-capable. Proxy servers (hysteria2 /
+        # tuic) don't belong in the slot system.
+        server_type = (getattr(server, "server_type", "wireguard") or "wireguard").lower()
+        server_category = getattr(server, "server_category", "vpn") or "vpn"
+        if server_category == "proxy" or server_type in ("hysteria2", "tuic"):
+            return None
+
+        # 3. Allocate next-free IP from the server's pool.
+        ip_index = self.core.clients._get_next_available_ip(
+            server.id, server.address_pool_ipv4
+        )
+        if ip_index is None:
+            logger.warning(
+                "slot %d backfill on %s: pool exhausted, skipping peer creation",
+                slot.id, server.name,
+            )
+            return None
+
+        net4 = _ipaddress.IPv4Network(server.address_pool_ipv4, strict=False)
+        ipv4 = str(net4.network_address + ip_index)
+
+        ipv6 = None
+        if server.address_pool_ipv6:
+            try:
+                net6 = _ipaddress.IPv6Network(server.address_pool_ipv6, strict=False)
+                ipv6 = str(net6.network_address + ip_index)
+            except Exception:
+                ipv6 = None
+
+        # 4. Carry over the original slot's per-client quota (so a slot
+        # created on the "premium" plan keeps premium bandwidth/traffic
+        # caps when a region is added later). Pull from any existing peer
+        # in the slot — they all share the subscription's caps at creation
+        # time. If the slot has no peers yet (slot was created when zero
+        # servers were visible), fall back to "no caps" and trust that
+        # the subscription's enforcement layer will catch overuse.
+        peers = self.get_slot_peers(slot.id)
+        bandwidth_limit = peers[0].bandwidth_limit if peers else None
+        traffic_limit_mb = peers[0].traffic_limit_mb if peers else None
+        expiry_date = peers[0].expiry_date if peers else None
+
+        # 5. Create Client row with the slot's shared keypair.
+        is_active_peer = (server.id == slot.active_server_id)
+        peer_name = f"slot-{slot.id}-{server.name}"[:100]
+        client = Client(
+            name=peer_name,
+            server_id=server.id,
+            public_key=slot.public_key,
+            private_key=slot.private_key,
+            preshared_key=slot.preshared_key,
+            ip_index=ip_index,
+            ipv4=ipv4,
+            ipv6=ipv6,
+            bandwidth_limit=bandwidth_limit,
+            traffic_limit_mb=traffic_limit_mb,
+            expiry_date=expiry_date,
+            enabled=is_active_peer,
+        )
+        self.db.add(client)
+        self.db.flush()  # need client.id for the link row
+
+        link = ClientUserClients(
+            client_user_id=slot.client_user_id,
+            client_id=client.id,
+            slot_id=slot.id,
+        )
+        self.db.add(link)
+        self.db.commit()
+        self.db.refresh(client)
+
+        # 6. Push to the node ONLY if this is somehow the active slot
+        # peer right now. In the common backfill flow the slot is already
+        # pinned to a different region, so the new peer sits dormant.
+        if is_active_peer:
+            try:
+                wg = self.core.clients._get_wg(server)
+                try:
+                    allowed_ips = [f"{ipv4}/32"]
+                    if ipv6:
+                        allowed_ips.append(f"{ipv6}/128")
+                    wg.add_peer(
+                        public_key=slot.public_key,
+                        allowed_ips=allowed_ips,
+                        preshared_key=slot.preshared_key,
+                    )
+                finally:
+                    try: wg.close()
+                    except Exception: pass
+            except Exception as exc:
+                logger.warning(
+                    "slot %d backfill on %s: node push failed, peer remains in DB: %s",
+                    slot.id, server.name, exc,
+                )
+
+        logger.info(
+            "slot %d backfilled on server %s (peer client_id=%d, active=%s)",
+            slot.id, server.name, client.id, is_active_peer,
+        )
+        return client
+
+    def heal_slot(self, slot: DeviceSlot) -> List[Client]:
+        """Top up the slot with peers on every customer-visible VPN server
+        it doesn't have yet. Idempotent. Returns the list of newly-created
+        Client rows (empty if the slot was already complete).
+
+        Cheap when there's nothing to do: one query for the slot's existing
+        ``server_id`` set, one query for visible servers, diff in Python.
+        """
+        servers = _customer_visible_servers(self.db)
+        if not servers:
+            return []
+        have_server_ids = {
+            row.server_id for row in (
+                self.db.query(Client.server_id)
+                .join(ClientUserClients, ClientUserClients.client_id == Client.id)
+                .filter(ClientUserClients.slot_id == slot.id)
+                .all()
+            )
+        }
+        created: List[Client] = []
+        for server in servers:
+            if server.id in have_server_ids:
+                continue
+            try:
+                new_client = self.provision_slot_on_server(slot, server)
+                if new_client:
+                    created.append(new_client)
+            except Exception as exc:
+                # Don't let one bad server (pool full, network blip, etc.)
+                # block the rest of the heal pass.
+                logger.warning(
+                    "heal_slot %d on %s failed, continuing: %s",
+                    slot.id, server.name, exc,
+                )
+        return created
+
+    def backfill_all_slots_on_server(self, server: Server) -> int:
+        """Called when a new customer-visible server is added (or one
+        flips from hidden → visible). Walks every existing slot and
+        provisions a peer on this server for each. Returns the number
+        of slots that got a new peer (others were already provisioned
+        or skipped due to errors)."""
+        if not getattr(server, "customer_visible", True):
+            return 0
+        if not getattr(server, "is_active", True):
+            return 0
+        slots = self.db.query(DeviceSlot).all()
+        count = 0
+        for slot in slots:
+            try:
+                if self.provision_slot_on_server(slot, server) is not None:
+                    count += 1
+            except Exception as exc:
+                logger.warning(
+                    "backfill slot %d on new server %s failed: %s",
+                    slot.id, server.name, exc,
+                )
+        if count:
+            logger.info(
+                "Backfill: server %s added to %d existing slot(s)",
+                server.name, count,
+            )
+        return count
+
     def delete_slot(self, slot: DeviceSlot) -> None:
         """Tear down every peer + link, then the slot itself."""
         peers = self.get_slot_peers(slot.id)

@@ -4,6 +4,25 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.7.9 — 2026-05-19
+
+### Added
+
+- **Device slots auto-extend when a new server is added.** Until this release, slots froze their region set at creation time — customers who already had a device couldn't get a peer on a freshly-added server without deleting and recreating their slot. Now any of the following events fan a peer for every existing slot onto the new server with the slot's shared keypair:
+  - Creating a server with `customer_visible=true`
+  - Flipping `customer_visible` from false to true on an existing server (the reverse flip is intentionally non-destructive: existing slot peers stay so currently-connected customers don't drop mid-session)
+  - First open of `/client-portal/devices` after any of the above (lazy-heal fallback for misses, e.g. server added before this release shipped)
+
+- **`SlotManager.provision_slot_on_server(slot, server)`** and **`SlotManager.heal_slot(slot)`** as the building blocks. Both are idempotent — calling on an already-provisioned slot is a no-op — and pool-exhaustion / node-down failures on one server don't block the others. New peers are inserted dormant (`enabled=False`) so the slot's currently-active region stays the only one accepting handshakes; the customer just sees the new region appear in their server picker.
+
+### Behaviour
+
+- New peers inherit the bandwidth / traffic / expiry caps from existing peers in the same slot, so a slot created on a paid tier doesn't get an uncapped peer when a region is added later.
+- Proxy servers (Hysteria2 / TUIC) are skipped — they don't fit the slot model.
+- Backfill is best-effort: a server with a full IP pool logs a warning and continues with the next slot, rather than aborting the rest of the fan-out.
+
+---
+
 ## v1.7.8 — 2026-05-19
 
 ### Fixed
