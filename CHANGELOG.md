@@ -4,6 +4,14 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.7.4 — 2026-05-19
+
+### Changed
+
+- **Default subnet for new servers bumped from `/22` to `/19`.** A `/19` gives 8190 usable hosts, enough room for thousands of slots fanning across multiple regions without exhausting the pool. Operators on the older `/22` or legacy `/24` defaults are not touched — this only sets the value for fresh server rows that don't override it. The same release bumps `Server.max_clients` default from `1000` to `8000` to match. The IP allocator added in 1.7.0 already handles arbitrary prefix lengths, so there's no schema change required.
+
+---
+
 ## v1.7.3 — 2026-05-19
 
 Hotfix release with three independently shippable fixes for the 1.7 series.

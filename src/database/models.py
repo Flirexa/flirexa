@@ -161,12 +161,13 @@ class Server(Base):
     public_key: Mapped[str] = mapped_column(String(64), nullable=False)
     private_key: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
 
-    # Network configuration. Default subnet is /22 (1022 usable IPs) instead
-    # of the historical /24 so a single server can host all peers in a
-    # device-slot deployment without IP exhaustion. Operators creating a
-    # server with the legacy /24 pool still work — this only changes the
-    # default for freshly-created rows that don't override it.
-    address_pool_ipv4: Mapped[str] = mapped_column(String(50), default="10.66.0.0/22")
+    # Network configuration. Default subnet is /19 (8190 usable IPs) so a
+    # single server can host thousands of peers in a device-slot deployment
+    # without IP exhaustion. Historical defaults (/24 with max_clients=250,
+    # then /22 with max_clients=1000) ran out of host space fast when one
+    # device is replicated across multiple regions. Operators on the older
+    # pool are untouched — this only sets the default for fresh rows.
+    address_pool_ipv4: Mapped[str] = mapped_column(String(50), default="10.66.0.0/19")
     address_pool_ipv6: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     dns: Mapped[str] = mapped_column(String(255), default="1.1.1.1,1.0.0.1")
 
@@ -185,9 +186,10 @@ class Server(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False, server_default="true"
     )
-    # 1000 fits comfortably inside a /22 (1022 usable). Operators on a /24
-    # who haven't bumped this still see their old configured ceiling.
-    max_clients: Mapped[int] = mapped_column(Integer, default=1000)
+    # 8000 fits comfortably inside a /19 (8190 usable). Operators on a
+    # smaller pool still see their own configured ceiling — this only
+    # affects freshly-created rows that don't override it.
+    max_clients: Mapped[int] = mapped_column(Integer, default=8000)
     max_bandwidth_mbps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Metadata
