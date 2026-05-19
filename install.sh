@@ -688,14 +688,20 @@ setup_python() {
     # Upgrade pip
     "$INSTALL_DIR/venv/bin/pip" install -q --upgrade pip 2>&1 | tail -1
 
-    # Install requirements
+    # Install requirements. Stream the full output to a log file — the
+    # previous `2>&1 | tail -5` swallowed the root cause (a wheel build
+    # error usually has its real `Error: …` line ~30 above the tail).
     log_info "  Installing Python packages (this may take a minute)..."
-    "$INSTALL_DIR/venv/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt" 2>&1 | tail -5 || {
-        log_warn "  Some packages failed, retrying..."
-        "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --no-build-isolation 2>&1 | tail -5 || {
+    local pip_log=/tmp/vpnmanager-pip-install.log
+    if ! "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" > "$pip_log" 2>&1; then
+        log_warn "  First pip pass failed, retrying with --no-build-isolation..."
+        if ! "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --no-build-isolation >> "$pip_log" 2>&1; then
+            log_error "Pip install failed. Last 40 lines:"
+            tail -40 "$pip_log" 2>&1 | sed 's/^/  /' || true
+            log_info "Full log preserved at: $pip_log"
             die "Failed to install Python requirements"
-        }
-    }
+        fi
+    fi
 
     # Verify critical imports
     local missing=()
@@ -1353,8 +1359,23 @@ start_services() {
     log_step_done
     log_step 8 "Starting services..."
 
-    # Start API
-    systemctl start vpnmanager-api
+    # Start API. set -e at the top of this script means a silent failure here
+    # aborts the whole install without any context — surface the real reason
+    # (journalctl tail + systemctl status) so the operator can fix it on the
+    # FIRST attempt instead of running the installer 3-4 times.
+    if ! systemctl start vpnmanager-api 2>/tmp/vpnmanager-api-start.err; then
+        log_error "Failed to start vpnmanager-api:"
+        cat /tmp/vpnmanager-api-start.err 2>/dev/null || true
+        log_error "── systemctl status (last 15 lines) ─────────────────"
+        systemctl status vpnmanager-api --no-pager -n 15 2>&1 | sed 's/^/  /' || true
+        log_error "── journalctl -u vpnmanager-api -n 30 ───────────────"
+        journalctl -u vpnmanager-api --no-pager -n 30 2>&1 | sed 's/^/  /' || true
+        log_error "─────────────────────────────────────────────────────"
+        log_info "Common causes: port 10086 already in use, alembic migration"
+        log_info "from a previous attempt left the DB in a mixed state, or one"
+        log_info "of the pip-installed packages didn't import cleanly."
+        die "vpnmanager-api failed to start (see diagnostics above)"
+    fi
     sleep 3
 
     # Check API health

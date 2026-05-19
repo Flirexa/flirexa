@@ -4,6 +4,21 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.6.36 — 2026-05-19
+
+Installer hardening release. The bootstrap and main `install.sh` now produce useful diagnostic output when something goes wrong, and the bootstrap auto-creates swap on memory-starved VPS images instead of dying silently to the OOM killer.
+
+### Fixed
+
+- **`systemctl start vpnmanager-api` failures now print the reason.** Previously `set -euo pipefail` at the top of the installer caused the script to abort on a failed service start without showing why — leaving the operator to re-run the whole installer 3-4 times hoping it would clear up. The installer now catches the failure and dumps the last 15 lines of `systemctl status vpnmanager-api` plus the last 30 lines of `journalctl -u vpnmanager-api`, then a one-line hint about common causes (port 10086 already bound, half-applied alembic migration from a previous attempt, broken Python import). Fail-on-first-try with a real error message instead of silent retries.
+- **Full pip-install log preserved on failure.** Wheel build errors (the `cryptography` / `psycopg2` / `lxml` family on stripped VPS images) almost always have the real `Error: …` line ~30 lines above the tail. The old `2>&1 | tail -5` swallowed that root cause. The full pip output now streams to `/tmp/vpnmanager-pip-install.log` and the installer prints `tail -40` on failure (plus the log path so operators can grab the whole thing).
+
+### Changed
+
+- **Bootstrap `install.sh` minimum memory raised to 1 GB (RAM + swap combined).** The old 512 MB floor lied: `pip install cryptography` peaks at ~700-800 MB during wheel compilation and OOM-killed pip on 512 MB images, leaving the installer to die on the second retry too. When `RAM + swap < 1024 MB`, the bootstrap now provisions a swap file at `/swapfile-vpnmanager` sized to bring the total to 1.25 GB, persists it via `/etc/fstab`, and continues. Cheap 512 MB VPS targets now install cleanly without manual swap setup.
+
+---
+
 ## v1.6.35 — 2026-05-19
 
 Follow-up to v1.6.34: the **Free tier** admin setting only had English strings, so non-English operators saw the i18n key name (`settings.freeTierToggle`) instead of a translated label.
