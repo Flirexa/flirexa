@@ -161,8 +161,12 @@ class Server(Base):
     public_key: Mapped[str] = mapped_column(String(64), nullable=False)
     private_key: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
 
-    # Network configuration
-    address_pool_ipv4: Mapped[str] = mapped_column(String(50), default="10.66.66.0/24")
+    # Network configuration. Default subnet is /22 (1022 usable IPs) instead
+    # of the historical /24 so a single server can host all peers in a
+    # device-slot deployment without IP exhaustion. Operators creating a
+    # server with the legacy /24 pool still work — this only changes the
+    # default for freshly-created rows that don't override it.
+    address_pool_ipv4: Mapped[str] = mapped_column(String(50), default="10.66.0.0/22")
     address_pool_ipv6: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     dns: Mapped[str] = mapped_column(String(255), default="1.1.1.1,1.0.0.1")
 
@@ -181,7 +185,9 @@ class Server(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False, server_default="true"
     )
-    max_clients: Mapped[int] = mapped_column(Integer, default=250)
+    # 1000 fits comfortably inside a /22 (1022 usable). Operators on a /24
+    # who haven't bumped this still see their old configured ceiling.
+    max_clients: Mapped[int] = mapped_column(Integer, default=1000)
     max_bandwidth_mbps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Metadata
@@ -368,8 +374,12 @@ class Client(Base):
         Integer, ForeignKey("servers.id"), nullable=False
     )
 
-    # WireGuard keys — NULL for proxy clients (no WG semantics for proxy)
-    public_key: Mapped[Optional[str]] = mapped_column(String(64), unique=True, nullable=True)
+    # WireGuard keys — NULL for proxy clients (no WG semantics for proxy).
+    # NOT marked unique on its own: device-slot machinery reuses the same
+    # public_key across server rows so the user can switch regions without
+    # rekeying. Per-server uniqueness is enforced by the composite index
+    # ``uq_clients_pubkey_server`` (see __table_args__).
+    public_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     private_key: Mapped[Optional[str]] = mapped_column(EncryptedText(), nullable=True)
     preshared_key: Mapped[Optional[str]] = mapped_column(EncryptedText(), nullable=True)
 
@@ -452,7 +462,11 @@ class Client(Base):
     __table_args__ = (
         UniqueConstraint("server_id", "name", name="uq_client_server_name"),
         UniqueConstraint("server_id", "ip_index", name="uq_client_server_ip"),
-        Index("ix_client_public_key", "public_key"),
+        # Per-server pubkey uniqueness. Created by alembic 037 as a partial
+        # unique index (WHERE public_key IS NOT NULL) so proxy clients with
+        # NULL pubkey don't fight each other. Declared here too so model
+        # introspection (init-db on a fresh box) sees the same shape.
+        Index("uq_clients_pubkey_server", "public_key", "server_id", unique=True),
         Index("ix_client_enabled", "enabled"),
         Index("ix_client_status", "status"),
         Index("ix_client_server_status", "server_id", "status"),

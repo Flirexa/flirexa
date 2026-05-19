@@ -14,6 +14,7 @@ export default {
   },
   nav: {
     dashboard: 'Dashboard',
+    devices: 'Geräte',
     plans: 'Tarife',
     payments: 'Zahlungen',
     corporate: 'Corp VPN',

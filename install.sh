@@ -1091,8 +1091,19 @@ PYEOF
         echo ""
         # Read from /dev/tty so the prompt works even under `curl … | bash`,
         # where stdin is the script pipe and a plain `read` fails immediately.
-        if [[ -r /dev/tty ]]; then
-            read -r -p "  Activation Code (or N for FREE): " activation_code < /dev/tty || activation_code=""
+        #
+        # `-r /dev/tty` is true on every box (the devnode exists 666), but
+        # actually open(2)'ing it fails with ENXIO when the process has no
+        # controlling terminal — which is exactly the case under
+        # `curl … | sudo bash` over SSH without a pty. Bash prints
+        # "install.sh: line NNNN: /dev/tty: No such device or address" to
+        # stderr in that case, which guests reasonably mistake for a fatal
+        # error and abort the install (4 retry pattern we saw in the logs).
+        # Probe with `exec 9<` so the failure is silent, and only prompt
+        # if the fd actually opened.
+        if exec 9</dev/tty 2>/dev/null; then
+            read -r -p "  Activation Code (or N for FREE): " activation_code <&9 || activation_code=""
+            exec 9<&- || true
         else
             log_info "  No TTY available — installing in FREE tier"
             activation_code=""

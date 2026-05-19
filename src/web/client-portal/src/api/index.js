@@ -77,6 +77,20 @@ export const portalApi = {
   deleteDevice: (clientId) => api.delete(`/client-portal/wireguard/clients/${clientId}`),
   getServers: () => api.get('/client-portal/servers'),
 
+  // ── Device slots (multi-server toggle) ─────────────────────────────
+  // Each slot = one device with peers on every customer-visible server.
+  // Switching the active server flips enabled flags server-side without
+  // rotating keys, so the user can roam between regions cleanly.
+  listSlots: () => api.get('/client-portal/devices'),
+  createSlot: (data) => api.post('/client-portal/devices', data || {}),
+  switchSlotServer: (slotId, serverId) =>
+    api.post(`/client-portal/devices/${slotId}/switch-server`, { server_id: serverId }),
+  renameSlot: (slotId, label) =>
+    api.patch(`/client-portal/devices/${slotId}`, { label }),
+  deleteSlot: (slotId) => api.delete(`/client-portal/devices/${slotId}`),
+  getSlotServerConfig: (slotId, serverId) =>
+    api.get(`/client-portal/devices/${slotId}/config/${serverId}`),
+
   // Support
   getSupportMessages: () => api.get('/client-portal/support/messages'),
   sendSupportMessage: (data) => api.post('/client-portal/support/send', data),

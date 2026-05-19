@@ -14,6 +14,7 @@ export default {
   },
   nav: {
     dashboard: 'Tableau de bord',
+    devices: 'Appareils',
     plans: 'Forfaits',
     payments: 'Paiements',
     support: 'Support',

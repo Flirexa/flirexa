@@ -43,6 +43,12 @@ const routes = [
     component: () => import('../views/CorporateVPN.vue'),
     meta: { requiresAuth: true }
   },
+  {
+    path: '/devices',
+    name: 'Devices',
+    component: () => import('../views/Devices.vue'),
+    meta: { requiresAuth: true }
+  },
 ]
 
 const router = createRouter({

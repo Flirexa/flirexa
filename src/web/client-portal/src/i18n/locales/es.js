@@ -14,6 +14,7 @@ export default {
   },
   nav: {
     dashboard: 'Panel',
+    devices: 'Dispositivos',
     plans: 'Planes',
     payments: 'Pagos',
     support: 'Soporte',

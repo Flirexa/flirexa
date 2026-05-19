@@ -4,6 +4,30 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.7.1 — 2026-05-19
+
+Two themes in this release: a new multi-server "device slot" model that lets one VPN device roam between regions, and a fix for an installer false-alarm that was scaring guests off mid-install.
+
+### Added
+
+- **Device slots (multi-server toggle).** A device slot owns one shared keypair plus a peer record on every customer-visible server. The client portal shows one device card per slot with a server picker; flipping it enables the peer on the new region and disables the previous one, server-side. The user's VPN app keeps using the same config — no re-import, no rekey. Subscription `max_devices` bounds slot count, not per-region peers, so a 1-device plan can roam between US/EU/Asia/AU/CA without "using" extra slots. Anti-abuse is built in: leaking the config bundle doesn't grant extra access because only the active region's peer accepts handshakes.
+  - New table `device_slots`, new FK `client_user_clients.slot_id` (nullable — legacy single-server devices keep working unchanged).
+  - New endpoints: `GET/POST/PATCH/DELETE /client-portal/devices`, `POST /client-portal/devices/{id}/switch-server`, `GET /client-portal/devices/{id}/config/{server_id}`.
+  - 30-second cooldown between regional switches per slot (env `SLOT_SWITCH_COOLDOWN_SECONDS`).
+  - New client portal page at `/devices` — server grid, inline rename, per-region download buttons, add/remove device.
+- **`/22` is the new default subnet for newly-created servers.** The historic `/24` default with `max_clients=250` ran out of host space quickly once you fan a slot across 5 regions. New default: `address_pool_ipv4=10.66.0.0/22`, `max_clients=1000`. Existing servers untouched — only fresh inserts get the new default.
+
+### Fixed
+
+- **Installer `/dev/tty: No such device or address` warning under `curl … | bash`.** When no controlling terminal is attached (the typical SSH-over-pipe install), bash printed `install.sh: line 1095: /dev/tty: No such device or address` to stderr at the License Activation prompt and silently fell through to FREE tier. The error was harmless — the install completed — but guests reasonably mistook the bash error message for a fatal failure and re-ran the installer 4 times in a row. Now the script opens `/dev/tty` via `exec 9<…` with stderr suppressed, so the only thing the no-pty path emits is a clean `No TTY available — installing in FREE tier` log line.
+- **IP allocator now handles arbitrary CIDR prefixes.** The previous allocator hard-coded the last octet (`{base}.{ip_index}`) and only scanned `2..255`, silently capping any pool larger than `/24`. Replaced with `ipaddress.IPv4Network`-based math that walks the actual host range, so a `/22` cleanly yields offsets 2 through 1021.
+
+### Schema
+
+- `Client.public_key` is no longer standalone-unique. Replaced with a composite partial unique on `(public_key, server_id)` — required for slot-shared keys to live on multiple servers. Proxy clients (NULL public_key) are unaffected by the partial predicate.
+
+---
+
 ## v1.6.37 — 2026-05-19
 
 Client-portal connection indicator now reflects actual VPN state.

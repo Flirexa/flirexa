@@ -157,6 +157,7 @@ function toggleTheme() {
 const navItems = computed(() => {
   const items = [
     { path: '/',          icon: 'dashboard', labelKey: 'nav.dashboard' },
+    { path: '/devices',   icon: 'phone',     labelKey: 'nav.devices' },
     { path: '/plans',     icon: 'tag',       labelKey: 'nav.plans' },
     { path: '/payments',  icon: 'card',      labelKey: 'nav.payments' },
   ]

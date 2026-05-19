@@ -450,10 +450,70 @@ class ClientUserClients(Base):
     id = Column(Integer, primary_key=True)
     client_user_id = Column(Integer, ForeignKey("client_users.id"), nullable=False)
     client_id = Column(Integer, ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    # Multi-server device slot. NULL = legacy single-server device (created
+    # before the slot system). NOT NULL = part of a slot that has one peer
+    # on every customer-visible server. Set ondelete=CASCADE on the FK so
+    # removing the slot cleans up its links automatically.
+    slot_id = Column(Integer, ForeignKey("device_slots.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     def __repr__(self):
-        return f"<ClientUserClients user={self.client_user_id} client={self.client_id}>"
+        return f"<ClientUserClients user={self.client_user_id} client={self.client_id} slot={self.slot_id}>"
+
+
+class DeviceSlot(Base):
+    """One customer device — owns one shared keypair and one Client row
+    on every customer-visible server. Exactly one of those Client rows
+    has ``enabled=True`` at a time; the portal toggle flips which one.
+
+    A subscription with ``max_devices=N`` is allowed N slots. Switching
+    regions does NOT consume an extra slot; it's a server-side enable/
+    disable flip applied through the node agent without touching the
+    interface.
+    """
+    __tablename__ = "device_slots"
+
+    id = Column(Integer, primary_key=True)
+    client_user_id = Column(
+        Integer,
+        ForeignKey("client_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    label = Column(String(64), nullable=False, default="Device", server_default="Device")
+
+    # Shared WG keypair. The same public_key is used on every server's
+    # peer record so the user can rotate regions without re-keying.
+    # private_key is stored encrypted by the existing EncryptedText
+    # column on Client — here we just hold the raw text and let the
+    # admin API render it into configs.
+    public_key = Column(String(64), nullable=False)
+    private_key = Column(Text, nullable=False)
+    preshared_key = Column(Text, nullable=True)
+
+    # Which server is currently accepting handshakes for this slot. The
+    # portal /devices/{id}/switch-server endpoint moves this pointer and
+    # flips ``enabled`` on the corresponding Client rows in one tx.
+    active_server_id = Column(
+        Integer,
+        ForeignKey("servers.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Cooldown anchor — toggle endpoint rejects flips closer than
+    # ``SLOT_SWITCH_COOLDOWN_SECONDS`` (default 30s) apart. Without this
+    # someone could pound the toggle and DoS the node agents.
+    last_switched_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def __repr__(self):
+        return f"<DeviceSlot id={self.id} user={self.client_user_id} active_server={self.active_server_id}>"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
