@@ -293,8 +293,14 @@ const downloadConfig = async (slot, srv) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${slot.label}-${srv.server_name}.conf`
-      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    // AmneziaWG / WireGuard mobile imports the config as a tunnel whose
+    // name maps to a Linux TUN interface, capped at 15 characters. A long
+    // "{label}-{server}.conf" (e.g. "phone-TexasUSA-AWG-Residential.conf")
+    // gets rejected with "invalid profile" on import. Use just the server
+    // identifier, truncated to 15 chars, dropping the label prefix.
+    const rawName = (srv.server_display_name || srv.server_name || 'vpn')
+      .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    a.download = `${rawName.slice(0, 15)}.conf`
     document.body.appendChild(a)
     a.click()
     a.remove()

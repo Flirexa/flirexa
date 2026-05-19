@@ -4,6 +4,14 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.7.7 — 2026-05-19
+
+### Fixed
+
+- **AmneziaWG / WireGuard mobile rejected long device-slot config filenames.** The client portal's per-region download wrote files as `{slot.label}-{server.name}.conf` (e.g. `phone-TexasUSA-AWG-Residential.conf`, 29 chars). On import, the mobile app maps the filename to a Linux TUN interface name, which is capped at 15 characters by the kernel — anything longer fails with "invalid profile". The download filename now uses just the server's display name, sanitised and truncated to 15 chars, dropping the label prefix entirely. The slot label is still shown in the portal UI; only the on-disk filename was the problem.
+
+---
+
 ## v1.7.6 — 2026-05-19
 
 Three fixes for the device-slot system caught by an operator testing multi-server toggling against a production panel.
