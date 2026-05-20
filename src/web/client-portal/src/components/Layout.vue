@@ -132,7 +132,16 @@ const featureFlags = ref({ corp_networks: true })
 watch(() => route.path, () => { menuOpen.value = false })
 function onResize() { if (window.innerWidth > 860) menuOpen.value = false }
 
-const brandName = computed(() => window.__branding?.branding_app_name || 'Flirexa')
+// Brand name on customer-facing surfaces. Prefer the operator's
+// customer-specific brand name (the new ``branding_customer_app_name``
+// field), then fall back to the legacy ``branding_app_name``, then to
+// a neutral string so we never leak the platform default
+// "Flirexa" / "Flirexa" to end customers.
+const brandName = computed(() => (
+  window.__branding?.branding_customer_app_name
+  || window.__branding?.branding_app_name
+  || 'VPN'
+))
 const brandLogo = computed(() => {
   const url = window.__branding?.branding_logo_url
   if (!url) return bundledLogo

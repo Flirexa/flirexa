@@ -71,7 +71,11 @@ onMounted(async () => {
     const baseUrl = window.location.port === '10090' ? `${window.location.protocol}//${window.location.hostname}:10086` : ''
     const { data } = await axios.get(`${baseUrl}/api/v1/public/branding`)
     window.__branding = data
-    if (data.branding_app_name) document.title = data.branding_app_name
+    // Customer-facing tab title — prefer the dedicated customer name,
+    // fall back to the admin-side app name so legacy installs that
+    // haven't filled out the new field keep their existing label.
+    const customerTitle = data.branding_customer_app_name || data.branding_app_name
+    if (customerTitle) document.title = customerTitle
     if (data.branding_favicon_url) {
       let link = document.querySelector("link[rel~='icon']")
       if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link) }

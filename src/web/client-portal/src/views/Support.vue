@@ -201,15 +201,20 @@ const replyError = ref(null)
 const search = ref('')
 const openFaq = ref(0)
 
-// Branding-configurable links. Defaults point at the canonical flirexa.biz
-// surfaces; admins can override via the public branding endpoint.
+// Branding-configurable links. When the operator hasn't filled in their
+// own support channels we return empty strings instead of the platform
+// default — leaking "flirexa.biz" / "support@flirexa.biz" to the operator's
+// customers is the kind of brand-leak that defeats white-labelling.
+// Empty values cause the template to hide the link/email row entirely
+// (via v-if on .value).
 const supportEmail = computed(() =>
-  window.__branding?.branding_support_email || 'support@flirexa.biz')
-const emailHref = computed(() => `mailto:${supportEmail.value}`)
+  window.__branding?.branding_support_email || '')
+const emailHref = computed(() =>
+  supportEmail.value ? `mailto:${supportEmail.value}` : '')
 const docsUrl = computed(() =>
-  window.__branding?.branding_docs_url || 'https://flirexa.biz')
+  window.__branding?.branding_docs_url || '')
 const statusUrl = computed(() =>
-  window.__branding?.branding_status_url || 'https://flirexa.biz')
+  window.__branding?.branding_status_url || '')
 
 const FAQS = computed(() => [
   { q: t('support.faq1.q'), a: t('support.faq1.a') },

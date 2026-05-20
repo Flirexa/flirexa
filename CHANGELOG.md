@@ -4,6 +4,20 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.2 — 2026-05-20
+
+### Added
+
+- **`branding_customer_app_name` field — separate admin / customer-facing brand names.** Operators can now keep their admin panel labelled with the platform name (e.g. "Flirexa") while customers see only the operator's own consumer brand (e.g. "Acme VPN", "Acme VPN"). The new field appears in Settings → Branding with placeholder "Acme VPN" and a help hint. Falls back through customer name → admin app name → "VPN" so unfilled installs keep their old display.
+
+### Changed
+
+- **Client portal title / iOS app meta / PWA manifest now reflect customer brand at serve time.** The portal backend reads the branding config when handing out `index.html` and `manifest.json`, rewriting the `<title>`, `apple-mobile-web-app-title` meta, and the PWA `name` / `short_name` fields to the customer-facing brand. Previously these were baked into the static build at "Flirexa" and could only be patched by document.title-after-mount JavaScript (which caught the tab label but not the social-share preview or the iOS home-screen install name).
+- **Branding fallbacks across the portal frontend dropped "Flirexa" defaults.** Header, Login, Register screens, and Support page now fall back to a neutral string instead of leaking the platform default to operator customers. Support page email / docs / status URLs default to empty so they hide entirely when the operator hasn't filled in their own — no more "support@flirexa.biz" on third-party portals.
+- **Email-template fallbacks** (welcome / verification / payment / expiry) follow the same chain: customer name → admin app name → "VPN".
+
+---
+
 ## v1.9.1 — 2026-05-20
 
 ### Fixed

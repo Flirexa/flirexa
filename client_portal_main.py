@@ -16,7 +16,7 @@ sys.path.insert(0, str(_root / "src"))
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -281,15 +281,85 @@ async def serve_frontend(request: Request, full_path: str):
     if full_path.startswith("assets/"):
         return JSONResponse({"detail": "Not Found"}, status_code=404)
 
+    # manifest.json — render dynamically with customer-facing brand name
+    # so PWA install + iOS "Add to Home Screen" show the operator's brand,
+    # not the platform default. Static manifest is still on disk as a
+    # template; we just rewrite name/short_name fields at serve time.
+    if full_path == "manifest.json":
+        manifest_file = STATIC_DIR / "manifest.json"
+        if manifest_file.is_file():
+            try:
+                import json as _json
+                from src.modules.branding import get_all_branding
+                from src.database.connection import SessionLocal
+                data = _json.loads(manifest_file.read_text(encoding="utf-8"))
+                db = SessionLocal()
+                try:
+                    brand = get_all_branding(db)
+                finally:
+                    db.close()
+                customer_name = (
+                    (brand.get("branding_customer_app_name") or "").strip()
+                    or (brand.get("branding_app_name") or "").strip()
+                    or "VPN"
+                )
+                data["name"] = customer_name
+                data["short_name"] = customer_name
+                return JSONResponse(data)
+            except Exception:
+                # Fall through to the static file on any error
+                pass
+
     # Try to serve static file directly (icons, manifest, sw.js)
     static_file = STATIC_DIR / full_path
     if static_file.is_file():
         return FileResponse(static_file)
 
-    # Serve index.html for all other routes (SPA)
+    # Serve index.html for all other routes (SPA). Inject the operator's
+    # customer-facing brand name into <title> and the apple-mobile-web-app
+    # meta so the tab label, PWA short name, and social-share preview
+    # don't show the platform default "Flirexa" — customers
+    # should only ever see the operator's brand.
     index_file = STATIC_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(index_file, headers=no_cache_headers)
+        try:
+            from src.modules.branding import get_all_branding
+            from src.database.connection import SessionLocal
+            html = index_file.read_text(encoding="utf-8")
+            db = SessionLocal()
+            try:
+                brand = get_all_branding(db)
+            finally:
+                db.close()
+            customer_name = (
+                (brand.get("branding_customer_app_name") or "").strip()
+                or (brand.get("branding_app_name") or "").strip()
+                or "VPN"
+            )
+            # Escape angle brackets defensively — operator-supplied string
+            # going into raw HTML attribute / text content.
+            safe = (
+                customer_name
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace('"', "&quot;")
+            )
+            html = html.replace(
+                "<title>Flirexa</title>",
+                f"<title>{safe}</title>",
+            )
+            html = html.replace(
+                'content="Flirexa"',
+                f'content="{safe}"',
+            )
+            return HTMLResponse(html, headers=no_cache_headers)
+        except Exception as _br_err:
+            # Branding lookup failed (e.g. DB blip during cold start) —
+            # falling back to the unbranded file is still better than 500.
+            from loguru import logger as _log
+            _log.warning("brand injection failed for index.html: {}", _br_err)
+            return FileResponse(index_file, headers=no_cache_headers)
     else:
         return JSONResponse(
             {"detail": "Frontend not built. Run: cd src/web/client-portal && npm run build"},

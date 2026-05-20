@@ -887,15 +887,23 @@
           <div class="col-md-6">
             <label class="form-label">{{ $t('settings.appName') }}</label>
             <input type="text" class="form-control" v-model="brand.app_name" placeholder="Flirexa" />
+            <div class="form-text small">{{ $t('settings.appNameHint') || 'Shown in the admin panel (this page). Operator-facing.' }}</div>
           </div>
+          <div class="col-md-6">
+            <label class="form-label">{{ $t('settings.customerAppName') || 'Customer-facing brand name' }}</label>
+            <input type="text" class="form-control" v-model="brand.customer_app_name" placeholder="Your customer-facing brand" />
+            <div class="form-text small">{{ $t('settings.customerAppNameHint') || "What customers see in the client portal — page title, header, PWA install name. Leave empty to use App name above." }}</div>
+          </div>
+        </div>
+        <div class="row g-3 mb-3">
           <div class="col-md-6">
             <label class="form-label">{{ $t('settings.companyName') }}</label>
             <input type="text" class="form-control" v-model="brand.company_name" placeholder="Your Company" />
           </div>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">{{ $t('settings.loginPageTitle') }}</label>
-          <input type="text" class="form-control" v-model="brand.login_title" placeholder="Admin Panel" />
+          <div class="col-md-6">
+            <label class="form-label">{{ $t('settings.loginPageTitle') }}</label>
+            <input type="text" class="form-control" v-model="brand.login_title" placeholder="Admin Panel" />
+          </div>
         </div>
         <div class="row g-3 mb-3">
           <div class="col-md-6">
@@ -1106,6 +1114,7 @@ export default {
       // Branding
       brand: {
         app_name: '',
+        customer_app_name: '',
         company_name: '',
         logo_url: '',
         favicon_url: '',
@@ -1697,6 +1706,7 @@ export default {
       try {
         var r = await systemApi.getBranding()
         this.brand.app_name = r.data.branding_app_name || ''
+        this.brand.customer_app_name = r.data.branding_customer_app_name || ''
         this.brand.company_name = r.data.branding_company_name || ''
         this.brand.logo_url = r.data.branding_logo_url || ''
         this.brand.favicon_url = r.data.branding_favicon_url || ''
@@ -1712,6 +1722,7 @@ export default {
       try {
         await systemApi.updateBranding({
           branding_app_name: this.brand.app_name,
+          branding_customer_app_name: this.brand.customer_app_name,
           branding_company_name: this.brand.company_name,
           branding_login_title: this.brand.login_title,
           branding_support_email: this.brand.support_email,

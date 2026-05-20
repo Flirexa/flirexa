@@ -173,7 +173,11 @@ const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 
-const brandName = computed(() => window.__branding?.branding_app_name || 'Flirexa VPN')
+const brandName = computed(() => (
+  window.__branding?.branding_customer_app_name
+  || window.__branding?.branding_app_name
+  || 'VPN'
+))
 const brandLogo = computed(() => {
   const url = window.__branding?.branding_logo_url
   if (!url) return bundledLogo
