@@ -129,7 +129,7 @@
           <span class="fx-stat-icon"><FxIcon name="phone" :size="14" /></span>
         </div>
         <div class="fx-stat-value">
-          <span>{{ devices.length }}</span>
+          <span>{{ deviceCount }}</span>
           <span class="unit">/ {{ subscription.max_devices || 1 }}</span>
         </div>
         <div class="fx-stat-spark" style="color:var(--accent)">
@@ -177,27 +177,24 @@
               </div>
             </div>
           </div>
-          <!-- Soft-downgrade banner: shown when user has more devices than the
+          <!-- Soft-downgrade card: shown when user has more devices than the
                new plan supports. Existing devices keep working until renewal —
-               at that point the oldest excess get auto-pruned, keeping the N
-               most recently-used. The banner gives them a heads-up so they
-               can choose which device to keep instead of letting us pick. -->
-          <div v-if="subscription.over_device_limit"
-               class="fx-card" style="padding:12px 14px; background:var(--warning-soft); border-color:color-mix(in oklab, var(--warning) 30%, var(--border)); margin-bottom:14px">
-            <div style="display:flex; gap:10px; align-items:flex-start; font-size:13px">
-              <FxIcon name="warning" :size="16" style="color:var(--warning); flex-shrink:0; margin-top:2px" />
-              <div>
-                <strong>
-                  {{ $t('dash.overDeviceLimit', { used: subscription.devices_used, max: subscription.max_devices }) ||
-                    `You have ${subscription.devices_used} devices but your current plan supports ${subscription.max_devices}.` }}
-                </strong>
-                <div style="margin-top:4px; color:var(--text-2)">
-                  {{ $t('dash.overDeviceLimitHint') ||
-                    'All devices will keep working until renewal. To pick which device to keep, remove the extras yourself before the next billing date — otherwise the oldest will be removed automatically.' }}
-                </div>
-                <a href="#" @click.prevent="showUpgradeModal = true" style="color:var(--accent); margin-top:6px; display:inline-block">
-                  {{ $t('dash.upgradePlan') }} →
-                </a>
+               at that point the oldest excess get auto-pruned. -->
+          <div v-if="subscription.over_device_limit" class="fx-overlimit-card">
+            <div class="fx-overlimit-icon">
+              <FxIcon name="warning" :size="18" />
+            </div>
+            <div class="fx-overlimit-body">
+              <div class="fx-overlimit-title">{{ overLimitTitle }}</div>
+              <p class="fx-overlimit-hint">{{ overLimitHint }}</p>
+              <div class="fx-overlimit-actions">
+                <button type="button" class="fx-btn fx-btn-primary fx-btn-sm" @click="showUpgradeModal = true">
+                  <FxIcon name="trafficUp" :size="13" />
+                  {{ $t('dash.overDeviceLimitCta') }}
+                </button>
+                <router-link to="/devices" class="fx-btn fx-btn-ghost fx-btn-sm">
+                  {{ $t('dash.manageDevices') }}
+                </router-link>
               </div>
             </div>
           </div>
@@ -318,7 +315,7 @@
           <div class="fx-devices-head">
             <h3 class="fx-section-title">
               {{ $t('dash.myDevices') }}
-              <span style="color:var(--text-3); font-weight:500; margin-left:6px">{{ devices.length }} / {{ subscription.max_devices || 1 }}</span>
+              <span style="color:var(--text-3); font-weight:500; margin-left:6px">{{ deviceCount }} / {{ subscription.max_devices || 1 }}</span>
             </h3>
             <router-link to="/devices" class="fx-btn fx-btn-ghost fx-btn-sm">
               <FxIcon name="plus" :size="13" /> {{ $t('common.add') }}
@@ -332,7 +329,7 @@
             </div>
           </div>
           <div v-else>
-            <div v-for="device in devices" :key="device.id" class="fx-device-row">
+            <div v-for="device in displayDevices" :key="device.id" class="fx-device-row">
               <span class="fx-device-icon"><FxIcon :name="devicePlatformIcon(device)" :size="16" /></span>
               <div class="fx-device-info">
                 <div class="fx-device-name">
@@ -358,7 +355,7 @@
                 <button class="fx-icon-btn-sm" title="QR" @click="showDeviceConfig(device)">
                   <FxIcon name="qr" :size="14" />
                 </button>
-                <button class="fx-icon-btn-sm danger" :title="$t('dash.deleteDevice')" @click="deleteDevice(device)">
+                <button class="fx-icon-btn-sm danger" :title="$t('dash.deleteDevice')" @click="askDeleteDevice(device)">
                   <FxIcon name="trash" :size="14" />
                 </button>
               </div>
@@ -477,6 +474,35 @@
       </div>
     </transition>
 
+    <!-- Confirm delete (password-gated to prevent accidental removal) -->
+    <transition name="fx-modal-fade">
+      <div v-if="showDeleteConfirm" class="fx-modal-overlay" @click.self="cancelDeleteConfirm">
+        <div class="fx-modal-box">
+          <div class="fx-modal-header">
+            <h3>{{ $t('dash.deletePasswordTitle') }}</h3>
+            <button class="fx-icon-btn-sm" @click="cancelDeleteConfirm"><FxIcon name="close" :size="14" /></button>
+          </div>
+          <div class="fx-modal-body">
+            <p style="font-size:13px; color:var(--text-2); margin:0 0 12px">
+              {{ $t('dash.deletePasswordHint', { name: deleteTargetName }) }}
+            </p>
+            <label class="fx-label">{{ $t('dash.deletePasswordPlaceholder') }}</label>
+            <input class="fx-input" type="password" v-model="deletePassword"
+                   :placeholder="$t('dash.deletePasswordPlaceholder')"
+                   @keyup.enter="confirmDeleteWithPassword" />
+            <div v-if="deleteError" style="color:var(--danger); font-size:12px; margin-top:10px">{{ deleteError }}</div>
+          </div>
+          <div class="fx-modal-footer">
+            <button class="fx-btn fx-btn-ghost" @click="cancelDeleteConfirm">{{ $t('common.cancel') }}</button>
+            <button class="fx-btn fx-btn-danger" @click="confirmDeleteWithPassword"
+                    :disabled="deleting || !deletePassword">
+              {{ deleting ? $t('common.loading') : $t('dash.deletePasswordSubmit') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- Add device -->
     <transition name="fx-modal-fade">
       <div v-if="showAddDeviceModal" class="fx-modal-overlay" @click.self="showAddDeviceModal = false">
@@ -555,6 +581,15 @@ const selectedServerId = ref(null)
 const subLinkToken = ref(null)
 const subLinkCopied = ref(false)
 const refreshing = ref(false)
+
+// Password-gated device delete — prevents an accidental tap from wiping
+// a working VPN config. The admin retains a no-prompt delete path from
+// the panel for legitimate cleanup.
+const showDeleteConfirm = ref(false)
+const deleteTarget = ref(null)
+const deletePassword = ref('')
+const deleteError = ref(null)
+const deleting = ref(false)
 
 // Traffic chart state — backed by GET /client-portal/dashboard/traffic-series
 const trafficRange = ref('14d')
@@ -672,7 +707,7 @@ const statusSub = computed(() => {
     parts.push(t('dash.statusBannerDaysLeft', { days: subscription.value.days_remaining }))
   }
   parts.push(t('dash.statusBannerDevicesUsed', {
-    used: devices.value.length,
+    used: deviceCount.value,
     max: subscription.value.max_devices || 1,
   }))
   return parts.join(' · ')
@@ -692,13 +727,53 @@ const bandwidthLimit = computed(() => subscription.value.bandwidth_limit_mbps
   ? `${subscription.value.bandwidth_limit_mbps} Mbps`
   : t('dash.unlimited'))
 
+// Device count for headers/stat cards — uses the subscription's
+// slot-aware count when available so a multi-region slot is one device,
+// not N peers. Falls back to the peer-array length while the
+// subscription payload is still loading.
+const deviceCount = computed(() => {
+  if (subscription.value.devices_used != null) return subscription.value.devices_used
+  return devices.value.length
+})
+
+// Group the peer list returned by /wireguard/clients down to one row per
+// device — for slot-backed devices we collapse the regional peers into
+// the active one (preferring an online peer, then any enabled one).
+const displayDevices = computed(() => {
+  const bySlot = new Map()
+  const standalone = []
+  for (const d of devices.value || []) {
+    const slotId = d.slot_id ?? null
+    if (slotId == null) { standalone.push(d); continue }
+    const cur = bySlot.get(slotId)
+    if (!cur) { bySlot.set(slotId, d); continue }
+    // Prefer the peer the user is actively connected through; otherwise
+    // any enabled peer; otherwise keep what we already have.
+    const better = (d.online && !cur.online)
+      || (d.enabled && !cur.enabled)
+    if (better) bySlot.set(slotId, d)
+  }
+  return [...bySlot.values(), ...standalone]
+})
+
 const devicesUsageHint = computed(() => {
-  const used = devices.value.length
+  const used = deviceCount.value
   const max = subscription.value.max_devices || 1
   if (used === 0) return t('dash.devicesNoneConnected')
   if (used >= max) return t('dash.devicesAllUsed')
   return t('dash.devicesAvailable', { count: max - used })
 })
+
+const overLimitTitle = computed(() => t('dash.overDeviceLimit', {
+  used: subscription.value.devices_used ?? 0,
+  max:  subscription.value.max_devices ?? 1,
+}))
+const overLimitHint = computed(() => t('dash.overDeviceLimitHint', {
+  used: subscription.value.devices_used ?? 0,
+  max:  subscription.value.max_devices ?? 1,
+}))
+
+const deleteTargetName = computed(() => deleteTarget.value?.name || '')
 
 const subscriptionStartedHint = computed(() => {
   if (subscription.value.created_at) {
@@ -907,14 +982,61 @@ const createDevice = async () => {
     creatingDevice.value = false
   }
 }
-const deleteDevice = async (device) => {
-  if (!confirm(t('dash.deleteDeviceConfirm', { name: device.name }))) return
+const askDeleteDevice = (device) => {
+  deleteTarget.value = device
+  deletePassword.value = ''
+  deleteError.value = null
+  showDeleteConfirm.value = true
+}
+const cancelDeleteConfirm = () => {
+  if (deleting.value) return
+  showDeleteConfirm.value = false
+  deleteTarget.value = null
+  deletePassword.value = ''
+  deleteError.value = null
+}
+const confirmDeleteWithPassword = async () => {
+  if (!deleteTarget.value || !deletePassword.value || deleting.value) return
+  deleting.value = true
+  deleteError.value = null
   try {
-    await portalApi.deleteDevice(device.id)
+    // Verify password by replaying the login flow. Stateless JWT means a
+    // fresh access token from this call is harmless — we just discard it.
+    // Reusing /auth/login keeps password-hash comparison in one place
+    // instead of adding a one-off verify endpoint.
+    let userEmail = ''
+    try {
+      const u = JSON.parse(localStorage.getItem('client_user') || '{}')
+      userEmail = u.email || ''
+    } catch { /* ignore */ }
+    if (!userEmail) {
+      deleteError.value = t('common.error')
+      deleting.value = false
+      return
+    }
+    try {
+      await portalApi.login({ email: userEmail, password: deletePassword.value })
+    } catch (verifyErr) {
+      if (verifyErr.response?.status === 400 || verifyErr.response?.status === 401) {
+        deleteError.value = t('dash.deletePasswordWrong')
+        deleting.value = false
+        return
+      }
+      // Unknown error path — fall through, let real delete error speak.
+    }
+    await portalApi.deleteDevice(deleteTarget.value.id)
     showToast(t('dash.deviceDeleted'))
+    showDeleteConfirm.value = false
+    deleteTarget.value = null
+    deletePassword.value = ''
     await loadDevices()
+    await loadData()
   } catch (error) {
-    showToast(t('common.error') + ': ' + (error.response?.data?.detail || error.message), 'error')
+    deleteError.value = (typeof error.response?.data?.detail === 'string'
+      ? error.response.data.detail
+      : error.message) || t('common.error')
+  } finally {
+    deleting.value = false
   }
 }
 const cancelSubscription = async () => {
@@ -1005,4 +1127,53 @@ onMounted(() => {
 .fx-toast-fade-leave-to { opacity: 0; transform: translateX(20px); }
 .fx-modal-fade-enter-active, .fx-modal-fade-leave-active { transition: opacity .2s ease; }
 .fx-modal-fade-enter-from, .fx-modal-fade-leave-to { opacity: 0; }
+
+/* Over-limit card — matches the portal's fx-card aesthetic: rounded
+   corners, soft warning tint, accent border-left strip, icon chip on
+   the side. Replaces the older bootstrap-warning look that didn't
+   sit right with the rest of the dashboard. */
+.fx-overlimit-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border: 1px solid color-mix(in oklab, var(--warning) 28%, var(--border));
+  border-left: 3px solid var(--warning);
+  border-radius: var(--r-md, 10px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--warning) 10%, var(--bg-card, var(--bg-2))) 0%,
+    var(--bg-card, var(--bg-2)) 100%
+  );
+}
+.fx-overlimit-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+.fx-overlimit-body { flex: 1; min-width: 0; }
+.fx-overlimit-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.fx-overlimit-hint {
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+.fx-overlimit-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 </style>

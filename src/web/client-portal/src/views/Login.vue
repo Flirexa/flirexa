@@ -9,7 +9,9 @@
       <!-- Reset password (token in query) -->
       <template v-if="showReset">
         <div class="fx-login-brand">
-          <div class="fx-login-logo"><img :src="brandLogo" alt="" /></div>
+          <div class="fx-login-logo" :class="{ 'fx-login-logo--bare': isCustomLogo }">
+            <img :src="brandLogo" alt="" />
+          </div>
           <h1 class="fx-login-title">{{ $t('auth.resetPassword') }}</h1>
           <p class="fx-login-sub">{{ $t('auth.resetPasswordSub') }}</p>
         </div>
@@ -54,7 +56,9 @@
       <!-- Forgot password -->
       <template v-else-if="showForgot">
         <div class="fx-login-brand">
-          <div class="fx-login-logo"><img :src="brandLogo" alt="" /></div>
+          <div class="fx-login-logo" :class="{ 'fx-login-logo--bare': isCustomLogo }">
+            <img :src="brandLogo" alt="" />
+          </div>
           <h1 class="fx-login-title">{{ $t('auth.resetPassword') }}</h1>
           <p class="fx-login-sub">{{ $t('auth.forgotPasswordSub') }}</p>
         </div>
@@ -92,7 +96,9 @@
       <!-- Sign in -->
       <template v-else>
         <div class="fx-login-brand">
-          <div class="fx-login-logo"><img :src="brandLogo" alt="" /></div>
+          <div class="fx-login-logo" :class="{ 'fx-login-logo--bare': isCustomLogo }">
+            <img :src="brandLogo" alt="" />
+          </div>
           <h1 class="fx-login-title">{{ brandName }}</h1>
           <p class="fx-login-sub">{{ $t('auth.signInSub') }}</p>
         </div>
@@ -182,6 +188,16 @@ const brandLogo = computed(() => {
             || window.__branding?.branding_logo_url
   if (!url) return bundledLogo
   return url
+})
+// When the operator uploaded their own logo, drop the blue accent frame
+// around it — their logo usually has its own visual treatment and the
+// frame ends up shrinking the artwork into an awkward 32×32 thumbnail
+// inside a 56×56 chip. Only the bundled platform logo (which is a small
+// glyph) is meant to be rendered inside the gradient frame.
+const isCustomLogo = computed(() => {
+  const url = window.__branding?.branding_customer_logo_url
+            || window.__branding?.branding_logo_url
+  return !!url
 })
 
 const form = ref({ email: '', password: '' })

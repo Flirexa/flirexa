@@ -1278,6 +1278,27 @@ body.fx-portal {
   object-fit: contain;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .25));
 }
+/* Bare mode — used when the operator uploads a custom logo. Drops the
+   accent gradient frame and the inner padding so a customer's branded
+   logo (which usually has its own background/visual treatment) shows
+   at its native proportions instead of getting squashed into a chip. */
+.fx-login-logo--bare {
+  width: auto; height: auto;
+  max-width: 200px;
+  max-height: 88px;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.fx-login-logo--bare img {
+  width: auto; height: auto;
+  max-width: 200px;
+  max-height: 88px;
+  filter: none;
+}
 .fx-login-title {
   font-size: 22px; font-weight: 600;
   letter-spacing: -0.025em;
@@ -1470,6 +1491,8 @@ body.fx-portal {
   .fx-login-brand { margin-bottom: 22px; gap: 12px; }
   .fx-login-logo { width: 48px; height: 48px; }
   .fx-login-logo img { width: 28px; height: 28px; }
+  .fx-login-logo--bare { width: auto; height: auto; max-width: 160px; max-height: 72px; }
+  .fx-login-logo--bare img { width: auto; height: auto; max-width: 160px; max-height: 72px; }
   .fx-login-title { font-size: 20px; }
   .fx-login-sub { font-size: 12.5px; }
   /* 16px input prevents iOS zoom on focus */

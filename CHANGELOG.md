@@ -4,6 +4,25 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.7 — 2026-05-20
+
+### Fixed
+
+- **`get_current_version()` now resolves the VERSION-file path on each call** instead of pinning it at module import. The old behaviour froze the path before the `current/` symlink existed in some apply flows, leaving the panel reading a non-existent file forever and reporting current version as `0.0.0`. With the current version stuck at `0.0.0`, every checked manifest came back as `Update X.Y.Z requires minimum version 1.0.0, current is 0.0.0` and updates couldn't be applied. The resolver now walks: `$VERSION_FILE` env override → `<install>/current/VERSION` → `<install>/VERSION` → highest semver directory inside `<install>/releases/` → only then `0.0.0`. Existing installs whose VERSION file vanished or whose `current/` link rotated will self-recover at the next status poll.
+- **Counting one slot device as N peers on the Dashboard** ("My Devices 2/1"). A Device Slot with peers provisioned on two regions was inflating the device-used counter by 2× because the subscription endpoint summed `ClientUserClients` rows rather than slots. `devices_used` in `/client-portal/subscription` now uses the same slot+legacy union the create-slot limit check already used, so the dashboard "X/N" matches what the cap actually enforces. The "My Devices" panel also collapses per-region peers down to one row per slot, preferring the live-handshake peer for the visible region.
+- **Missing i18n keys in the client portal.** `common.refresh`, `dash.overDeviceLimit`, `dash.overDeviceLimitHint`, `dash.manageDevices`, `devices.atLimitHint` and the new delete-confirmation strings were rendering as their literal key names because vue-i18n's `$t(missing) || 'fallback'` pattern doesn't fall back — it returns the key name as a truthy string. Translations now ship in EN + RU and the precedence-trap fallback is gone.
+
+### Changed
+
+- **Login / Register: drop the blue accent frame when the operator uploaded a custom logo.** The 56×56 gradient chip was meant for the bundled platform glyph; squashing a customer-branded logo (often a wordmark or wide logotype) into a 32×32 area inside the chip produced an unreadable thumbnail. The frame now only renders for the default bundled logo. When `branding_customer_logo_url` or `branding_logo_url` is set, the logo renders bare at its native proportions (capped at 200×88 on desktop, 160×72 on mobile).
+- **Over-device-limit notice on the Dashboard is now styled as a proper portal card** (accent-tinted gradient background, warning border-left strip, icon chip, primary "Upgrade plan" + ghost "Manage devices" actions) instead of the older inline warning band that didn't match the rest of the portal aesthetic. Same card shape ships in `Devices.vue` for the at-slot-limit notice — both pages feel consistent now.
+
+### Added
+
+- **Password-confirm before customer-side device delete.** A misplaced tap on the trash icon used to wipe a working VPN config behind a single `confirm()` dialog. Now a modal asks the user to re-enter their account password before the deletion goes through; the verification reuses the existing `/auth/login` flow (stateless JWT means the fresh token is discarded harmlessly) so we don't have to ship a new endpoint. The admin keeps an unprompted delete path from the panel for legitimate cleanup. Applied to both the Dashboard quick-list and the dedicated `Devices.vue` slot cards.
+
+---
+
 ## v1.9.5 — 2026-05-20
 
 ### Added

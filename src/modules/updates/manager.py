@@ -285,11 +285,75 @@ def _validate_extracted_release(extract_root: Path, expected_version: str) -> Op
 # ── VERSION helpers ────────────────────────────────────────────────────────────
 
 def get_current_version() -> str:
-    """Read VERSION file. Returns '0.0.0' if not found."""
-    try:
-        return _VERSION_FILE.read_text().strip()
-    except Exception:
-        return "0.0.0"
+    """Read the installation's VERSION file.
+
+    Path is re-resolved on each call: at module import the `current`
+    symlink may not exist yet (the release apply happens after the
+    process starts in some flows), and the original module-level
+    `_VERSION_FILE` would then be frozen pointing at a missing file.
+    Re-resolving here recovers from that — also from a release swap
+    that moves `current/VERSION` underneath the same install root.
+
+    Falls back through:
+      1. `$VERSION_FILE` env (test-overrides)
+      2. `<install_root>/current/VERSION`
+      3. `<install_root>/VERSION`
+      4. Highest numbered subdir in `<install_root>/releases/`
+      5. "0.0.0" — last-resort, blocks updates by min-version mismatch
+
+    Returning "0.0.0" leaves the user stuck on `Update X.Y.Z requires
+    minimum version 1.0.0, current is 0.0.0`, so the release-dir scan
+    is what salvages a broken install where the VERSION file vanished.
+    """
+    env_override = os.getenv("VERSION_FILE")
+    if env_override:
+        try:
+            txt = Path(env_override).read_text().strip()
+            if txt:
+                return txt
+        except Exception:
+            pass
+
+    candidates: list[Path] = []
+    for root in (_INSTALL_DIR, _REPO_ROOT):
+        try:
+            current = root / "current" / "VERSION"
+            if current.exists():
+                candidates.append(current)
+            top = root / "VERSION"
+            if top.exists():
+                candidates.append(top)
+        except Exception:
+            continue
+
+    for path in candidates:
+        try:
+            txt = path.read_text().strip()
+            if txt:
+                return txt
+        except Exception:
+            continue
+
+    for root in (_INSTALL_DIR, _REPO_ROOT):
+        releases_dir = root / "releases"
+        if not releases_dir.is_dir():
+            continue
+        try:
+            versions = []
+            for entry in releases_dir.iterdir():
+                if not entry.is_dir():
+                    continue
+                name = entry.name
+                parts = name.split(".")
+                if len(parts) >= 3 and all(p.isdigit() for p in parts[:3]):
+                    versions.append((tuple(int(p) for p in parts[:3]), name))
+            if versions:
+                versions.sort()
+                return versions[-1][1]
+        except Exception:
+            continue
+
+    return "0.0.0"
 
 
 def _write_version(version: str):

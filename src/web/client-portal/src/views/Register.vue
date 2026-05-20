@@ -7,7 +7,9 @@
 
     <main class="fx-login-card">
       <div class="fx-login-brand">
-        <div class="fx-login-logo"><img :src="brandLogo" alt="" /></div>
+        <div class="fx-login-logo" :class="{ 'fx-login-logo--bare': isCustomLogo }">
+          <img :src="brandLogo" alt="" />
+        </div>
         <h1 class="fx-login-title">{{ $t('auth.signUp') }}</h1>
         <p class="fx-login-sub">{{ $t('auth.signUpSub') }}</p>
       </div>
@@ -108,6 +110,13 @@ const brandLogo = computed(() => {
             || window.__branding?.branding_logo_url
   if (!url) return bundledLogo
   return url
+})
+// Drop the blue accent frame when the operator uploaded their own logo —
+// see Login.vue for the rationale.
+const isCustomLogo = computed(() => {
+  const url = window.__branding?.branding_customer_logo_url
+            || window.__branding?.branding_logo_url
+  return !!url
 })
 
 const form = ref({ email: '', username: '', full_name: '', password: '' })

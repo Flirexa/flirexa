@@ -10,7 +10,7 @@
       <div style="display:flex; gap:8px; flex-wrap:wrap">
         <button class="fx-btn fx-btn-secondary" @click="loadSlots" :disabled="loading">
           <FxIcon name="refresh" :size="14" />
-          {{ loading ? $t('common.loading') : $t('common.refresh') || 'Refresh' }}
+          {{ loading ? $t('common.loading') : $t('common.refresh') }}
         </button>
         <button class="fx-btn fx-btn-primary"
                 :disabled="atLimit || creating"
@@ -21,12 +21,17 @@
       </div>
     </div>
 
-    <!-- At-limit notice -->
-    <div v-if="atLimit" class="fx-card" style="padding:16px; border-color:var(--warn)">
-      <div style="display:flex; align-items:center; gap:10px">
-        <FxIcon name="info" :size="16" />
-        <span>{{ $t('devices.atLimit', { used: slots.length, max: maxDevices }) ||
-          `You're using all ${slots.length} of ${maxDevices} device slots. Upgrade your plan or remove a device to add more.` }}</span>
+    <!-- At-limit notice — uses the same overlimit card style as the dashboard
+         for a consistent feel across pages. -->
+    <div v-if="atLimit" class="fx-overlimit-card">
+      <div class="fx-overlimit-icon">
+        <FxIcon name="warning" :size="18" />
+      </div>
+      <div class="fx-overlimit-body">
+        <div class="fx-overlimit-title">
+          {{ $t('devices.atLimit', { used: slots.length, max: maxDevices }) }}
+        </div>
+        <p class="fx-overlimit-hint">{{ $t('devices.atLimitHint') }}</p>
       </div>
     </div>
 
@@ -165,6 +170,35 @@
       </div>
     </div>
 
+    <!-- Confirm delete (password-gated to prevent accidental removal) -->
+    <div v-if="showDeleteConfirm" class="fx-modal-overlay" @click.self="cancelDeleteConfirm">
+      <div class="fx-modal">
+        <div class="fx-modal-head">
+          <h3>{{ $t('dash.deletePasswordTitle') }}</h3>
+          <button class="fx-icon-btn-sm" @click="cancelDeleteConfirm">
+            <FxIcon name="close" :size="14" />
+          </button>
+        </div>
+        <div class="fx-modal-body">
+          <p style="font-size:13px; color:var(--text-2); margin:0 0 12px">
+            {{ $t('dash.deletePasswordHint', { name: deleteTargetName }) }}
+          </p>
+          <label class="fx-form-label">{{ $t('dash.deletePasswordPlaceholder') }}</label>
+          <input class="fx-input" type="password" v-model="deletePassword"
+                 :placeholder="$t('dash.deletePasswordPlaceholder')"
+                 @keyup.enter="confirmDeleteWithPassword" />
+          <div v-if="deleteError" style="color:var(--danger); font-size:12px; margin-top:10px">{{ deleteError }}</div>
+        </div>
+        <div class="fx-modal-foot">
+          <button class="fx-btn fx-btn-ghost" @click="cancelDeleteConfirm">{{ $t('common.cancel') }}</button>
+          <button class="fx-btn fx-btn-danger" @click="confirmDeleteWithPassword"
+                  :disabled="deleting || !deletePassword">
+            {{ deleting ? $t('common.loading') : $t('dash.deletePasswordSubmit') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Toasts -->
     <div class="fx-toast-wrap">
       <transition-group name="fx-toast-fade">
@@ -201,6 +235,15 @@ const labelInput = ref(null)
 
 const toasts = ref([])
 const cooldownText = ref({})  // slot_id -> human countdown string
+
+// Password-gated slot delete — same pattern as the dashboard, prevents
+// an accidental tap from wiping a working VPN config.
+const showDeleteConfirm = ref(false)
+const deleteTarget = ref(null)
+const deletePassword = ref('')
+const deleteError = ref(null)
+const deleting = ref(false)
+const deleteTargetName = computed(() => deleteTarget.value?.label || '')
 
 let toastId = 0
 const toast = (message, type = 'info') => {
@@ -330,15 +373,55 @@ const saveLabel = async (slot) => {
   }
 }
 
-const confirmDelete = async (slot) => {
-  if (!confirm(t('devices.confirmDelete', { name: slot.label })
-      || `Delete "${slot.label}"? This removes the peer from every server.`)) return
+const confirmDelete = (slot) => {
+  deleteTarget.value = slot
+  deletePassword.value = ''
+  deleteError.value = null
+  showDeleteConfirm.value = true
+}
+const cancelDeleteConfirm = () => {
+  if (deleting.value) return
+  showDeleteConfirm.value = false
+  deleteTarget.value = null
+  deletePassword.value = ''
+  deleteError.value = null
+}
+const confirmDeleteWithPassword = async () => {
+  if (!deleteTarget.value || !deletePassword.value || deleting.value) return
+  deleting.value = true
+  deleteError.value = null
+  // Verify password by replaying login — stateless JWT means the new
+  // token is harmless. Avoids adding a one-off verify endpoint.
+  let userEmail = ''
   try {
-    await portalApi.deleteSlot(slot.id)
-    slots.value = slots.value.filter(s => s.id !== slot.id)
+    const u = JSON.parse(localStorage.getItem('client_user') || '{}')
+    userEmail = u.email || ''
+  } catch { /* ignore */ }
+  if (!userEmail) {
+    deleteError.value = t('common.error')
+    deleting.value = false
+    return
+  }
+  try {
+    await portalApi.login({ email: userEmail, password: deletePassword.value })
+  } catch (verifyErr) {
+    if (verifyErr.response?.status === 400 || verifyErr.response?.status === 401) {
+      deleteError.value = t('dash.deletePasswordWrong')
+      deleting.value = false
+      return
+    }
+  }
+  try {
+    await portalApi.deleteSlot(deleteTarget.value.id)
+    slots.value = slots.value.filter(s => s.id !== deleteTarget.value.id)
+    showDeleteConfirm.value = false
+    deleteTarget.value = null
+    deletePassword.value = ''
     toast(t('devices.deleted') || 'Device deleted', 'success')
   } catch (e) {
-    toast(e.response?.data?.detail || e.message, 'error')
+    deleteError.value = e.response?.data?.detail || e.message
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -438,5 +521,47 @@ onMounted(loadSlots)
   font-weight: 600;
   color: var(--text-3);
   margin-bottom: 4px;
+}
+
+/* Over-limit card — same shape as dashboard's so both pages feel
+   consistent when the customer is past their plan's slot count. */
+.fx-overlimit-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1px solid color-mix(in oklab, var(--warning) 28%, var(--border));
+  border-left: 3px solid var(--warning);
+  border-radius: var(--r-md, 10px);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--warning) 10%, var(--bg-card, var(--bg-2))) 0%,
+    var(--bg-card, var(--bg-2)) 100%
+  );
+}
+.fx-overlimit-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+.fx-overlimit-body { flex: 1; min-width: 0; }
+.fx-overlimit-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.fx-overlimit-hint {
+  font-size: 12.5px;
+  color: var(--text-2);
+  margin: 0;
+  line-height: 1.5;
 }
 </style>
