@@ -80,7 +80,8 @@
       <!-- Server picker -->
       <div class="fx-slot-section">
         <div class="fx-slot-section-title">
-          {{ $t('devices.activeServer') || 'Active server' }}
+          {{ $t('devices.activeServer') }}
+          <FxHelp :text="$t('devices.activeServerHelp')" />
         </div>
         <div class="fx-slot-server-grid">
           <button v-for="srv in slot.servers"
@@ -89,18 +90,32 @@
                   :class="{
                     'active': srv.is_active,
                     'disabled': switching === slot.id,
+                    'fastest': fastestServerId === srv.server_id && !srv.is_active,
                   }"
                   :disabled="switching === slot.id || srv.is_active"
                   @click="switchServer(slot, srv.server_id)">
             <div class="fx-slot-server-name">
               {{ srv.server_display_name || srv.server_name }}
+              <span v-if="fastestServerId === srv.server_id && pingResults[srv.server_id]?.rtt_ms != null"
+                    class="fx-badge fx-badge-accent" style="margin-left:6px; font-size:10px">
+                {{ $t('devices.fastest') }}
+              </span>
             </div>
             <div class="fx-slot-server-meta">
               <span v-if="srv.is_active" class="fx-badge fx-badge-success">
-                {{ $t('devices.active') || 'Active' }}
+                {{ $t('devices.active') }}
               </span>
               <span v-else class="fx-badge fx-badge-neutral">
-                {{ $t('devices.standby') || 'Standby' }}
+                {{ $t('devices.standby') }}
+              </span>
+              <span class="fx-slot-server-ping" :class="pingClass(srv.server_id)">
+                <template v-if="pingResults[srv.server_id]?.rtt_ms != null">
+                  {{ pingResults[srv.server_id].rtt_ms }} ms
+                </template>
+                <template v-else-if="pingResults[srv.server_id]?.error">
+                  —
+                </template>
+                <template v-else>…</template>
               </span>
               <span style="font-family:var(--mono); font-size:11px; color:var(--text-3); margin-left:6px">
                 {{ stripCidr(srv.ipv4) }}
@@ -116,11 +131,11 @@
       <!-- Config download row -->
       <div class="fx-slot-section">
         <div class="fx-slot-section-title">
-          {{ $t('devices.configs') || 'Download config' }}
+          {{ $t('devices.configs') }}
+          <FxHelp :text="$t('devices.configsManualHelp')" />
         </div>
         <p class="fx-slot-config-hint">
-          {{ $t('devices.configsHint') ||
-            "Import all regions into your VPN app once. Only the active region accepts traffic — switching above is enough; you don't need to re-import." }}
+          {{ $t('devices.configsHint') }}
         </p>
         <div class="fx-slot-config-grid">
           <button v-for="srv in slot.servers"
@@ -136,8 +151,8 @@
 
     <!-- Create slot modal -->
     <div v-if="showCreate" class="fx-modal-overlay" @click.self="showCreate = false">
-      <div class="fx-modal">
-        <div class="fx-modal-head">
+      <div class="fx-modal-box">
+        <div class="fx-modal-header">
           <h3>{{ $t('devices.addTitle') || 'Add device' }}</h3>
           <button class="fx-icon-btn-sm" @click="showCreate = false">
             <FxIcon name="close" :size="14" />
@@ -157,14 +172,16 @@
             </option>
           </select>
         </div>
-        <div class="fx-modal-foot">
-          <button class="fx-btn fx-btn-ghost" @click="showCreate = false">
+        <div class="fx-modal-footer">
+          <button class="fx-btn fx-btn-ghost" @click="showCreate = false"
+                  :disabled="creating">
             {{ $t('common.cancel') }}
           </button>
           <button class="fx-btn fx-btn-primary"
                   :disabled="creating || !newLabel.trim()"
                   @click="doCreate">
-            {{ creating ? $t('common.loading') : ($t('devices.add') || 'Add device') }}
+            <FxIcon v-if="creating" name="refresh" :size="13" class="fx-spin" />
+            {{ creating ? $t('common.loading') : $t('devices.add') }}
           </button>
         </div>
       </div>
@@ -172,8 +189,8 @@
 
     <!-- Confirm delete (password-gated to prevent accidental removal) -->
     <div v-if="showDeleteConfirm" class="fx-modal-overlay" @click.self="cancelDeleteConfirm">
-      <div class="fx-modal">
-        <div class="fx-modal-head">
+      <div class="fx-modal-box">
+        <div class="fx-modal-header">
           <h3>{{ $t('dash.deletePasswordTitle') }}</h3>
           <button class="fx-icon-btn-sm" @click="cancelDeleteConfirm">
             <FxIcon name="close" :size="14" />
@@ -189,7 +206,7 @@
                  @keyup.enter="confirmDeleteWithPassword" />
           <div v-if="deleteError" style="color:var(--danger); font-size:12px; margin-top:10px">{{ deleteError }}</div>
         </div>
-        <div class="fx-modal-foot">
+        <div class="fx-modal-footer">
           <button class="fx-btn fx-btn-ghost" @click="cancelDeleteConfirm">{{ $t('common.cancel') }}</button>
           <button class="fx-btn fx-btn-danger" @click="confirmDeleteWithPassword"
                   :disabled="deleting || !deletePassword">
@@ -214,6 +231,8 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { portalApi } from '../api/index.js'
 import FxIcon from '../components/FxIcon.vue'
+import FxHelp from '../components/FxHelp.vue'
+import { useEscapeClose } from '../composables/useEscapeClose.js'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -236,9 +255,60 @@ const labelInput = ref(null)
 const toasts = ref([])
 const cooldownText = ref({})  // slot_id -> human countdown string
 
+// Latency probe — portal proxies a HEAD/GET to each server's node agent
+// and we display the RTT next to the server card. The number is
+// panel→server, not user→server (browsers can't fire HTTPS→HTTP from a
+// secure portal page), but it's a useful relative health signal and
+// lights up "Fastest" on the row with the lowest RTT.
+const pingResults = ref({})  // server_id -> { rtt_ms, error?, status? }
+const fastestServerId = computed(() => {
+  let best = null
+  for (const [sid, r] of Object.entries(pingResults.value)) {
+    if (r?.rtt_ms == null) continue
+    if (best == null || r.rtt_ms < pingResults.value[best].rtt_ms) {
+      best = Number(sid)
+    }
+  }
+  return best
+})
+function pingClass(serverId) {
+  const r = pingResults.value[serverId]
+  if (!r) return 'unknown'
+  if (r.rtt_ms == null) return 'offline'
+  if (r.rtt_ms <= 60) return 'fast'
+  if (r.rtt_ms <= 180) return 'mid'
+  return 'slow'
+}
+async function probeAllServers() {
+  const allIds = new Set()
+  for (const slot of slots.value) {
+    for (const srv of slot.servers || []) allIds.add(srv.server_id)
+  }
+  await Promise.all([...allIds].map(async (sid) => {
+    try {
+      const { data } = await portalApi.probeServer(sid)
+      pingResults.value = { ...pingResults.value, [sid]: data }
+    } catch {
+      pingResults.value = { ...pingResults.value, [sid]: { rtt_ms: null, error: 'probe_failed' } }
+    }
+  }))
+}
+
+// Smart Subscription Link removed from UI — the backend endpoint
+// (/sub/{token}/slot/{id}) is kept for advanced users / custom apps,
+// but most mainstream WG clients don't poll subscription URLs, so the
+// "switch on portal → app auto-updates" promise was misleading for the
+// average customer. Will be revisited together with a custom client app.
+
 // Password-gated slot delete — same pattern as the dashboard, prevents
 // an accidental tap from wiping a working VPN config.
 const showDeleteConfirm = ref(false)
+
+// Esc dismisses modals. The delete-confirm uses its own cancel handler
+// because it gates on `deleting` to avoid aborting a real in-flight
+// request.
+useEscapeClose(showCreate, () => { if (!creating.value) showCreate.value = false })
+useEscapeClose(showDeleteConfirm, () => cancelDeleteConfirm())
 const deleteTarget = ref(null)
 const deletePassword = ref('')
 const deleteError = ref(null)
@@ -274,6 +344,9 @@ const loadSlots = async () => {
     slots.value = slotsRes.data || []
     subscription.value = subRes.data || {}
     servers.value = srvRes.data || []
+    // Fire-and-forget RTT probe — UI does not wait for it. Failures
+    // simply leave the chips in "…" state, which is fine.
+    probeAllServers()
   } catch (e) {
     if (e.response?.status === 401) router.push('/login')
     else toast(e.response?.data?.detail || e.message, 'error')
@@ -312,14 +385,46 @@ const switchServer = async (slot, serverId) => {
     // Replace this slot in the list with the fresh server-state.
     const idx = slots.value.findIndex(s => s.id === slot.id)
     if (idx >= 0) slots.value.splice(idx, 1, data)
-    toast(t('devices.switched') || 'Region switched', 'success')
+    toast(t('devices.switched'), 'success')
   } catch (e) {
     const detail = e.response?.data?.detail
     const msg = typeof detail === 'string' ? detail : detail?.message || e.message
+    // Backend's cooldown reply is HTTP 429 with the wait time baked into
+    // the message ("Please wait 28s …"). Pull the number out and run a
+    // countdown chip under the server picker so the user sees how long
+    // until they can switch again instead of getting a generic toast
+    // and wondering why their next click bounces.
+    if (e.response?.status === 429 && typeof msg === 'string') {
+      const m = msg.match(/(\d+)\s*s/)
+      const secs = m ? parseInt(m[1], 10) : 30
+      startCooldown(slot.id, secs)
+    }
     toast(msg || 'Error', 'error')
   } finally {
     switching.value = null
   }
+}
+
+function startCooldown(slotId, seconds) {
+  let remaining = seconds
+  cooldownText.value = {
+    ...cooldownText.value,
+    [slotId]: t('devices.cooldown', { seconds: remaining }),
+  }
+  const id = setInterval(() => {
+    remaining -= 1
+    if (remaining <= 0) {
+      clearInterval(id)
+      const next = { ...cooldownText.value }
+      delete next[slotId]
+      cooldownText.value = next
+      return
+    }
+    cooldownText.value = {
+      ...cooldownText.value,
+      [slotId]: t('devices.cooldown', { seconds: remaining }),
+    }
+  }, 1000)
 }
 
 const downloadConfig = async (slot, srv) => {
@@ -403,13 +508,19 @@ const confirmDeleteWithPassword = async () => {
     return
   }
   try {
-    await portalApi.login({ email: userEmail, password: deletePassword.value })
+    // skip-401-interceptor: see api/index.js — wrong password on this
+    // verify-only login must NOT yank the customer's existing session.
+    await portalApi.login({ email: userEmail, password: deletePassword.value }, { _skipAuthInterceptor: true })
   } catch (verifyErr) {
     if (verifyErr.response?.status === 400 || verifyErr.response?.status === 401) {
       deleteError.value = t('dash.deletePasswordWrong')
-      deleting.value = false
-      return
+    } else {
+      deleteError.value = (typeof verifyErr.response?.data?.detail === 'string'
+        ? verifyErr.response.data.detail
+        : verifyErr.message) || t('common.error')
     }
+    deleting.value = false
+    return
   }
   try {
     await portalApi.deleteSlot(deleteTarget.value.id)
@@ -487,6 +598,37 @@ onMounted(loadSlots)
   border-color: var(--success);
   background: color-mix(in srgb, var(--success) 10%, var(--bg-2));
   cursor: default;
+}
+.fx-slot-server-btn.fastest {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-2));
+}
+.fx-slot-server-ping {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--text) 6%, transparent);
+  color: var(--text-3);
+}
+.fx-slot-server-ping.fast {
+  background: color-mix(in oklab, var(--success) 18%, transparent);
+  color: var(--success);
+}
+.fx-slot-server-ping.mid {
+  background: color-mix(in oklab, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+.fx-slot-server-ping.slow {
+  background: color-mix(in oklab, var(--danger) 18%, transparent);
+  color: var(--danger);
+}
+.fx-slot-server-ping.offline {
+  background: color-mix(in oklab, var(--text-3) 14%, transparent);
+  color: var(--text-3);
 }
 .fx-slot-server-btn.disabled {
   opacity: 0.6;

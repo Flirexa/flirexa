@@ -454,6 +454,92 @@ class SlotManager:
         return slot
 
     # ─────────────────────────────────────────────────────────────────
+    # Auto-sync — when the user flipped tunnels in their VPN app but
+    # forgot to switch on the portal, follow the handshake instead of
+    # trusting the stale DB flag.
+    # ─────────────────────────────────────────────────────────────────
+
+    def auto_sync_active_from_handshake(
+        self,
+        slot: DeviceSlot,
+        handshake_window_seconds: int = 180,
+        cooldown_seconds: int = 30,
+        peers: Optional[List[Client]] = None,
+    ) -> bool:
+        """If the freshest handshake among the slot's peers is on a
+        non-active region, flip the slot's active server to that region.
+
+        Returns True if a flip happened.
+
+        - ``handshake_window_seconds``: how recent the handshake must be
+          to count as "the user is on this region right now". 3 min by
+          default — survives a brief lapse without disqualifying a peer.
+        - ``cooldown_seconds``: don't auto-flip if the user just did an
+          explicit switch — give the explicit click priority. Lower than
+          the manual-switch cooldown because this is a soft correction.
+
+        Skips the cooldown rate-limit that ``switch_active_server``
+        applies, because this is automation following a real handshake
+        rather than a user mashing buttons.
+        """
+        if not slot.active_server_id:
+            return False
+
+        now = datetime.now(timezone.utc)
+        if slot.last_switched_at is not None:
+            last = slot.last_switched_at
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if (now - last).total_seconds() < cooldown_seconds:
+                return False
+
+        if peers is None:
+            peers = self.get_slot_peers(slot.id)
+        if len(peers) < 2:
+            return False
+
+        freshest = None
+        for p in peers:
+            hs = getattr(p, "last_handshake", None)
+            if not hs:
+                continue
+            hs_aware = hs if hs.tzinfo else hs.replace(tzinfo=timezone.utc)
+            if (now - hs_aware).total_seconds() > handshake_window_seconds:
+                continue
+            if freshest is None or hs_aware > freshest[1]:
+                freshest = (p, hs_aware)
+
+        if not freshest:
+            return False
+        winning_peer = freshest[0]
+        if winning_peer.server_id == slot.active_server_id:
+            return False
+
+        target_server = self.db.query(Server).filter(
+            Server.id == winning_peer.server_id
+        ).first()
+        if not target_server or not getattr(target_server, "customer_visible", True):
+            return False
+
+        old_peer = next(
+            (p for p in peers if p.server_id == slot.active_server_id), None
+        )
+        try:
+            if old_peer and old_peer.enabled:
+                _agent_apply(self.core, old_peer, "disable")
+            if not winning_peer.enabled:
+                _agent_apply(self.core, winning_peer, "enable")
+        except Exception:
+            return False
+
+        slot.active_server_id = winning_peer.server_id
+        slot.last_switched_at = now
+        self.db.add(slot)
+        self.db.commit()
+        self.db.refresh(slot)
+        return True
+
+    # ─────────────────────────────────────────────────────────────────
     # Backfill / heal — top up missing peers when a new server gets added
     # ─────────────────────────────────────────────────────────────────
 

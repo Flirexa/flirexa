@@ -18,10 +18,19 @@ api.interceptors.request.use((config) => {
 })
 
 // Response interceptor: handle 401
+//
+// A 401 normally means "the session token expired, send the user back
+// to login". But the device-delete password-confirm flow deliberately
+// hits POST /auth/login to verify the current password — a wrong
+// password there returns 401, and yanking the auth token in that case
+// logs the user out of a perfectly good session for typing the wrong
+// password. The caller passes `_skipAuthInterceptor: true` on the
+// axios config to opt out of the auto-logout.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const skip = error.config && error.config._skipAuthInterceptor
+    if (error.response?.status === 401 && !skip) {
       localStorage.removeItem('client_access_token')
       localStorage.removeItem('client_user')
       const p = window.location.pathname
@@ -36,7 +45,10 @@ api.interceptors.response.use(
 export const portalApi = {
   // Auth
   register: (data) => api.post('/client-portal/auth/register', data),
-  login: (data) => api.post('/client-portal/auth/login', data),
+  // `config` lets the caller pass `_skipAuthInterceptor: true` so a
+  // wrong-password 401 from the verify-only delete flow doesn't kick
+  // the user out of their good session.
+  login: (data, config = {}) => api.post('/client-portal/auth/login', data, config),
   getMe: () => api.get('/client-portal/auth/me'),
   forgotPassword: (data) => api.post('/client-portal/auth/forgot-password', data),
   resetPassword: (data) => api.post('/client-portal/auth/reset-password', data),
@@ -76,6 +88,7 @@ export const portalApi = {
   createDevice: (serverId, name) => api.post('/client-portal/wireguard/create', { ...(serverId ? { server_id: serverId } : {}), ...(name ? { name } : {}) }),
   deleteDevice: (clientId) => api.delete(`/client-portal/wireguard/clients/${clientId}`),
   getServers: () => api.get('/client-portal/servers'),
+  probeServer: (serverId) => api.get(`/client-portal/servers/${serverId}/probe`),
 
   // ── Device slots (multi-server toggle) ─────────────────────────────
   // Each slot = one device with peers on every customer-visible server.

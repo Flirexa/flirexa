@@ -4,6 +4,48 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.11 — 2026-05-21
+
+This release rolls 1.9.9 + 1.9.10 + 1.9.11 into one stable promote — the test-channel intermediates either had narrow scope or shipped a feature we walked back before stable.
+
+### Added
+
+- **Browser-side latency probe on the device-slot region picker.** `GET /client-portal/servers/<id>/probe` proxies a fetch to each node agent's `/health` (since browser mixed-content rules block HTTPS portal → HTTP node fetches) and reports the RTT. The Devices page lights up each server card with a colour-coded chip — green ≤60 ms, amber ≤180 ms, red above — and tags the lowest-RTT server "Fastest". The number is portal→server, not user→server, so it's a relative health/closeness signal rather than ground truth for the customer; the auto-sync logic below is what compensates when the customer's actual routing differs.
+- **Auto-sync of the active-region flag from real handshakes.** If the customer flipped tunnels in their VPN app without clicking on the portal, the freshest handshake among the slot's peers reveals where traffic is actually flowing. `SlotManager.auto_sync_active_from_handshake` follows that handshake — flipping `enabled`, calling `disable_client` / `enable_client` on the previously-active region — so the panel indicator stops drifting from reality. Manual switches still win because of a 30-second post-switch cooldown inside the helper.
+- **`FxHelp` tooltip component** (`?` chip with a styled popover) for inline explanations next to feature titles. Wired up on the device-slot region picker title and the manual config-download section title in `Devices.vue`, with EN + RU copy explaining what the feature does and what the user is expected to do.
+- **Per-slot subscription-URL backend endpoint** (`GET /client-portal/sub/<token>/slot/<slot_id>`) that always returns the currently-active region's config for that one slot. Designed for VPN clients that support subscription-mode polling (WG Tunnel on Android, AmneziaVPN with scheduled updates, Hiddify, etc.). **No UI surface in this release** — most mainstream WG clients don't poll subscription URLs, so the "switch on portal, app auto-updates" promise was misleading for the average customer; the endpoint stays available for advanced users / a future custom mobile client. Will be reintroduced in the UI together with a native app.
+
+### Fixed
+
+- **Password-verify bypass when deleting a device.** The customer-side delete flow re-uses `POST /auth/login` to check the user's password, then proceeds to `deleteDevice` / `deleteSlot`. The `try { login(...) } catch (verifyErr)` blocks only short-circuited on HTTP 400/401, leaving every other failure mode (network blip, 5xx, 429, CORS) to fall through to the actual deletion without the password being verified. Both `Devices.vue` and `Dashboard.vue` now treat anything non-2xx as a failed verification, surface the error to the customer, and return without touching the slot/peer.
+- **Wrong password on device-delete logged the customer out of their session.** The verify-only login above hit 401 on a wrong password, which tripped the global axios 401 interceptor and wiped the access token / forced a redirect to /login. The login API now accepts a per-request `_skipAuthInterceptor` flag and the delete-flow passes it, so a typo at the password prompt produces an inline error instead of an unrequested sign-out.
+- **`/wireguard/clients` was returning per-server peers without their `slot_id`** because `slot_id` lives on the `ClientUserClients` link row, not on `Client` itself, and the admin-API round-trip dropped it. The Dashboard's `displayDevices` reducer relied on that field to collapse a multi-region slot to one row; without it, every peer landed in the "standalone" bucket and a 5-device subscription would render 10+ rows. The portal endpoint now joins the link table and attaches `slot_id` per client.
+- **`devices_used` mis-counted slot peers as separate devices** (the "My Devices 2/1" bug). The subscription endpoint summed `ClientUserClients` rows instead of using the same slot + legacy union the slot/peer-create limit checks already use. The "X / N" display everywhere on the dashboard now matches what the cap actually enforces.
+- **Deleting a slot-backed device from the Dashboard removed only the active region's peer.** The dashboard delete path called `DELETE /wireguard/clients/<id>` whether the row belonged to a slot or a standalone peer, leaving the other regional peers of the slot orphaned in the DB. When the deleted row has a `slot_id`, the dashboard now routes to `DELETE /devices/<slot_id>` so every regional peer of that slot is removed together. Legacy single-server peers fall back to the per-peer endpoint.
+- **Device-slot create / delete modal in `Devices.vue` rendered unstyled.** The modal markup used `fx-modal` / `fx-modal-head` / `fx-modal-foot` class names; `design-tokens.css` defines them as `fx-modal-box` / `fx-modal-header` / `fx-modal-footer`. The mismatch meant the modal overlay rendered but the inner card lost its border, padding, and footer divider. Class names now match the design system.
+- **Notification bell dot lit up for already-read items.** `Layout.vue` derived its unread count from `notifications.value.length`, but `GET /notifications` returns every notification, not just unread ones. The badge now filters by `is_read === false` (with a fallback to `.read` for older payload shapes).
+- **Payment modal "Expires in X minutes" was frozen at the value it was opened with.** The `expiryMinutes` computed called `new Date()` directly without a reactive dependency, so a customer staring at the modal would see a static countdown that never decremented. A ticking `now` ref (15-second interval, cleared on unmount) drives it now.
+- **"Next charge" amount in Billing showed even when no charge was scheduled.** With `auto_renew=false` or `status=cancelled`, the row still displayed `$X.XX` — misleading customers into thinking they'd be billed again. It now reads "—" / "No upcoming charge — auto-renew is off" when there is no charge actually due.
+- **Auto-renew toggle didn't lock during the request.** A rapid double-click could send two opposite-direction toggles back-to-back and leave the UI out of sync with the backend. The input is now disabled and shows a small spinner while a request is in flight.
+- **Cooldown countdown after switching slot regions** is wired now. The backend already returned `Please wait Ns before switching servers again.` on 429; the frontend ignored the seconds, the customer hit the same button again, got the same error, and assumed the panel was broken. The Devices page now parses the seconds out of the 429 response, runs a one-second-tick countdown chip under the server picker, and clears it when the cooldown expires.
+
+### Changed
+
+- **Confirm / dialog UX:** every destructive action that used `window.confirm()` (subscription cancel, etc.) now opens an `fx-modal-box`-styled confirmation matching the rest of the portal — same shell, same buttons, same dark-mode treatment. Escape closes any open modal (added a `useEscapeClose` composable that attaches a `keydown` listener only while the relevant ref is true and tears it down on close / unmount).
+- **Login / Register: drop the blue accent frame when the operator uploaded a custom logo** (already in 1.9.7, kept here for visibility). The 56×56 gradient chip was meant for the bundled platform glyph; squashing a customer-branded wordmark into a 32×32 area inside the chip produced an unreadable thumbnail. The frame now only renders for the default bundled logo; custom logos render at native proportions (capped at 200×88 on desktop, 160×72 on mobile).
+- **`get_current_version()` resolves the VERSION-file path on every call** instead of pinning it at module import (1.9.7 — kept here because some installs still hit the stale-path "0.0.0 / requires 1.0.0" loop after a rolling deploy). The resolver walks `$VERSION_FILE` env → `<install>/current/VERSION` → `<install>/VERSION` → highest semver in `<install>/releases/` → last-resort `0.0.0`.
+
+### Removed
+
+- **"Smart Subscription Link" UI section** (briefly visible on test-channel 1.9.10). The promise — paste this URL into your WireGuard / AmneziaWG app and switching regions on the portal updates the app automatically — only holds in clients that poll subscription URLs (WG Tunnel, Hiddify, AmneziaVPN with scheduled updates). The official WireGuard apps for Android / iOS don't, so most customers would have ended up with a URL that worked exactly once as a config import and then never updated, which is worse than just downloading a `.conf`. The backend endpoint stays for advanced use; the customer-facing surface is parked until we ship a native client app that can use it properly.
+
+### Tooling
+
+- **`useEscapeClose` composable** under `src/web/client-portal/src/composables/`. Wires Escape to any modal-state ref; attaches `keydown` only while open; cleans up on unmount.
+- **`fx-spin` utility class** on `design-tokens.css` for inline icon-based loading indicators. Used by the auto-renew toggle, the cancel-subscription button, and the Add-device button when an action is in flight.
+
+---
+
 ## v1.9.8 — 2026-05-20
 
 ### Fixed

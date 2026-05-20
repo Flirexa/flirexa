@@ -225,7 +225,14 @@ function logout() {
 // (window.__branding.show_github_footer === false).
 const showGithub = computed(() => window.__branding?.show_github_footer !== false)
 
-const unreadCount = computed(() => notifications.value.length)
+// Backend's /notifications returns every notification, not just unread —
+// so the red dot was lighting up for already-read items too. Filter to
+// is_read=false (with a fallback to .read for older payload shapes).
+const unreadCount = computed(() => notifications.value.filter(n => {
+  if (typeof n.is_read === 'boolean') return !n.is_read
+  if (typeof n.read === 'boolean') return !n.read
+  return true
+}).length)
 
 function toggleNotifs() {
   notifsOpen.value = !notifsOpen.value

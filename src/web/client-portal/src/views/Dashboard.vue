@@ -230,7 +230,7 @@
               {{ $t('dash.autoRenewsOn', { date: expiryDate }) }}
             </div>
             <span v-else></span>
-            <button class="fx-btn fx-btn-danger-ghost fx-btn-sm" @click="cancelSubscription">
+            <button class="fx-btn fx-btn-danger-ghost fx-btn-sm" @click="showCancelConfirm = true">
               {{ $t('dash.cancelSubscription') }}
             </button>
           </div>
@@ -376,9 +376,11 @@
                 {{ $t('dash.autoRenewHint') }}
               </div>
             </div>
-            <label class="fx-switch">
-              <input type="checkbox" v-model="autoRenew" @change="toggleAutoRenew" />
+            <label class="fx-switch" :class="{ 'fx-switch-busy': autoRenewBusy }">
+              <input type="checkbox" v-model="autoRenew" @change="toggleAutoRenew"
+                     :disabled="autoRenewBusy" />
               <span class="fx-switch-track"></span>
+              <FxIcon v-if="autoRenewBusy" name="refresh" :size="12" class="fx-spin fx-switch-spin" />
             </label>
           </div>
         </div>
@@ -474,6 +476,36 @@
       </div>
     </transition>
 
+    <!-- Cancel subscription confirm -->
+    <transition name="fx-modal-fade">
+      <div v-if="showCancelConfirm" class="fx-modal-overlay"
+           @click.self="() => { if (!cancellingSub) showCancelConfirm = false }">
+        <div class="fx-modal-box">
+          <div class="fx-modal-header">
+            <h3>{{ $t('dash.cancelSubscription') }}</h3>
+            <button class="fx-icon-btn-sm" @click="showCancelConfirm = false"
+                    :disabled="cancellingSub"><FxIcon name="close" :size="14" /></button>
+          </div>
+          <div class="fx-modal-body">
+            <p style="font-size:13px; color:var(--text-2); margin:0">
+              {{ $t('dash.cancelConfirm') }}
+            </p>
+          </div>
+          <div class="fx-modal-footer">
+            <button class="fx-btn fx-btn-ghost" @click="showCancelConfirm = false"
+                    :disabled="cancellingSub">
+              {{ $t('common.cancel') }}
+            </button>
+            <button class="fx-btn fx-btn-danger" @click="cancelSubscription"
+                    :disabled="cancellingSub">
+              <FxIcon v-if="cancellingSub" name="refresh" :size="13" class="fx-spin" />
+              {{ cancellingSub ? $t('common.loading') : $t('dash.cancelSubscription') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- Confirm delete (password-gated to prevent accidental removal) -->
     <transition name="fx-modal-fade">
       <div v-if="showDeleteConfirm" class="fx-modal-overlay" @click.self="cancelDeleteConfirm">
@@ -552,6 +584,7 @@ import PaymentModal from './PaymentModal.vue'
 import FxIcon from '../components/FxIcon.vue'
 import Sparkline from '../components/Sparkline.vue'
 import TrafficChart from '../components/TrafficChart.vue'
+import { useEscapeClose } from '../composables/useEscapeClose.js'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -586,6 +619,17 @@ const refreshing = ref(false)
 // a working VPN config. The admin retains a no-prompt delete path from
 // the panel for legitimate cleanup.
 const showDeleteConfirm = ref(false)
+const showCancelConfirm = ref(false)
+
+// Esc closes all open modals — desktop users expect it, mobile is
+// unaffected. cancelDeleteConfirm gates on `deleting` so an in-flight
+// delete can't be aborted halfway through.
+useEscapeClose(showUpgradeModal)
+useEscapeClose(showConfigModal)
+useEscapeClose(showChangePassword)
+useEscapeClose(showAddDeviceModal)
+useEscapeClose(showDeleteConfirm, () => cancelDeleteConfirm())
+useEscapeClose(showCancelConfirm, () => { if (!cancellingSub.value) showCancelConfirm.value = false })
 const deleteTarget = ref(null)
 const deletePassword = ref('')
 const deleteError = ref(null)
@@ -1015,16 +1059,34 @@ const confirmDeleteWithPassword = async () => {
       return
     }
     try {
-      await portalApi.login({ email: userEmail, password: deletePassword.value })
+      // skip-401-interceptor: see api/index.js — wrong password on this
+      // verify-only login must NOT yank the customer's existing session.
+      await portalApi.login(
+        { email: userEmail, password: deletePassword.value },
+        { _skipAuthInterceptor: true },
+      )
     } catch (verifyErr) {
       if (verifyErr.response?.status === 400 || verifyErr.response?.status === 401) {
         deleteError.value = t('dash.deletePasswordWrong')
-        deleting.value = false
-        return
+      } else {
+        deleteError.value = (typeof verifyErr.response?.data?.detail === 'string'
+          ? verifyErr.response.data.detail
+          : verifyErr.message) || t('common.error')
       }
-      // Unknown error path — fall through, let real delete error speak.
+      deleting.value = false
+      return
     }
-    await portalApi.deleteDevice(deleteTarget.value.id)
+    // If the deleted row belongs to a Device Slot, use the slot-delete
+    // endpoint so every regional peer of that slot is removed together —
+    // otherwise the user has to delete each peer one at a time, which is
+    // confusing because they think of the slot as one "device". Legacy
+    // single-server peers (no slot_id) fall back to the per-peer delete.
+    const slotId = deleteTarget.value.slot_id
+    if (slotId != null) {
+      await portalApi.deleteSlot(slotId)
+    } else {
+      await portalApi.deleteDevice(deleteTarget.value.id)
+    }
     showToast(t('dash.deviceDeleted'))
     showDeleteConfirm.value = false
     deleteTarget.value = null
@@ -1039,14 +1101,18 @@ const confirmDeleteWithPassword = async () => {
     deleting.value = false
   }
 }
+const cancellingSub = ref(false)
 const cancelSubscription = async () => {
-  if (!confirm(t('dash.cancelConfirm'))) return
+  cancellingSub.value = true
   try {
     await portalApi.cancelSubscription()
+    showCancelConfirm.value = false
     await loadData()
     showToast(t('dash.cancelDone'))
   } catch (error) {
     showToast(t('common.error') + ': ' + (error.response?.data?.detail || error.message), 'error')
+  } finally {
+    cancellingSub.value = false
   }
 }
 const changePassword = async () => {
@@ -1074,12 +1140,21 @@ const copyReferralLink = async () => {
     setTimeout(() => { copyFeedback.value = false }, 2000)
   } catch { /* ignore */ }
 }
+const autoRenewBusy = ref(false)
 const toggleAutoRenew = async () => {
+  if (autoRenewBusy.value) {
+    // Double-click race — should never happen because the input is
+    // disabled while busy, but guard anyway.
+    return
+  }
+  autoRenewBusy.value = true
   try {
     await portalApi.toggleAutoRenew(autoRenew.value)
   } catch (e) {
     autoRenew.value = !autoRenew.value
     showToast(t('common.error') + ': ' + (e.response?.data?.detail || e.message), 'error')
+  } finally {
+    autoRenewBusy.value = false
   }
 }
 const onPaymentSuccess = () => {

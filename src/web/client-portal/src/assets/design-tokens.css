@@ -575,6 +575,27 @@ body.fx-portal {
   box-shadow: 0 0 0 6px color-mix(in oklab, var(--text-4) 16%, transparent);
 }
 .fx-status-orb.off::after { animation: none; opacity: 0; }
+
+/* Reusable "loading" spinner — drop the class on any icon to make it
+   rotate (refresh icon used for in-flight buttons, etc.). */
+@keyframes fx-spin {
+  to { transform: rotate(360deg); }
+}
+.fx-spin {
+  display: inline-block;
+  animation: fx-spin 0.9s linear infinite;
+  vertical-align: middle;
+  transform-origin: 50% 50%;
+}
+.fx-switch.fx-switch-busy { position: relative; }
+.fx-switch-spin {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-3);
+}
 @keyframes fx-pulse {
   0% { transform: scale(0.95); opacity: .5; }
   100% { transform: scale(1.4); opacity: 0; }

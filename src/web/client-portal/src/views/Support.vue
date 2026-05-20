@@ -136,12 +136,15 @@
         <div v-if="selectedTicket.status !== 'closed'" style="padding:14px var(--pad-card); border-top:1px solid var(--border)">
           <div v-if="replyError" class="fx-toast error" style="margin-bottom:10px; max-width:100%">{{ replyError }}</div>
           <div style="display:flex; gap:8px; align-items:flex-end">
-            <textarea class="fx-textarea" rows="2" v-model="replyText"
+            <textarea ref="replyTextarea" class="fx-textarea" rows="2" v-model="replyText"
                       :placeholder="$t('support.replyPlaceholder')" maxlength="4000"
                       @keydown.ctrl.enter="sendReply" style="flex:1"></textarea>
             <button class="fx-btn fx-btn-primary" @click="sendReply" :disabled="replying || !replyText.trim()">
               <FxIcon name="send" :size="14" /> {{ $t('support.send') }}
             </button>
+          </div>
+          <div style="font-size:11px; color:var(--text-3); margin-top:6px; text-align:right">
+            {{ $t('support.sendShortcutHint') }}
           </div>
         </div>
         <div v-else style="padding:18px; text-align:center; color:var(--text-3); font-size:13px; border-top:1px solid var(--border)">
@@ -179,7 +182,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 import { formatDate, formatDateTime } from '../utils'
@@ -264,9 +267,14 @@ const sendNewTicket = async () => {
   sending.value = false
 }
 
-const selectTicket = (ticket) => {
+const replyTextarea = ref(null)
+const selectTicket = async (ticket) => {
   selectedTicket.value = ticket
   replyText.value = ''
+  // Focus the reply box so the user can type immediately instead of
+  // hunting for it — common request after fixing the polling races.
+  await nextTick()
+  try { replyTextarea.value?.focus() } catch { /* ignore */ }
 }
 
 const sendReply = async () => {

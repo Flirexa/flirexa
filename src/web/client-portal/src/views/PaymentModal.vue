@@ -153,7 +153,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 
@@ -216,9 +216,23 @@ const canProceed = computed(() => {
   return false
 })
 
+// Heartbeat ref that ticks every 15 seconds. expiryMinutes depends on
+// `now.value` (rather than calling `new Date()` directly inside the
+// computed), so the displayed countdown actually updates instead of
+// freezing at whatever value the modal was opened with.
+const now = ref(Date.now())
+let nowInterval = null
+onMounted(() => {
+  nowInterval = setInterval(() => { now.value = Date.now() }, 15000)
+})
+onBeforeUnmount(() => {
+  if (nowInterval) { clearInterval(nowInterval); nowInterval = null }
+})
 const expiryMinutes = computed(() => {
   if (!invoice.value?.expires_at) return 60
-  return Math.max(0, Math.floor((new Date(invoice.value.expires_at) - new Date()) / 60000))
+  return Math.max(0, Math.floor(
+    (new Date(invoice.value.expires_at).getTime() - now.value) / 60000
+  ))
 })
 
 const invoiceDisplayAmount = computed(() => {
