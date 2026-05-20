@@ -4,6 +4,14 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.8 — 2026-05-20
+
+### Fixed
+
+- **Dashboard "My Devices" list was rendering one row per regional peer** instead of one row per Device Slot. A 5-device subscription with two multi-region slots would balloon to 10+ entries, half of them disabled per-region peers the user didn't directly create. The Dashboard already had slot-aware deduplication client-side (added in v1.9.7), but `/client-portal/wireguard/clients` wasn't returning `slot_id` on each peer — it's stored on the `ClientUserClients` link row, not on `Client` itself, so the admin-API roundtrip dropped it and every peer ended up in the "standalone" bucket of the frontend's `displayDevices` reducer. The portal endpoint now joins the link table and attaches `slot_id` per client; the dashboard collapses peers to one row per slot (preferring the live-handshake peer, then any enabled peer). Legacy single-server peers (no `slot_id`) still render as individual rows.
+
+---
+
 ## v1.9.7 — 2026-05-20
 
 ### Fixed
