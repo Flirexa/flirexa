@@ -4,6 +4,14 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.3 — 2026-05-20
+
+### Fixed
+
+- **Customer portal couldn't load branding when fronted by nginx on 443.** `App.vue` fetches `/api/v1/public/branding` on mount to populate `window.__branding`. That endpoint was only registered on the admin API process (port 10087). When `window.location.port === '10090'` the frontend correctly cross-origin'd to the admin host:port, but when the portal sits behind nginx on the customer-facing main port the request stays on the same origin — and the catch-all SPA route in `client_portal_main` answered with `index.html` (HTTP 200). Axios then tried to parse the HTML as JSON, silently failed, left `window.__branding` undefined, and the portal rendered the bundled platform logo + "VPN" fallback for the brand name. The branding endpoint is now also registered inside `client_portal_main`, reading the same `SystemConfig` rows via `get_all_branding()`, so any host serving the portal exposes the field at the path the frontend already expects.
+
+---
+
 ## v1.9.2 — 2026-05-20
 
 ### Added

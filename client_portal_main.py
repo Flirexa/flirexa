@@ -245,6 +245,33 @@ async def health_check():
         "version": "2.0.0"
     }
 
+
+# Public branding endpoint — mirrors the admin API one so the client
+# portal frontend can fetch its branding without crossing origins.
+# Previously the App.vue hit the admin host:port directly when running
+# on 10090, but when nginx fronts the portal on 443 the customer's
+# browser sees `baseUrl=""` and hits this host — and the admin endpoint
+# isn't proxied through. The catch-all SPA route below would then
+# return index.html (200) for `/api/v1/public/branding`, the frontend
+# would parse the HTML as JSON, fail silently, and fall back to the
+# bundled "Flirexa" logo and the neutral "VPN" string.
+@app.get("/api/v1/public/branding")
+async def public_branding():
+    """Return non-sensitive branding fields for the client portal."""
+    try:
+        from src.modules.branding import get_all_branding
+        from src.database.connection import SessionLocal
+        db = SessionLocal()
+        try:
+            return get_all_branding(db)
+        finally:
+            db.close()
+    except Exception as exc:
+        from loguru import logger as _log
+        _log.warning("public_branding read failed: {}", exc)
+        return JSONResponse({}, status_code=200)
+
+
 # IMPORTANT: Catch-all route must remain LAST,
 # otherwise it will shadow API routes registered above.
 @app.get("/{full_path:path}")
