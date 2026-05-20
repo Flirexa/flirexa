@@ -4,6 +4,19 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.4 — 2026-05-20
+
+### Fixed
+
+- **Branding assets survive release swaps now.** The logo-upload endpoint (`POST /system/branding/logo`) used to write files into `src/web/static/`, which sits inside the release tree (`/opt/vpnmanager/releases/<ver>/src/web/static/`) that the `current` symlink points at. Each release swap replaced that directory, silently dropping every branded logo and reverting `branding_logo_url` paths to 404. Uploads now land in `$INSTALL_DIR/data/uploads/` — outside the release tree, persisted across upgrades — and the URL stored in `SystemConfig` is `/uploads/<name>` instead of `/static/<name>`. The legacy `/static/` mount stays in place so old branding URLs keep working for existing installs.
+- **Customer-portal logo no longer cross-origins to the admin host.** The client-portal frontend used to build logo URLs as `https://<host>:10086/static/<name>` regardless of how the portal itself was reached. When nginx fronts the portal on 443, that admin-port URL either hit a different TLS cert (cert mismatch) or 404'd outright, and the customer saw a broken-image icon next to "Acme VPN". The portal now mounts `/uploads/` and `/static/` itself, and the frontend leaves path-style logo URLs alone — same-origin fetch, no cert juggling, no 404.
+
+### Added
+
+- **`/uploads/` static mount** in both admin API and client portal. Backed by `$INSTALL_DIR/data/uploads/`, served same-origin from whichever host is requesting it.
+
+---
+
 ## v1.9.3 — 2026-05-20
 
 ### Fixed

@@ -107,10 +107,8 @@ const brandName = computed(() => (
 const brandLogo = computed(() => {
   const url = window.__branding?.branding_logo_url
   if (!url) return bundledLogo
-  if (url.startsWith('/')) {
-    const adminPort = '10086'
-    return `${window.location.protocol}//${window.location.hostname}:${adminPort}${url}`
-  }
+  // Same-origin: portal mounts /uploads/ and /static/ itself.
+  if (url.startsWith('/')) return url
   return url
 })
 

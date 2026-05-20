@@ -142,13 +142,16 @@ const brandName = computed(() => (
   || window.__branding?.branding_app_name
   || 'VPN'
 ))
+// Build the logo URL. Path-style URLs (start with /) are served by the
+// portal itself — both legacy /static/... (admin-side dir, kept for
+// backward compat) and /uploads/... (persistent dir) — so we just point
+// at the current origin. The old code hard-coded :10086 which forced a
+// cross-origin hop and failed when nginx fronted the portal on 443
+// (admin port either rejected with TLS issues or 404'd the path).
 const brandLogo = computed(() => {
   const url = window.__branding?.branding_logo_url
   if (!url) return bundledLogo
-  if (url.startsWith('/')) {
-    const adminPort = '10086'
-    return `${window.location.protocol}//${window.location.hostname}:${adminPort}${url}`
-  }
+  if (url.startsWith('/')) return url
   return url
 })
 

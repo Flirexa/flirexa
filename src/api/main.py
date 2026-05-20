@@ -784,10 +784,22 @@ def create_app(
             _ple, traceback.format_exc(),
         )
 
-    # Serve uploaded branding assets (logos, favicons)
-    uploads_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "static")
-    if os.path.isdir(uploads_dir):
-        app.mount("/static", StaticFiles(directory=uploads_dir), name="static_uploads")
+    # Serve uploaded branding assets (logos, favicons). Two locations:
+    #   - /static/  -> legacy in-release dir (kept for backward compat with
+    #                  installs that had branding_logo_url pointing at it)
+    #   - /uploads/ -> persistent dir at $INSTALL_DIR/data/uploads, written
+    #                  by new uploads via POST /system/branding/logo and
+    #                  not wiped on release swaps.
+    legacy_static = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "static")
+    if os.path.isdir(legacy_static):
+        app.mount("/static", StaticFiles(directory=legacy_static), name="static_uploads")
+    install_dir = os.getenv("INSTALL_DIR", "/opt/vpnmanager")
+    persistent_uploads = os.path.join(install_dir, "data", "uploads")
+    try:
+        os.makedirs(persistent_uploads, exist_ok=True)
+        app.mount("/uploads", StaticFiles(directory=persistent_uploads), name="uploads")
+    except Exception as _up_err:
+        logger.warning(f"Could not mount persistent uploads dir: {_up_err}")
 
     # Serve Vue.js SPA static files (built output)
     static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web", "static", "dist")

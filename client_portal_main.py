@@ -228,6 +228,21 @@ if STATIC_DIR.exists():
 else:
     print(f"⚠️  Static directory not found: {STATIC_DIR}")
 
+# Persistent uploads directory — lives outside the release tree at
+# /opt/vpnmanager/data/uploads/, so branded logos / favicons survive
+# release swaps. The admin upload endpoint (POST /system/branding/logo)
+# writes here too. Mounted on this portal so customers can fetch their
+# operator's logo from the same origin they're already on (no admin-port
+# cross-origin hop, no broken-image icon).
+_install_dir = Path(os.getenv("INSTALL_DIR", "/opt/vpnmanager"))
+_uploads_dir = _install_dir / "data" / "uploads"
+try:
+    _uploads_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
+    print(f"✅ Uploads mounted from {_uploads_dir}")
+except Exception as _up_err:
+    print(f"⚠️  Could not mount uploads dir: {_up_err}")
+
 # No-cache headers for SPA index.html
 no_cache_headers = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
