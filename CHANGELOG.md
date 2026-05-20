@@ -4,6 +4,24 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.5 — 2026-05-20
+
+### Added
+
+- **Separate customer-facing logo field** — `branding_customer_logo_url`. Set it when you want a different logo in the client portal than in the admin panel (most common case: keep the platform mark on the admin side, use your own brand in the portal). Empty → falls back to the shared `branding_logo_url`, then to the bundled platform default. New "Customer-facing logo" upload row in Settings → Branding with its own remove button.
+- **Logo-only customer header.** If `branding_customer_app_name` is empty, the client portal header now renders only the logo — useful when the logo image already contains the brand wordmark and showing it again as text would be redundant. The footer copyright degrades gracefully too (`© 2026` instead of `© 2026 ` with a dangling space).
+
+### Fixed
+
+- **i18n for new Settings fields.** The "Customer-facing brand name" field added in v1.9.2 didn't have translations registered, so the label rendered as the literal i18n key (`settings.customerAppName`). Same for the hint underneath. Translations now ship in EN + RU; the inline `||` fallback pattern (which doesn't actually work in vue-i18n) is gone.
+- **App-mount title only uses customer name.** `App.vue`'s `onMounted` used to write `document.title = branding_customer_app_name || branding_app_name`. When the operator deliberately cleared the customer name (logo-only mode), the admin-side `branding_app_name` would leak into the customer's browser tab. The fallback is dropped — only the explicit customer name moves the title; otherwise leave the server-rendered "VPN" default in place.
+
+### Tooling
+
+- **Upload endpoint accepts `target`** query parameter (`logo` | `customer_logo` | `favicon`). Same persistent `/uploads/` storage, different `SystemConfig` row gets the resulting URL. Frontend uses this for the new customer-logo uploader.
+
+---
+
 ## v1.9.4 — 2026-05-20
 
 ### Fixed

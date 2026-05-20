@@ -367,6 +367,7 @@ export const systemApi = {
   getBranding: () => api.get('/system/branding'),
   updateBranding: (data) => api.post('/system/branding', data),
   uploadLogo: (formData) => api.post('/system/branding/logo', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  uploadBrandingAsset: (formData, target) => api.post('/system/branding/logo', formData, { params: { target }, headers: { 'Content-Type': 'multipart/form-data' } }),
   // License
   getLicense: () => api.get('/system/license'),
   activateLicense: (data) => api.post('/system/license', data),

@@ -99,16 +99,14 @@ import bundledLogo from '../assets/flirexa-logo.png'
 const router = useRouter()
 const { t } = useI18n()
 
+// Show only the operator's customer-facing name. Empty → hide text.
 const brandName = computed(() => (
-  window.__branding?.branding_customer_app_name
-  || window.__branding?.branding_app_name
-  || 'VPN'
+  window.__branding?.branding_customer_app_name || ''
 ))
 const brandLogo = computed(() => {
-  const url = window.__branding?.branding_logo_url
+  const url = window.__branding?.branding_customer_logo_url
+            || window.__branding?.branding_logo_url
   if (!url) return bundledLogo
-  // Same-origin: portal mounts /uploads/ and /static/ itself.
-  if (url.startsWith('/')) return url
   return url
 })
 

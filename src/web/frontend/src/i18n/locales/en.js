@@ -1220,6 +1220,9 @@ export default {
     // Branding
     branding: 'Branding',
     appName: 'Application Name',
+    appNameHint: 'Shown in the admin panel (this page). Operator-facing.',
+    customerAppName: 'Customer-facing brand name',
+    customerAppNameHint: "What customers see in the client portal — page title, header, PWA install name. Leave empty to show only the customer logo (without text).",
     companyName: 'Company Name',
     loginPageTitle: 'Login Page Title',
     primaryColor: 'Primary Color',
@@ -1227,6 +1230,11 @@ export default {
     supportUrl: 'Support URL',
     footerText: 'Footer Text',
     logo: 'Logo',
+    adminLogoHint: 'Admin panel logo (this page).',
+    customerLogo: 'Customer-facing logo',
+    customerLogoHint: 'Logo shown in the client portal. Leave empty to reuse the admin logo above. If your logo image already contains your brand name, leave the customer-facing brand name empty to avoid showing it twice.',
+    favicon: 'Favicon',
+    remove: 'Remove',
     saveBranding: 'Save Branding',
     // SMTP labels
     smtpServer: 'SMTP Server',

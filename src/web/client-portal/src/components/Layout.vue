@@ -15,7 +15,7 @@
 
         <router-link to="/" class="fx-brand">
           <img :src="brandLogo" alt="" class="fx-brand-logo" />
-          <span class="fx-brand-text">{{ brandName }}</span>
+          <span v-if="brandName" class="fx-brand-text">{{ brandName }}</span>
           <span class="fx-badge fx-badge-neutral fx-brand-tag">VPN</span>
         </router-link>
 
@@ -90,7 +90,8 @@
     <footer class="fx-footer">
       <div class="fx-footer-inner">
         <div class="fx-footer-meta">
-          <span>© {{ year }} {{ brandName }}</span>
+          <span v-if="brandName">© {{ year }} {{ brandName }}</span>
+          <span v-else>© {{ year }}</span>
           <span style="color:var(--text-4)">·</span>
           <a href="#" @click.prevent>{{ $t('footer.privacy') }}</a>
           <a href="#" @click.prevent>{{ $t('footer.terms') }}</a>
@@ -132,26 +133,23 @@ const featureFlags = ref({ corp_networks: true })
 watch(() => route.path, () => { menuOpen.value = false })
 function onResize() { if (window.innerWidth > 860) menuOpen.value = false }
 
-// Brand name on customer-facing surfaces. Prefer the operator's
-// customer-specific brand name (the new ``branding_customer_app_name``
-// field), then fall back to the legacy ``branding_app_name``, then to
-// a neutral string so we never leak the platform default
-// "Flirexa" / "Flirexa" to end customers.
+// Brand name on customer-facing surfaces. Show only what the operator
+// explicitly set as the customer-facing name. Empty → hide the text
+// entirely (template uses v-if on this value), so operators whose logo
+// image already contains their brand name don't end up with it twice.
 const brandName = computed(() => (
-  window.__branding?.branding_customer_app_name
-  || window.__branding?.branding_app_name
-  || 'VPN'
+  window.__branding?.branding_customer_app_name || ''
 ))
-// Build the logo URL. Path-style URLs (start with /) are served by the
-// portal itself — both legacy /static/... (admin-side dir, kept for
-// backward compat) and /uploads/... (persistent dir) — so we just point
-// at the current origin. The old code hard-coded :10086 which forced a
-// cross-origin hop and failed when nginx fronted the portal on 443
-// (admin port either rejected with TLS issues or 404'd the path).
+// Build the logo URL. Customer-specific logo wins; falls back to the
+// shared admin logo; finally to the bundled platform default.
+// Path-style URLs (start with /) are served by the portal itself —
+// /uploads/ (persistent dir) and legacy /static/ — so we point at the
+// current origin and skip the cross-origin :10086 hop that used to
+// 404 / hit TLS-cert mismatches behind nginx.
 const brandLogo = computed(() => {
-  const url = window.__branding?.branding_logo_url
+  const url = window.__branding?.branding_customer_logo_url
+            || window.__branding?.branding_logo_url
   if (!url) return bundledLogo
-  if (url.startsWith('/')) return url
   return url
 })
 

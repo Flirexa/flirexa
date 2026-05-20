@@ -373,9 +373,15 @@ async def serve_frontend(request: Request, full_path: str):
                 brand = get_all_branding(db)
             finally:
                 db.close()
+            # Only use the operator's customer-facing name. Don't fall
+            # back to ``branding_app_name`` (admin-side) here — that
+            # leaks the operator's internal name into the customer's
+            # browser tab when they intentionally left it empty (e.g.
+            # because their logo image already contains the brand).
+            # "VPN" is the last-resort neutral default so the tab is
+            # never literally empty.
             customer_name = (
                 (brand.get("branding_customer_app_name") or "").strip()
-                or (brand.get("branding_app_name") or "").strip()
                 or "VPN"
             )
             # Escape angle brackets defensively — operator-supplied string

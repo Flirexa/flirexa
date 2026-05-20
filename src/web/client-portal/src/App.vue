@@ -71,11 +71,17 @@ onMounted(async () => {
     const baseUrl = window.location.port === '10090' ? `${window.location.protocol}//${window.location.hostname}:10086` : ''
     const { data } = await axios.get(`${baseUrl}/api/v1/public/branding`)
     window.__branding = data
-    // Customer-facing tab title — prefer the dedicated customer name,
-    // fall back to the admin-side app name so legacy installs that
-    // haven't filled out the new field keep their existing label.
-    const customerTitle = data.branding_customer_app_name || data.branding_app_name
-    if (customerTitle) document.title = customerTitle
+    // Customer-facing tab title — only the operator-set customer name.
+    // We don't fall back to the admin-side branding_app_name here so an
+    // operator who left customer name empty (because their logo image
+    // already contains the brand) doesn't accidentally end up with
+    // their admin label leaking into the customer's browser tab. The
+    // backend already injects the same string into the <title> at serve
+    // time, so this onMount step is just a refresh if the operator
+    // changes the name without a portal restart.
+    if (data.branding_customer_app_name) {
+      document.title = data.branding_customer_app_name
+    }
     if (data.branding_favicon_url) {
       let link = document.querySelector("link[rel~='icon']")
       if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link) }

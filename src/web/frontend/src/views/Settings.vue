@@ -921,10 +921,20 @@
         </div>
         <div class="mb-3">
           <label class="form-label">{{ $t('settings.logo') }}</label>
+          <div class="form-text small mb-2">{{ $t('settings.adminLogoHint') || 'Admin panel logo (this page).' }}</div>
           <div class="d-flex align-items-center gap-3 settings-upload-row">
             <img v-if="brand.logo_url" :src="brand.logo_url" alt="Logo" style="height: 40px; border: 1px solid var(--vxy-border); border-radius: 4px; padding: 4px; background: var(--vxy-hover-bg);" />
             <input type="file" class="form-control" accept="image/png,image/jpeg,image/svg+xml,image/webp" @change="uploadLogo" />
             <button v-if="brand.logo_url" class="btn btn-outline-danger btn-sm" @click="removeLogo" :disabled="saving">{{ $t('settings.remove') }}</button>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">{{ $t('settings.customerLogo') || 'Customer-facing logo' }}</label>
+          <div class="form-text small mb-2">{{ $t('settings.customerLogoHint') || "Logo shown in the client portal. Leave empty to reuse the admin logo above. If your logo image already contains your brand name, leave the customer-facing brand name above empty to avoid showing it twice." }}</div>
+          <div class="d-flex align-items-center gap-3 settings-upload-row">
+            <img v-if="brand.customer_logo_url" :src="brand.customer_logo_url" alt="Customer logo" style="height: 40px; border: 1px solid var(--vxy-border); border-radius: 4px; padding: 4px; background: var(--vxy-hover-bg);" />
+            <input type="file" class="form-control" accept="image/png,image/jpeg,image/svg+xml,image/webp" @change="uploadCustomerLogo" />
+            <button v-if="brand.customer_logo_url" class="btn btn-outline-danger btn-sm" @click="removeCustomerLogo" :disabled="saving">{{ $t('settings.remove') }}</button>
           </div>
         </div>
         <div class="mb-3">
@@ -1117,6 +1127,7 @@ export default {
         customer_app_name: '',
         company_name: '',
         logo_url: '',
+        customer_logo_url: '',
         favicon_url: '',
         primary_color: '#0d6efd',
         login_title: '',
@@ -1709,6 +1720,7 @@ export default {
         this.brand.customer_app_name = r.data.branding_customer_app_name || ''
         this.brand.company_name = r.data.branding_company_name || ''
         this.brand.logo_url = r.data.branding_logo_url || ''
+        this.brand.customer_logo_url = r.data.branding_customer_logo_url || ''
         this.brand.favicon_url = r.data.branding_favicon_url || ''
         this.brand.primary_color = r.data.branding_primary_color || '#0d6efd'
         this.brand.login_title = r.data.branding_login_title || ''
@@ -1728,6 +1740,7 @@ export default {
           branding_support_email: this.brand.support_email,
           branding_support_url: this.brand.support_url,
           branding_footer_text: this.brand.footer_text,
+          branding_customer_logo_url: this.brand.customer_logo_url,
         })
         this.brand.alertType = 'alert-success'
         this.brand.alert = 'Branding saved!'
@@ -1762,6 +1775,41 @@ export default {
           var { useBrandingStore } = await import('../stores/branding')
           useBrandingStore().fetchBranding()
         } catch(e) {}
+      } catch(e) {
+        this.brand.alertType = 'alert-danger'
+        this.brand.alert = e.response?.data?.detail || String(e.message || e)
+      }
+      finally { this.saving = false }
+    },
+    async uploadCustomerLogo(event) {
+      var file = event.target.files[0]
+      if (!file) return
+      if (file.size > 2 * 1024 * 1024) {
+        this.brand.alertType = 'alert-danger'
+        this.brand.alert = 'File too large (max 2MB)'
+        return
+      }
+      this.saving = true; this.brand.alert = ''
+      try {
+        var form = new FormData()
+        form.append('file', file)
+        var r = await systemApi.uploadBrandingAsset(form, 'customer_logo')
+        this.brand.customer_logo_url = r.data.url
+        this.brand.alertType = 'alert-success'
+        this.brand.alert = 'Customer logo uploaded'
+      } catch(e) {
+        this.brand.alertType = 'alert-danger'
+        this.brand.alert = e.response?.data?.detail || String(e.message || e)
+      }
+      finally { this.saving = false }
+    },
+    async removeCustomerLogo() {
+      this.saving = true; this.brand.alert = ''
+      try {
+        await systemApi.updateBranding({ branding_customer_logo_url: '' })
+        this.brand.customer_logo_url = ''
+        this.brand.alertType = 'alert-success'
+        this.brand.alert = 'Customer logo removed'
       } catch(e) {
         this.brand.alertType = 'alert-danger'
         this.brand.alert = e.response?.data?.detail || String(e.message || e)
