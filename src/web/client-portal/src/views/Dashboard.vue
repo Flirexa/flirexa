@@ -506,6 +506,68 @@
       </div>
     </transition>
 
+    <!-- Region picker — opened from Download / QR buttons on a slot-backed
+         device row. Single-server (legacy) peers bypass this and run the
+         action directly. -->
+    <transition name="fx-modal-fade">
+      <div v-if="showRegionPicker" class="fx-modal-overlay" @click.self="cancelRegionPicker">
+        <div class="fx-modal-box">
+          <div class="fx-modal-header">
+            <h3>
+              {{ pickerMode === 'qr' ? $t('dash.pickRegionQr') : $t('dash.pickRegionDownload') }}
+              <span v-if="pickerDevice" style="color:var(--text-3); font-weight:500; margin-left:6px">
+                — {{ pickerDevice.name }}
+              </span>
+            </h3>
+            <button class="fx-icon-btn-sm" @click="cancelRegionPicker"><FxIcon name="close" :size="14" /></button>
+          </div>
+          <div class="fx-modal-body">
+            <p style="font-size:13px; color:var(--text-2); margin:0 0 14px">
+              {{ pickerMode === 'qr' ? $t('dash.pickRegionQrHint') : $t('dash.pickRegionDownloadHint') }}
+            </p>
+            <div class="fx-region-grid">
+              <button v-for="region in pickerRegions" :key="region.id"
+                      class="fx-region-btn"
+                      :class="{ 'is-active': region.is_active || (region.enabled && region.online) }"
+                      :disabled="pickerBusy"
+                      @click="onPickRegion(region)">
+                <span class="fx-region-icon">
+                  <FxIcon :name="region.server_type === 'amneziawg' ? 'shield' : 'globe'" :size="14" />
+                </span>
+                <div class="fx-region-info">
+                  <div class="fx-region-name">{{ region.server_name || `server-${region.server_id}` }}</div>
+                  <div class="fx-region-meta">
+                    <span style="font-family:var(--mono); font-size:11px; color:var(--text-3)">{{ region.ipv4 || '—' }}</span>
+                    <span style="margin:0 6px; color:var(--text-4)">·</span>
+                    <span style="font-size:11px; color:var(--text-3)">{{ protocolLabel(region.server_type) }}</span>
+                  </div>
+                </div>
+                <span v-if="region.enabled && region.online" class="fx-badge fx-badge-success">
+                  {{ $t('dash.deviceConnected') }}
+                </span>
+                <span v-else-if="region.enabled" class="fx-badge fx-badge-neutral">
+                  {{ $t('devices.active') }}
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="fx-modal-footer">
+            <button v-if="pickerMode === 'download' && pickerRegions.length > 1"
+                    class="fx-btn fx-btn-secondary"
+                    :disabled="pickerBusy"
+                    @click="downloadAllRegions">
+              <FxIcon v-if="pickerBusy" name="refresh" :size="13" class="fx-spin" />
+              <FxIcon v-else name="download" :size="13" />
+              {{ $t('dash.downloadAllRegions') }}
+            </button>
+            <button class="fx-btn fx-btn-ghost" @click="cancelRegionPicker" :disabled="pickerBusy">
+              {{ $t('common.cancel') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- Confirm delete (password-gated to prevent accidental removal) -->
     <transition name="fx-modal-fade">
       <div v-if="showDeleteConfirm" class="fx-modal-overlay" @click.self="cancelDeleteConfirm">
@@ -621,6 +683,26 @@ const refreshing = ref(false)
 const showDeleteConfirm = ref(false)
 const showCancelConfirm = ref(false)
 
+// Region picker — opened from Download / QR on a slot-backed device.
+// Legacy single-server peers (slot_id null) bypass and run directly.
+const showRegionPicker = ref(false)
+const pickerMode = ref('download')       // 'download' | 'qr'
+const pickerDevice = ref(null)
+const pickerBusy = ref(false)
+const pickerRegions = computed(() => {
+  if (!pickerDevice.value) return []
+  if (pickerDevice.value.slot_id == null) return [pickerDevice.value]
+  return (devices.value || [])
+    .filter(d => d.slot_id === pickerDevice.value.slot_id)
+    .slice()
+    .sort((a, b) => {
+      // Connected first, then active, then by name.
+      const score = (d) => (d.online ? 0 : d.enabled ? 1 : 2)
+      const dx = score(a) - score(b)
+      return dx !== 0 ? dx : (a.server_name || '').localeCompare(b.server_name || '')
+    })
+})
+
 // Esc closes all open modals — desktop users expect it, mobile is
 // unaffected. cancelDeleteConfirm gates on `deleting` so an in-flight
 // delete can't be aborted halfway through.
@@ -630,6 +712,7 @@ useEscapeClose(showChangePassword)
 useEscapeClose(showAddDeviceModal)
 useEscapeClose(showDeleteConfirm, () => cancelDeleteConfirm())
 useEscapeClose(showCancelConfirm, () => { if (!cancellingSub.value) showCancelConfirm.value = false })
+useEscapeClose(showRegionPicker, () => { if (!pickerBusy.value) cancelRegionPicker() })
 const deleteTarget = ref(null)
 const deletePassword = ref('')
 const deleteError = ref(null)
@@ -930,7 +1013,23 @@ const loadDevices = async () => {
   } catch { /* ignore */ }
 }
 
+// Region-aware QR opener. Slot-backed device → first show the region
+// picker (one QR per region — combining them makes no sense), legacy
+// peer → straight to the QR modal.
 const showDeviceConfig = async (device) => {
+  if (device && device.slot_id != null && hasMultipleRegions(device)) {
+    openRegionPicker(device, 'qr')
+    return
+  }
+  await openConfigModalForPeer(device)
+}
+
+const hasMultipleRegions = (device) => {
+  if (!device || device.slot_id == null) return false
+  return (devices.value || []).filter(d => d.slot_id === device.slot_id).length > 1
+}
+
+const openConfigModalForPeer = async (device) => {
   configDeviceName.value = device.name
   configText.value = ''
   configUri.value = ''
@@ -972,19 +1071,77 @@ const downloadQRImage = () => {
   const a = document.createElement('a')
   a.href = qrUrl.value; a.download = `${configDeviceName.value || 'wireguard'}-qr.png`; a.click()
 }
+// Region-aware download. Slot-backed device → open the picker (user
+// chooses a specific region or "all"); legacy peer → straight download.
 const downloadDeviceConfig = async (device) => {
+  if (device && device.slot_id != null && hasMultipleRegions(device)) {
+    openRegionPicker(device, 'download')
+    return
+  }
+  await downloadOnePeer(device)
+}
+
+const downloadOnePeer = async (peer) => {
   try {
-    const { data } = await portalApi.getConfig(device.id)
+    const { data } = await portalApi.getConfig(peer.id)
     const config = data.config_text || data.config || data
-    const name = data.client_name || device.name
-    const protocol = data.protocol || device.server_type || 'wireguard'
+    const name = data.client_name || peer.name
+    const protocol = data.protocol || peer.server_type || 'wireguard'
+    // Tunnel-name length is capped at 15 chars on Linux/Android (TUN
+    // interface name limit). Long combined names like
+    // "Phone-a5e5-TexasUSA-AWG.conf" get rejected by AmneziaWG mobile.
+    // We use the server identifier when downloading a slot region, and
+    // truncate to 15 chars so the import doesn't bounce.
+    const fname = peer.server_name
+      ? `${peer.server_name.replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 15)}.${configExtension(protocol)}`
+      : `${name}.${configExtension(protocol)}`
     const blob = new Blob([config], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = `${name}.${configExtension(protocol)}`; a.click()
+    a.href = url; a.download = fname; a.click()
     URL.revokeObjectURL(url)
   } catch (err) {
     showToast(t('common.error') + ': ' + (err.response?.data?.detail || err.message), 'error')
+  }
+}
+
+const openRegionPicker = (device, mode) => {
+  pickerDevice.value = device
+  pickerMode.value = mode
+  pickerBusy.value = false
+  showRegionPicker.value = true
+}
+const cancelRegionPicker = () => {
+  if (pickerBusy.value) return
+  showRegionPicker.value = false
+  pickerDevice.value = null
+}
+const onPickRegion = async (region) => {
+  if (pickerBusy.value) return
+  if (pickerMode.value === 'download') {
+    pickerBusy.value = true
+    try { await downloadOnePeer(region) } finally { pickerBusy.value = false }
+    cancelRegionPicker()
+  } else {
+    cancelRegionPicker()
+    await openConfigModalForPeer(region)
+  }
+}
+const downloadAllRegions = async () => {
+  if (pickerBusy.value || !pickerRegions.value.length) return
+  pickerBusy.value = true
+  try {
+    // Browsers will queue multiple downloads if they fire back-to-back —
+    // tiny sleep between them keeps Chromium from collapsing some, and
+    // gives Safari a fighting chance.
+    for (const region of pickerRegions.value) {
+      await downloadOnePeer(region)
+      await new Promise(r => setTimeout(r, 120))
+    }
+    showToast(t('dash.allRegionsDownloaded'))
+  } finally {
+    pickerBusy.value = false
+    cancelRegionPicker()
   }
 }
 const copyConfigUri = async () => {
@@ -1249,6 +1406,75 @@ onMounted(() => {
 .fx-overlimit-actions {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Region picker — slot-backed device action chooser. Matches the
+   portal's design language: fx-card shell, accent-soft hover, status
+   chip on the right. Active region gets the success-tinted border so
+   it's obvious which one the customer is on right now. */
+.fx-region-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fx-region-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 10px);
+  background: var(--bg-card, var(--bg-2));
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .12s ease, background .12s ease, transform .08s ease;
+}
+.fx-region-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 6%, var(--bg-card, var(--bg-2)));
+}
+.fx-region-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.fx-region-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.fx-region-btn.is-active {
+  border-color: color-mix(in oklab, var(--success) 50%, var(--border));
+  background: color-mix(in oklab, var(--success) 6%, var(--bg-card, var(--bg-2)));
+}
+.fx-region-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.fx-region-btn.is-active .fx-region-icon {
+  background: color-mix(in oklab, var(--success) 16%, transparent);
+  color: var(--success);
+}
+.fx-region-info {
+  flex: 1;
+  min-width: 0;
+}
+.fx-region-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.fx-region-meta {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
 }
 </style>

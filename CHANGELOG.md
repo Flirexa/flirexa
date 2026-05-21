@@ -4,6 +4,18 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.15 — 2026-05-21
+
+### Changed
+
+- **Dashboard "My Devices" — region picker on Download / QR for slot devices.** Before, every regional peer of a multi-region slot rendered as its own row with its own three action buttons; the section looked like the underlying DB, not like the customer's mental model of "one device." Slot peers now collapse to a single row (already shipped server-side in v1.9.8), and the per-row Download / QR buttons open a portal-styled region picker modal so the customer can choose a specific region or — only for Download — grab them all at once with a single click. The Delete trash icon already removes the whole slot in one shot (v1.9.9), so the device row now behaves as one logical object end-to-end. Legacy single-server peers (no `slot_id`) bypass the picker and run the action directly, same as before.
+
+### Tooling
+
+- **`fx-region-btn` design-token class** added next to the existing fx-modal styles. Used for the new picker, with success-tinted border for the active region and accent-tinted icon chip — mirrors the look of the device-slot server picker in `Devices.vue` so the experience feels continuous between the two pages.
+
+---
+
 ## v1.9.14 — 2026-05-21
 
 ### Fixed
