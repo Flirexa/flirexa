@@ -111,13 +111,13 @@ const brandLogo = computed(() => {
   if (!url) return bundledLogo
   return url
 })
-// Drop the blue accent frame when the operator uploaded their own logo —
-// see Login.vue for the rationale.
-const isCustomLogo = computed(() => {
-  const url = window.__branding?.branding_customer_logo_url
-            || window.__branding?.branding_logo_url
-  return !!url
-})
+// Drop the blue accent frame only when a customer-facing logo URL was
+// uploaded — see Login.vue for the rationale. The admin/platform logo
+// (`branding_logo_url`) keeps the frame so fresh installs still look
+// finished.
+const isCustomLogo = computed(() => (
+  !!window.__branding?.branding_customer_logo_url
+))
 
 const form = ref({ email: '', username: '', full_name: '', password: '' })
 const passwordConfirm = ref('')

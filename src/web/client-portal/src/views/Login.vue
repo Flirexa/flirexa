@@ -189,16 +189,17 @@ const brandLogo = computed(() => {
   if (!url) return bundledLogo
   return url
 })
-// When the operator uploaded their own logo, drop the blue accent frame
-// around it — their logo usually has its own visual treatment and the
-// frame ends up shrinking the artwork into an awkward 32×32 thumbnail
-// inside a 56×56 chip. Only the bundled platform logo (which is a small
-// glyph) is meant to be rendered inside the gradient frame.
-const isCustomLogo = computed(() => {
-  const url = window.__branding?.branding_customer_logo_url
-            || window.__branding?.branding_logo_url
-  return !!url
-})
+// Drop the blue accent frame only when the operator explicitly uploaded
+// a *customer-facing* logo. Treating `branding_logo_url` as "custom" too
+// was wrong — that field holds the platform/admin logo (often the same
+// glyph as the bundled default), and stripping the frame around it made
+// fresh installs look unfinished. Bare mode is reserved for the case
+// where the operator deliberately put a different artwork on the
+// customer side (e.g. their own white-labelled brand) via
+// `branding_customer_logo_url`.
+const isCustomLogo = computed(() => (
+  !!window.__branding?.branding_customer_logo_url
+))
 
 const form = ref({ email: '', password: '' })
 const remember = ref(true)

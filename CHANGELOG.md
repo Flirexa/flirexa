@@ -4,6 +4,25 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.13 — 2026-05-21
+
+### Changed
+
+- **Region-switch rate limit is now a token bucket** instead of the fixed 30s post-switch cooldown. Each `DeviceSlot` carries 5 tokens that refill at one token every 6 seconds (configurable via `SLOT_SWITCH_BUCKET_SIZE` / `SLOT_SWITCH_REFILL_SECONDS_PER_TOKEN`). Each switch consumes one token; an empty bucket replies 429 with a "wait Ns" hint that's still parseable by the existing portal countdown chip. The fixed cooldown blocked legitimate burst-testing (a customer trying three regions in a row to find the closest) just as hard as a click-spammer; the bucket lets the burst go through and only throttles sustained spam.
+
+### Fixed
+
+- **Login / Register: default flirexa logo lost its blue accent frame** on installs where the operator left `branding_logo_url` pointing at the platform default. The bare-mode toggle was triggering on ANY non-empty logo URL, including the admin-side platform field, which made fresh installs look unfinished. Bare mode is now only triggered when the operator explicitly uploaded a *customer-facing* logo (`branding_customer_logo_url`); the platform logo keeps its gradient chip.
+- **RTT chip alignment on the device-slot region picker.** Pills used `inline-block` with 1px vertical padding and no `line-height`, leaving the number baseline-aligned against the neighbouring "Active / Standby" badge and the IP address — they looked off-center. Now `inline-flex` with `align-items: center`, fixed 18px height, `line-height: 1`, and a `min-width: 44px` so the chips render the same size whether they hold "12 ms" or "184 ms".
+
+### Migration
+
+- `038_slot_switch_token_bucket` adds `device_slots.switch_tokens FLOAT NOT NULL DEFAULT 5.0`. Existing slots start with a full bucket on first read after the upgrade — no surprise 429s right after deploy.
+
+---
+
+---
+
 ## v1.9.11 — 2026-05-21
 
 This release rolls 1.9.9 + 1.9.10 + 1.9.11 into one stable promote — the test-channel intermediates either had narrow scope or shipped a feature we walked back before stable.

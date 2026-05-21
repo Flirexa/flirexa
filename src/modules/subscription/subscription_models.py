@@ -500,10 +500,17 @@ class DeviceSlot(Base):
         nullable=True,
     )
 
-    # Cooldown anchor — toggle endpoint rejects flips closer than
-    # ``SLOT_SWITCH_COOLDOWN_SECONDS`` (default 30s) apart. Without this
-    # someone could pound the toggle and DoS the node agents.
+    # Token-bucket rate limit on region switches. The toggle endpoint
+    # consumes ``1`` token per switch; the bucket refills continuously at
+    # ``SLOT_SWITCH_REFILL_SECONDS_PER_TOKEN`` (default 6s/token) up to
+    # ``SLOT_SWITCH_BUCKET_SIZE`` (default 5). This lets a customer
+    # burst-test a few regions in a row (which a fixed cooldown blocked)
+    # while still cutting off a click-spammer / bot — once the bucket is
+    # empty they have to wait the refill interval per further switch.
+    # ``last_switched_at`` doubles as the "last refill anchor": available
+    # tokens are computed as ``min(bucket, stored + (now - last)/refill)``.
     last_switched_at = Column(DateTime, nullable=True)
+    switch_tokens = Column(Float, nullable=False, default=5.0, server_default="5.0")
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(

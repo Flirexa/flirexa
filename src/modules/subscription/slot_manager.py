@@ -47,6 +47,14 @@ logger = logging.getLogger(__name__)
 
 
 SLOT_SWITCH_COOLDOWN_SECONDS = int(os.getenv("SLOT_SWITCH_COOLDOWN_SECONDS", "30"))
+# Token-bucket parameters for region switching. The fixed cooldown above
+# blocks dual-tap and rapid testing equally — token bucket allows a small
+# burst before throttling. Cooldown var kept for backwards compat in code
+# paths that haven't been migrated, but switch_active_server uses bucket.
+SLOT_SWITCH_BUCKET_SIZE = float(os.getenv("SLOT_SWITCH_BUCKET_SIZE", "5"))
+SLOT_SWITCH_REFILL_SECONDS_PER_TOKEN = float(os.getenv(
+    "SLOT_SWITCH_REFILL_SECONDS_PER_TOKEN", "6",
+))
 
 
 def _slot_peer_name(slot: "DeviceSlot", server: "Server") -> str:
@@ -391,21 +399,44 @@ class SlotManager:
         if target_server_id == slot.active_server_id:
             return slot  # no-op
 
-        # Cooldown — same wall-clock check on every node would race, so we
-        # serialise on the DB row's last_switched_at.
+        # Token-bucket rate limit. The slot row carries ``switch_tokens``
+        # (current available, float so partial refills are tracked) and
+        # ``last_switched_at`` (the refill anchor — time of the previous
+        # consumption / refill calc). On each switch:
+        #   1. Refill: tokens += (now - last) / refill_seconds, capped.
+        #   2. Decrement: tokens -= 1. If <0, reject with 429.
+        # The DB write at the end of this function commits the new
+        # `switch_tokens` and `last_switched_at`, so the next call sees a
+        # consistent view.
         now = datetime.now(timezone.utc)
+        bucket_size = SLOT_SWITCH_BUCKET_SIZE
+        refill_seconds = max(1.0, SLOT_SWITCH_REFILL_SECONDS_PER_TOKEN)
+
+        # Read stored tokens, default to a full bucket for legacy rows
+        # that pre-date the 1.9.12 migration.
+        stored = float(getattr(slot, "switch_tokens", None) or bucket_size)
         if slot.last_switched_at is not None:
             last = slot.last_switched_at
             if last.tzinfo is None:
                 last = last.replace(tzinfo=timezone.utc)
-            delta = (now - last).total_seconds()
-            if delta < SLOT_SWITCH_COOLDOWN_SECONDS:
-                wait = int(SLOT_SWITCH_COOLDOWN_SECONDS - delta) + 1
-                raise SlotManagerError(
-                    "cooldown",
-                    f"Please wait {wait}s before switching servers again.",
-                    http_status=429,
-                )
+            elapsed = max(0.0, (now - last).total_seconds())
+            stored = min(bucket_size, stored + elapsed / refill_seconds)
+        else:
+            stored = bucket_size
+
+        if stored < 1.0:
+            # Compute exact seconds until one whole token is available
+            # again. Round UP so the customer's "wait Ns" hint never
+            # tells them it's ready a fraction of a second early.
+            wait = int((1.0 - stored) * refill_seconds) + 1
+            raise SlotManagerError(
+                "cooldown",
+                f"Please wait {wait}s before switching servers again.",
+                http_status=429,
+            )
+
+        # Consume one token. Persisted at the end of the function.
+        slot.switch_tokens = stored - 1.0
 
         # Validate target is one of this slot's peers
         peers = self.get_slot_peers(slot.id)

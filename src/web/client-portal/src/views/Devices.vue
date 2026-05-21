@@ -604,15 +604,24 @@ onMounted(loadSlots)
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-2));
 }
 .fx-slot-server-ping {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
   margin-left: 8px;
+  height: 18px;
+  min-width: 44px;
+  padding: 0 8px;
+  border-radius: 999px;
   font-size: 11px;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
-  padding: 1px 6px;
-  border-radius: 999px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
   background: color-mix(in oklab, var(--text) 6%, transparent);
   color: var(--text-3);
+  white-space: nowrap;
 }
 .fx-slot-server-ping.fast {
   background: color-mix(in oklab, var(--success) 18%, transparent);
