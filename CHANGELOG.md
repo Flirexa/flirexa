@@ -4,6 +4,20 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.14 — 2026-05-21
+
+### Fixed
+
+- **Logo on Login / Register would render broken the first time a tab was opened.** The fault was a race between Vue mounting and the async branding fetch, multiplied by the fact that `window.__branding` is plain JS — not reactive — so the `brandLogo` computed evaluated once on first read and cached forever. Depending on which raced first, the customer saw either the working bundled platform asset or whatever path `branding_logo_url` pointed at, and on at least one host that path no longer existed (the FastAPI catch-all returned `index.html` as `image/png`). Refresh-once-then-broken-again was the diagnostic clue. Resolved by pre-fetching `/api/v1/public/branding` in `main.js` *before* `app.mount()`, so every component's first read of `window.__branding` already has the real values. Adds a small (≤2.5s timeout) blocking step to first paint; falls back to empty branding on failure, which is exactly the fresh-install default.
+
+### Changed
+
+- **Bundled platform asset** (`flirexa-logo.png`) is what every brand-aware component falls back to when no operator branding is loaded — confirmed working from both the customer portal (`/`, `/assets/…`) and any host serving the SPA. Operators who had `branding_logo_url` pointing at a moved legacy path (`/static/…` on this build serves `index.html`) should update the value to `/flirexa-logo.png` (or upload a fresh logo through the admin panel). Existing customers on the fix above won't see broken images regardless, since the brand pre-fetch is no longer racey.
+
+---
+
+---
+
 ## v1.9.13 — 2026-05-21
 
 ### Changed
