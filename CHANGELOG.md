@@ -4,6 +4,34 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.42 — 2026-05-30
+
+Two small backend fixes that pair with the latest mobile / desktop
+client release. Both relate to feedback received the same day.
+
+### Fixed
+
+- **`for_app_only` servers were hiding everywhere.** The detection
+  helper expected the client app to send an `X-Client-App` header,
+  but neither the mobile app nor the desktop client did — so every
+  server marked app-only ended up invisible on both surfaces. The
+  client app now sends the header on `/auth/login` and every
+  authenticated request, so toggling a server "App-only" once again
+  surfaces it on the app while hiding it from the web client portal
+  and `/sub/{token}` URL.
+- **Customers being logged out daily even with "Remember me".** The
+  default `JWT_EXPIRATION_HOURS` was 24, which evicted any
+  long-running app session at the same time each day. Default bumped
+  to 90 days (2160 hours); operators can still override via env var.
+
+### Notes
+
+Bump the client app to a build that sends the `X-Client-App` header
+when you ship this. Older app builds will still see the longer JWT
+TTL but will not see `for_app_only` servers until they update.
+
+---
+
 ## v1.9.41 — 2026-05-30
 
 Stable cuts an arc of test-channel iterations (1.9.34 → 1.9.41) into
