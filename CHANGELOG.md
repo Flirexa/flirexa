@@ -4,6 +4,75 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.45 — 2026-05-31
+
+Hotfix on top of v1.9.44 to drop a vendor host that leaked into the
+open-core mirror.
+
+### Fixed
+
+- Inner installer no longer defaults `UPDATE_SERVER_BACKUP` to the
+  operator's backup license-server host. The bootstrap selects and
+  exports `UPDATE_SERVER` before invoking the inner, so the fallback
+  was both dead code and a private-infra leak.
+
+---
+
+## v1.9.44 — 2026-05-31
+
+Two follow-ups after live-testing v1.9.43 on a 1 GB / 1 vCPU clean
+Ubuntu cloud image:
+
+### Fixed
+
+- **Outer and inner RAM thresholds were out of sync.** The bootstrap
+  added just enough swap to hit 1024 MB then handed off to the inner
+  installer's stricter 1500 MB gate, which immediately bailed. Outer
+  now targets 1500 MB so both layers agree.
+- **Inner RAM check now counts swap.** `effective_mb = total + swap`,
+  so a 1 GB box with a 700 MB swapfile (the kind the outer creates
+  automatically) is no longer treated as a hard fail.
+
+### Added
+
+- **`SB_SKIP_RAM_CHECK=1` escape hatch.** Power-users on weird memcg /
+  container setups where `/proc/meminfo` underreports can bypass the
+  inner RAM gate. Default-off; logged loudly when used so support
+  knows we let it through deliberately.
+
+---
+
+## v1.9.43 — 2026-05-30
+
+Adoption-funnel observability. The previous install funnel only emitted
+`inner_start → silence` whenever an install died inside the main
+installer script (every install on 2026-05-30 hit this, 100% silent
+failure rate). We now know which phase actually dies.
+
+### Added
+
+- **Per-phase install telemetry.** `install.sh` now emits begin / ok /
+  fail beacons around each major step (preflight, postgres, pip,
+  alembic, systemd, etc) and registers an `EXIT` trap that reports
+  `<phase>_died` if the script is killed mid-step (OOM, SIGHUP from
+  `curl | bash` over a closed SSH session, network drop). The funnel
+  endpoint now shows exactly where a failed install bounced.
+- **RAM preflight (1500 MB minimum).** The installer used to OOM
+  silently on 1 GB VPS instances while running `pip install`. Now we
+  fail fast with a clear "resize to 2 GB" message and a dedicated
+  `low_ram` beacon, so we know upfront which boxes can't actually run
+  the panel.
+
+### Changed
+
+- `landing/install.sh` exports `UPDATE_SERVER`, `CHANNEL`, and
+  `INSTALL_LOG` to the inner installer so it can beacon back to the
+  same license server the bootstrap picked.
+- Inner installer respects `INSTALL_TELEMETRY=off` for privacy
+  opt-out, same as the bootstrap.
+
+---
+
 ## v1.9.42 — 2026-05-30
 
 Two small backend fixes that pair with the latest mobile / desktop

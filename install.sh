@@ -25,6 +25,104 @@
 
 set -euo pipefail
 
+# ─── Per-phase telemetry to the license server ────────────────────────────────
+#
+# The outer landing/install.sh exports INSTALL_ID / UPDATE_SERVER /
+# UPDATE_SERVER_PRIMARY / CHANNEL / INSTALL_LOG / INSTALL_TELEMETRY so we
+# can fire our own beacons from each major install step. Without these we
+# only ever see "inner_start → silence" in the funnel when something
+# dies — which was 100% of the 3 free-version installs on 2026-05-30.
+# Best-effort: any failure to beacon is silently dropped, never blocks
+# the install. `INSTALL_TELEMETRY=off` skips entirely (privacy opt-out).
+INSTALL_ID="${INSTALL_ID:-no-id}"
+INSTALL_TELEMETRY="${INSTALL_TELEMETRY:-on}"
+# Outer landing/install.sh selects UPDATE_SERVER (primary or backup
+# fallback) BEFORE invoking us, then exports it. We just inherit
+# whatever it picked — don't hardcode the backup host as a default
+# here, that would leak operator infra into the open-core mirror.
+UPDATE_SERVER="${UPDATE_SERVER:-https://flirexa.biz}"
+CHANNEL="${CHANNEL:-stable}"
+INSTALL_LOG="${INSTALL_LOG:-/tmp/flirexa-install-${INSTALL_ID}.log}"
+
+# Track which phase we're in so the EXIT trap can label an unexpected death.
+CURRENT_PHASE="boot"
+_PHASE_REPORTED=0
+
+_inner_beacon() {
+    [[ "$INSTALL_TELEMETRY" == "off" ]] && return 0
+    local step="$1" status="$2" exit_code="${3:-}" tail_file="${4:-}"
+    local server="${UPDATE_SERVER:-$UPDATE_SERVER_PRIMARY}"
+    command -v python3 >/dev/null 2>&1 || return 0
+    local payload
+    payload="$(
+        STEP="$step" STATUS="$status" EXIT_CODE="$exit_code" \
+        LOG_TAIL_FILE="$tail_file" INSTALL_ID="$INSTALL_ID" \
+        CHANNEL="$CHANNEL" PHASE="$CURRENT_PHASE" \
+        python3 - <<'PY' 2>/dev/null
+import json, os, pathlib
+tail = ""
+tf = os.environ.get("LOG_TAIL_FILE") or ""
+if tf and pathlib.Path(tf).exists():
+    try:
+        with open(tf, "rb") as f:
+            f.seek(0, 2); size = f.tell()
+            f.seek(max(0, size - 32_000))
+            chunk = f.read().decode("utf-8", errors="replace")
+        tail = "\n".join(chunk.splitlines()[-100:])
+        if len(tail) > 16_000: tail = tail[-16_000:]
+    except Exception:
+        tail = ""
+out = {
+    "install_id": os.environ.get("INSTALL_ID", ""),
+    "step":       os.environ.get("STEP", ""),
+    "status":     os.environ.get("STATUS", ""),
+    "channel":    os.environ.get("CHANNEL", ""),
+}
+ec = os.environ.get("EXIT_CODE", "")
+if ec:
+    try: out["exit_code"] = int(ec)
+    except ValueError: pass
+if tail:
+    out["log_tail"] = tail
+print(json.dumps(out))
+PY
+    )"
+    [[ -n "$payload" ]] || return 0
+    curl -fsS --max-time 5 -X POST "${server}/api/install-event" \
+        -H "Content-Type: application/json" -d "$payload" >/dev/null 2>&1 || true
+}
+
+# Wrap a phase: beacon begin → run → beacon ok/fail (with log tail on fail).
+# Sets CURRENT_PHASE so the EXIT trap can attribute a hung / killed install
+# to whatever was running at the time.
+_phase() {
+    local name="$1"; shift
+    CURRENT_PHASE="$name"
+    _PHASE_REPORTED=0
+    _inner_beacon "$name" "begin"
+    if "$@"; then
+        _PHASE_REPORTED=1
+        _inner_beacon "$name" "ok"
+        return 0
+    fi
+    local rc=$?
+    _PHASE_REPORTED=1
+    _inner_beacon "$name" "fail" "$rc" "$INSTALL_LOG"
+    return $rc
+}
+
+# Safety net: if the script dies in the middle of a phase (signal, OOM,
+# user closed terminal mid-`curl | bash`, `set -e` triggered) and we
+# haven't already beaconed for the current phase, fire `inner_died` with
+# whatever phase we were in. Best-effort; this trap MUST never raise.
+_inner_exit_trap() {
+    local rc=$?
+    if (( rc != 0 )) && (( _PHASE_REPORTED == 0 )); then
+        _inner_beacon "${CURRENT_PHASE}_died" "fail" "$rc" "$INSTALL_LOG" || true
+    fi
+}
+trap _inner_exit_trap EXIT
+
 # Check Python version
 PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)
 if [ -z "$PYTHON_VERSION" ]; then
@@ -225,6 +323,30 @@ preflight() {
         die "Not enough disk space: ${avail_mb}MB available, need 500MB+"
     fi
     log_info "  Disk: ${avail_mb}MB free"
+
+    # RAM — pip install of the panel's wheels easily eats 500-700 MB peak,
+    # and apt-get + alembic on top of that pushes a 1 GB box into OOM
+    # territory. We've seen this kill installs silently (the OOM killer
+    # nukes bash before the failure beacon can fire). Catch it here with
+    # a clear error + dedicated beacon so we know who bounced and why.
+    # Counts swap toward the total because the outer landing/install.sh
+    # already adds a swapfile on low-RAM boxes. Set
+    # SB_SKIP_RAM_CHECK=1 to bypass (power-users on weird memcg setups).
+    local ram_mb total_mb swap_mb effective_mb
+    if [[ -r /proc/meminfo ]]; then
+        ram_mb=$(awk '/^MemAvailable:/{printf "%d", $2/1024; exit}' /proc/meminfo)
+        total_mb=$(awk '/^MemTotal:/{printf "%d", $2/1024; exit}' /proc/meminfo)
+        swap_mb=$(awk '/^SwapTotal:/{printf "%d", $2/1024; exit}' /proc/meminfo)
+        effective_mb=$(( total_mb + swap_mb ))
+        log_info "  RAM:  ${ram_mb}MB available (${total_mb}MB physical + ${swap_mb}MB swap = ${effective_mb}MB effective)"
+        if [[ "${SB_SKIP_RAM_CHECK:-0}" == "1" ]]; then
+            log_warn "  SB_SKIP_RAM_CHECK=1 — skipping RAM gate (you'd better know what you're doing)"
+        elif [[ "${effective_mb:-0}" -lt 1500 ]]; then
+            _inner_beacon "low_ram" "fail" "1" || true
+            _PHASE_REPORTED=1
+            die "Not enough RAM: ${total_mb}MB physical + ${swap_mb}MB swap = ${effective_mb}MB effective, need 1500MB+ (2GB recommended). pip install will OOM otherwise. Resize the VPS to at least 2GB OR add swap, then re-run."
+        fi
+    fi
 
     # Check source files
     if [[ ! -f "$SCRIPT_DIR/main.py" ]]; then
@@ -1940,27 +2062,39 @@ main() {
 
     parse_args "$@"
 
-    preflight
-    detect_existing
-    install_system_deps
-    setup_postgresql
-    copy_files
-    prepare_runtime_layout
-    setup_python
-    configure_env
-    reset_runtime_state_for_fresh_install
-    configure_web_access_preferences
-    init_database
-    install_systemd
-    configure_firewall
-    setup_wireguard
-    start_services
-    register_wireguard_server
+    # Each phase is wrapped in _phase so the license server sees a per-step
+    # ok / fail beacon and, on a mid-phase death (OOM, SIGHUP, network drop
+    # mid-pip), the EXIT trap labels which step we were in. The funnel
+    # then shows exactly where free-version installs are bouncing instead
+    # of "inner_start → silence".
+    _phase preflight                          preflight
+    _phase detect_existing                    detect_existing
+    _phase install_system_deps                install_system_deps
+    _phase setup_postgresql                   setup_postgresql
+    _phase copy_files                         copy_files
+    _phase prepare_runtime_layout             prepare_runtime_layout
+    _phase setup_python                       setup_python
+    _phase configure_env                      configure_env
+    _phase reset_runtime_state                reset_runtime_state_for_fresh_install
+    _phase configure_web_access_preferences   configure_web_access_preferences
+    _phase init_database                      init_database
+    _phase install_systemd                    install_systemd
+    _phase configure_firewall                 configure_firewall
+    _phase setup_wireguard                    setup_wireguard
+    _phase start_services                     start_services
+    _phase register_wireguard_server          register_wireguard_server
 
-    apply_web_access_setup
+    _phase apply_web_access_setup             apply_web_access_setup
 
     local exit_code=0
-    verify || exit_code=$?
+    _phase verify                             verify || exit_code=$?
+
+    # Verified ok — final success beacon so the funnel's final_status flips
+    # from in_progress → ok for this install_id.
+    if [[ $exit_code -eq 0 ]]; then
+        _PHASE_REPORTED=1
+        _inner_beacon "inner_complete" "ok"
+    fi
 
     print_summary
 
