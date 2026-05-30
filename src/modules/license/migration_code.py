@@ -248,18 +248,21 @@ def generate_migration_code() -> Optional[MigrationCode]:
     )
 
 
-def verify_migration_code(code: str) -> Tuple[bool, str]:
-    """Verify a migration code against the currently-active LICENSE_KEY.
+def _verify_code_hmac(code: str, payload: dict) -> Tuple[bool, str]:
+    """Pure cryptographic check of a migration code against a license
+    payload — NO expiry/TTL check.
 
-    Returns (ok, message). Used on the NEW server during install: the
-    operator pastes the code, panel verifies it offline, and on success
-    the next heartbeat carries it as proof of legitimate migration.
+    Splitting this out from verify_migration_code lets two callers share
+    the same HMAC logic with different freshness rules:
+      • verify_migration_code (the apply step) ALSO enforces the 7-day
+        TTL, so a stale code can't be replayed during activation.
+      • current_hardware_authorized_by_migration (every validator run,
+        forever after) only needs the HMAC to still be authentic — the
+        migration was legitimately authorized once; we must not revert
+        the panel to FREE just because the code aged past 7 days.
+
+    Returns (ok, message).
     """
-    payload = _read_license_payload()
-    if payload is None:
-        return False, "No LICENSE_KEY in environment"
-    if payload.get("license_type") != "lifetime_protected":
-        return False, "License is not lifetime_protected — migration codes don't apply"
     secret = payload.get("migration_secret")
     if not secret:
         return False, "License payload missing migration_secret (old key — can't migrate this way)"
@@ -273,12 +276,6 @@ def verify_migration_code(code: str) -> Tuple[bool, str]:
     except ValueError:
         return False, "Invalid migration code timestamp"
 
-    age = time.time() - ts
-    if age < 0:
-        return False, "Migration code timestamp is in the future"
-    if age > MIGRATION_CODE_TTL_DAYS * 86_400:
-        return False, f"Migration code expired (older than {MIGRATION_CODE_TTL_DAYS} days)"
-
     license_id = _license_id_from_payload(payload)
     from_hw_id = payload.get("hardware_id", "")
     msg = f"{license_id}:{ts}:{from_hw_id}".encode()
@@ -289,8 +286,41 @@ def verify_migration_code(code: str) -> Tuple[bool, str]:
         return False, "Invalid migration code (decode failure)"
     if not hmac.compare_digest(expected, actual):
         return False, "Migration code signature mismatch — code is from a different license"
-
     return True, "ok"
+
+
+def verify_migration_code(code: str) -> Tuple[bool, str]:
+    """Verify a migration code against the currently-active LICENSE_KEY.
+
+    Returns (ok, message). Used on the NEW server during install: the
+    operator pastes the code, panel verifies it offline, and on success
+    the next heartbeat carries it as proof of legitimate migration.
+
+    Enforces both HMAC authenticity AND the 7-day TTL — a code must be
+    fresh at apply time. The permanent hardware authorization that
+    follows (see current_hardware_authorized_by_migration) does NOT
+    re-check the TTL.
+    """
+    payload = _read_license_payload()
+    if payload is None:
+        return False, "No LICENSE_KEY in environment"
+    if payload.get("license_type") != "lifetime_protected":
+        return False, "License is not lifetime_protected — migration codes don't apply"
+
+    m = _CODE_RE.match(code.strip().upper())
+    if not m:
+        return False, "Invalid migration code format (expected MIGRATE-XXXXX-XXXXX-...)"
+    try:
+        ts = int(m.group(2))
+    except ValueError:
+        return False, "Invalid migration code timestamp"
+    age = time.time() - ts
+    if age < 0:
+        return False, "Migration code timestamp is in the future"
+    if age > MIGRATION_CODE_TTL_DAYS * 86_400:
+        return False, f"Migration code expired (older than {MIGRATION_CODE_TTL_DAYS} days)"
+
+    return _verify_code_hmac(code, payload)
 
 
 def parse_migration_code_metadata(code: str) -> Optional[dict]:
@@ -308,3 +338,107 @@ def parse_migration_code_metadata(code: str) -> Optional[dict]:
         "issued_at":  issued.isoformat(),
         "expires_at": (issued + timedelta(days=MIGRATION_CODE_TTL_DAYS)).isoformat(),
     }
+
+
+# ── Applied-migration record (PERMANENT local hardware authorization) ─────────
+#
+# Distinct from instance_manager.pending_migration.json, which is the
+# transient receipt forwarded to the lic-server and CLEARED once
+# acknowledged. This record is written when a migration code is applied
+# on the new server and is NEVER cleared — it permanently authorizes
+# THIS machine to run the migrated license, even fully offline.
+#
+# Why this exists: the LICENSE_KEY embeds the OLD hardware_id and is
+# immutable (RSA-signed). Without a local record, the validator's
+# hardware check (manager._parse_and_validate) would compare old-hw vs
+# current-hw forever and keep the panel on FREE — which is exactly the
+# bug operators hit migrating into a censored region where the box
+# can't reach the lic-server to get a re-issued key. This record lets
+# the offline-tolerant license actually finish its move.
+#
+# Tamper model: identical to the rest of migration — anyone with the
+# LICENSE_KEY (hence migration_secret) can authorize a move. The record
+# stores the original code and we re-verify its HMAC on every load, so
+# a hand-edited record without a valid code is rejected. Anti-clone
+# stays detective (lic-server heartbeat fingerprint dedup).
+
+_APPLIED_MIGRATION_PATH = os.environ.get(
+    "APPLIED_MIGRATION_PATH",
+    str(__import__("pathlib").Path(__file__).parent.parent.parent.parent
+        / "data" / "applied_migration.json"),
+)
+
+
+def save_applied_migration(code: str, current_hw: str) -> bool:
+    """Persist a permanent record that THIS machine is the authorized
+    home of the migrated license. Called once when a migration code is
+    successfully applied (alongside save_pending_migration). Returns
+    True on write.
+
+    `current_hw` is the value LicenseManager.get_server_id() returns on
+    this box — the same identity the validator compares the LICENSE_KEY
+    against. The caller passes it so this module stays free of a
+    manager import (avoids a circular dependency)."""
+    payload = _read_license_payload()
+    if payload is None:
+        return False
+    try:
+        from pathlib import Path
+        p = Path(_APPLIED_MIGRATION_PATH)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({
+            "code":        code.strip().upper(),
+            "license_id":  _license_id_from_payload(payload),
+            "from_hw_id":  payload.get("hardware_id", ""),
+            "to_hw_id":    current_hw,
+            "applied_at":  datetime.now(timezone.utc).isoformat(),
+        }))
+        logger.info("Applied-migration record written — this machine permanently authorized for the migrated license")
+        return True
+    except Exception as e:
+        logger.error("Failed to persist applied-migration record: {}", e)
+        return False
+
+
+def _load_applied_migration() -> Optional[dict]:
+    try:
+        from pathlib import Path
+        p = Path(_APPLIED_MIGRATION_PATH)
+        if p.exists():
+            return json.loads(p.read_text())
+    except Exception:
+        return None
+    return None
+
+
+def current_hardware_authorized_by_migration(payload: dict, current_hw: str) -> bool:
+    """True if a previously-applied migration authorizes running the
+    license in `payload` on `current_hw`, even though the LICENSE_KEY's
+    embedded hardware_id doesn't match this machine.
+
+    Called by LicenseManager when the hardware check would otherwise
+    fail. All of these must hold:
+      • an applied-migration record exists
+      • its license_id matches this LICENSE_KEY (same license)
+      • its from_hw_id matches the key's embedded hardware_id (the move
+        is FROM the hardware this key was bound to)
+      • its to_hw_id matches THIS machine (the move is TO here)
+      • the stored migration code still HMAC-verifies against this
+        key's migration_secret (authenticity; NO TTL — the move was
+        authorized once and stays valid)
+    """
+    rec = _load_applied_migration()
+    if not rec:
+        return False
+    try:
+        if rec.get("license_id") != _license_id_from_payload(payload):
+            return False
+        if rec.get("from_hw_id", "") != payload.get("hardware_id", ""):
+            return False
+        if not hmac.compare_digest(str(rec.get("to_hw_id", "")), str(current_hw)):
+            return False
+        ok, _ = _verify_code_hmac(rec.get("code", ""), payload)
+        return ok
+    except Exception as e:
+        logger.debug("applied-migration check failed: {}", e)
+        return False

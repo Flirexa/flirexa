@@ -105,13 +105,13 @@
 
         <form class="fx-login-form" @submit.prevent="handleLogin" novalidate>
           <div class="fx-field">
-            <label for="email">{{ $t('auth.email') }}</label>
+            <label for="identifier">{{ $t('auth.identifier') }}</label>
             <div class="fx-field-input" :class="{ error: emailError }">
-              <FxIcon name="mail" :size="16" />
-              <input id="email" v-model="form.email" type="email" autocomplete="email"
-                     placeholder="your@email.com" required @input="emailError = false" />
+              <FxIcon name="user" :size="16" />
+              <input id="identifier" v-model="form.identifier" type="text" autocomplete="username"
+                     :placeholder="$t('auth.identifierPlaceholder')" required @input="emailError = false" />
             </div>
-            <span v-if="emailError" class="fx-field-error">{{ $t('auth.invalidEmail') }}</span>
+            <span v-if="emailError" class="fx-field-error">{{ $t('auth.identifierRequired') }}</span>
           </div>
 
           <div class="fx-field">
@@ -201,7 +201,9 @@ const isCustomLogo = computed(() => (
   !!window.__branding?.branding_customer_logo_url
 ))
 
-const form = ref({ email: '', password: '' })
+// `identifier` accepts either email or username; the backend route
+// disambiguates by presence of "@".
+const form = ref({ identifier: '', password: '' })
 const remember = ref(true)
 const loading = ref(false)
 const error = ref(null)
@@ -233,17 +235,21 @@ onMounted(() => {
   }
 })
 
-const validateEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e || '')
-
 const handleLogin = async () => {
-  emailError.value = !validateEmail(form.value.email)
+  emailError.value = !(form.value.identifier || '').trim()
   passwordError.value = (form.value.password || '').length < 6
   if (emailError.value || passwordError.value) return
 
   loading.value = true
   error.value = null
   try {
-    const response = await portalApi.login(form.value)
+    // Backend accepts both `identifier` (preferred) and `email` (legacy
+    // mobile/portal builds) — send identifier explicitly so the route
+    // does not have to guess.
+    const response = await portalApi.login({
+      identifier: form.value.identifier.trim(),
+      password: form.value.password,
+    })
     localStorage.setItem('client_access_token', response.data.access_token)
     localStorage.setItem('client_user', JSON.stringify(response.data.user))
     if (remember.value) localStorage.setItem('remember_me', 'true')

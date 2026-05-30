@@ -640,6 +640,29 @@
       </div>
     </div>
 
+    <!-- Firebase Cloud Messaging (mobile push) -->
+    <h4 class="mb-4 settings-page__section-title">{{ $t('notifications.fcmTitle') || 'Mobile push (FCM)' }}</h4>
+    <div class="card mb-4">
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          {{ $t('notifications.fcmHint') || 'Paste the Server Key from your Firebase project. When set, in-app notifications (subscription, billing, broadcasts) also fire as system pushes on Android / iOS. Empty disables FCM — the in-app inbox still works.' }}
+        </p>
+        <div class="mb-3">
+          <label class="form-label">{{ $t('notifications.fcmServerKey') || 'FCM Server Key' }}</label>
+          <input type="password" class="form-control" v-model="fcm.server_key"
+                 :placeholder="fcm.server_key_set ? '••••••••••• (configured)' : 'AAAA...'" autocomplete="off" />
+          <div class="form-text">{{ $t('notifications.fcmKeyHint') || 'Firebase Console → Project Settings → Cloud Messaging → Legacy server key.' }}</div>
+        </div>
+        <button class="btn btn-primary btn-sm" @click="saveFcm" :disabled="savingFcm">
+          {{ savingFcm ? ($t('settings.saving') || 'Saving…') : ($t('common.save') || 'Save') }}
+        </button>
+        <button v-if="fcm.server_key_set" class="btn btn-outline-danger btn-sm ms-2" @click="clearFcm" :disabled="savingFcm">
+          {{ $t('common.clear') || 'Clear' }}
+        </button>
+        <div v-if="fcm.alert" class="alert alert-success mt-3 py-2 small">{{ fcm.alert }}</div>
+      </div>
+    </div>
+
     <!-- Free tier toggle -->
     <h4 class="mb-4 settings-page__section-title">{{ $t('settings.freeTierTitle') || 'Free tier' }}</h4>
     <div class="card mb-4">
@@ -1111,6 +1134,13 @@ export default {
         notify_user_payment_confirmed: true,
         alert: '',
       },
+      // Firebase Cloud Messaging server key (mobile push)
+      fcm: {
+        server_key: '',
+        server_key_set: false,
+        alert: '',
+      },
+      savingFcm: false,
       // Per-customer device cap (admin-side customer_email grouping). 0 = no cap.
       deviceLimits: {
         max_devices_per_customer: 0,
@@ -1648,6 +1678,11 @@ export default {
       try {
         var r = await systemApi.getNotificationSettings()
         Object.assign(this.notif, r.data)
+        // FCM lives on the same notifications-settings endpoint so we
+        // don't have to spawn a second admin GET just for one field.
+        if (r.data && Object.prototype.hasOwnProperty.call(r.data, 'fcm_server_key_set')) {
+          this.fcm.server_key_set = !!r.data.fcm_server_key_set
+        }
       } catch(e) {}
     },
     async saveNotifications() {
@@ -1666,6 +1701,34 @@ export default {
         setTimeout(() => { this.notif.alert = '' }, 3000)
       } catch(e) { alert('Error: ' + e.message) }
       finally { this.saving = false }
+    },
+
+    // FCM server key — store-only payload (we never read the raw key
+    // back out, only a "is it set" flag). Empty string clears.
+    async saveFcm() {
+      if (!this.fcm.server_key) return
+      this.savingFcm = true
+      try {
+        await systemApi.updateNotificationSettings({
+          fcm_server_key: this.fcm.server_key,
+        })
+        this.fcm.server_key = ''
+        this.fcm.server_key_set = true
+        this.fcm.alert = 'Saved!'
+        setTimeout(() => { this.fcm.alert = '' }, 3000)
+      } catch(e) { alert('Error: ' + (e.response?.data?.detail || e.message)) }
+      finally { this.savingFcm = false }
+    },
+    async clearFcm() {
+      if (!confirm('Remove the FCM server key? Mobile push notifications will stop until you paste a new one.')) return
+      this.savingFcm = true
+      try {
+        await systemApi.updateNotificationSettings({ fcm_server_key: '' })
+        this.fcm.server_key_set = false
+        this.fcm.alert = 'Cleared.'
+        setTimeout(() => { this.fcm.alert = '' }, 3000)
+      } catch(e) { alert('Error: ' + (e.response?.data?.detail || e.message)) }
+      finally { this.savingFcm = false }
     },
 
     async loadWebAccessSettings() {

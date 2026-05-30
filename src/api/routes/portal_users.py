@@ -19,11 +19,93 @@ from ...database.models import Client, Server, ClientStatus
 from ...modules.subscription.subscription_models import (
     ClientUser, ClientPortalSubscription, ClientPortalPayment,
     SubscriptionPlan, SubscriptionStatus, ClientUserClients,
-    SupportMessage
+    SupportMessage, DeviceSlot,
 )
 from ...modules.subscription.subscription_manager import SubscriptionManager
 
 router = APIRouter()
+
+
+# ============================================================================
+# SMTP NOTIFIER (best-effort, used by suspend / cancel flows)
+# ============================================================================
+
+def _fire_admin_smtp_event(db: Session, user: ClientUser, kind: str, **extra) -> None:
+    """Send a transactional SMTP notification for an admin-initiated
+    account event (currently: ``subscription_cancelled`` and
+    ``account_suspended``).
+
+    The whole function is wrapped in try/except so a misconfigured
+    SMTP / template error / missing branding row never aborts the
+    underlying admin action — the cancel/suspend has already taken
+    effect at the DB level by the time we reach this.
+
+    Skipped silently when the user has no email on file (migration
+    039 made the column nullable so customers can sign up anonymously
+    in markets that demand it).
+    """
+    import os as _os
+    if not user or not user.email:
+        return
+    try:
+        if _os.getenv("SMTP_ENABLED", "false").lower() != "true":
+            return
+        smtp_host = _os.getenv("SMTP_HOST", "").strip()
+        if not smtp_host:
+            return
+        from src.modules.email.email_service import EmailService
+        from src.modules.branding import get_all_branding
+
+        service = EmailService(
+            host=smtp_host,
+            port=int(_os.getenv("SMTP_PORT", "587") or "587"),
+            username=_os.getenv("SMTP_USERNAME", ""),
+            password=_os.getenv("SMTP_PASSWORD", ""),
+            tls=_os.getenv("SMTP_TLS", "true").lower() == "true",
+            from_address=_os.getenv("SMTP_FROM", smtp_host),
+        )
+        branding = {}
+        try:
+            branding = get_all_branding(db) or {}
+        except Exception:
+            pass
+        app_name = (
+            branding.get("branding_customer_app_name")
+            or branding.get("branding_app_name")
+            or _os.getenv("APP_NAME", "Flirexa")
+        )
+        support_email = (
+            branding.get("branding_support_email")
+            or _os.getenv("SUPPORT_EMAIL", "")
+        )
+        portal_url = _os.getenv("CLIENT_PORTAL_URL", "")
+        logo_url = branding.get("branding_logo_url") or ""
+        lang = (user.language or "en")
+
+        if kind == "subscription_cancelled":
+            service.send_subscription_cancelled_email(
+                to=user.email,
+                username=user.username or user.email.split("@")[0],
+                tier=extra.get("tier", ""),
+                portal_url=portal_url,
+                app_name=app_name,
+                support_email=support_email,
+                lang=lang,
+                logo_url=logo_url,
+            )
+        elif kind == "account_suspended":
+            service.send_account_suspended_email(
+                to=user.email,
+                username=user.username or user.email.split("@")[0],
+                reason=extra.get("reason", "") or "",
+                portal_url=portal_url,
+                app_name=app_name,
+                support_email=support_email,
+                lang=lang,
+                logo_url=logo_url,
+            )
+    except Exception as e:
+        logger.debug(f"_fire_admin_smtp_event({kind}) for {user.username}: {e}")
 
 
 # ============================================================================
@@ -1064,6 +1146,15 @@ def update_portal_user(user_id: int, data: UserUpdateRequest, db: Session = Depe
             enabled_count = _enable_user_wg_clients(user.id, db)
 
     db.commit()
+
+    # Send suspension email only on the transition into restricted —
+    # don't spam the customer on every PUT that keeps them suspended.
+    if now_restricted and not was_restricted:
+        _fire_admin_smtp_event(
+            db, user, "account_suspended",
+            reason=(user.ban_reason or ""),
+        )
+
     logger.info(f"Updated portal user {user.username}: active={user.is_active}, banned={user.is_banned}, wg_disabled={disabled_count}, wg_enabled={enabled_count}")
     return {"message": "User updated", "id": user.id}
 
@@ -1140,6 +1231,12 @@ def cancel_subscription(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     mgr = SubscriptionManager(db)
+    # Capture the tier BEFORE cancelling so the email can name the
+    # plan ("Your Basic subscription was cancelled" beats a generic
+    # "Your subscription was cancelled").
+    pre_sub = mgr.get_subscription(user_id)
+    pre_tier = pre_sub.tier if pre_sub else ""
+
     success = mgr.cancel_subscription(user_id)
     if not success:
         raise HTTPException(status_code=400, detail="No subscription found")
@@ -1148,6 +1245,11 @@ def cancel_subscription(user_id: int, db: Session = Depends(get_db)):
     mgr.apply_subscription_limits(user_id)
     disabled = _disable_user_wg_clients(user_id, db, reason="SUBSCRIPTION_CANCELLED")
     db.commit()
+
+    # Best-effort SMTP notice to the customer. Skipped if they have no
+    # email on file (username-only signup, migration 039) or SMTP is
+    # not configured.
+    _fire_admin_smtp_event(db, user, "subscription_cancelled", tier=pre_tier)
 
     logger.info(f"Admin cancelled subscription for user {user.username}, disabled {disabled} WG clients")
     return {"message": "Subscription cancelled"}
@@ -1239,3 +1341,90 @@ def delete_portal_user(user_id: int, db: Session = Depends(get_db)):
 
     logger.info(f"Admin deleted portal user {username} (id={user_id}), WG clients disabled")
     return {"message": f"User {username} deleted"}
+
+
+# ============================================================================
+# PHASE 4: ADMIN-MANAGED DEVICE SLOTS (operator request 2026-05-28)
+# ============================================================================
+#
+# Old customers who paid for a subscription but never figured out the
+# "Add device" button in the client portal sit with zero slots and can't
+# connect at all. Operators need a one-click way to create a slot on
+# behalf of a customer from the Users page in the admin panel.
+
+class AdminAddSlotRequest(BaseModel):
+    label: str = Field("Device", max_length=64,
+                       description="Slot label shown in the customer portal")
+    initial_server_id: Optional[int] = Field(
+        None,
+        description="Pin this server as the active peer on creation. "
+                    "If omitted, defaults to the panel's default server.",
+    )
+
+
+@router.post("/{user_id}/devices")
+def admin_create_device_slot(user_id: int, data: AdminAddSlotRequest,
+                             db: Session = Depends(get_db)):
+    """Admin: create a device slot for the given user.
+
+    Counterpart of ``POST /client-portal/devices``, but bypasses the
+    "customer signed in" flow so the operator can fix an old customer's
+    account from the Users page without asking them to log in.
+    Enforces the same ``max_devices`` cap as the self-serve endpoint —
+    admin doesn't get to silently overcommit a subscription.
+    """
+    user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_banned:
+        raise HTTPException(status_code=400,
+                            detail="Cannot add devices to a banned user. Unban first.")
+
+    from ...modules.subscription.slot_manager import SlotManager, SlotManagerError
+    sub_mgr = SubscriptionManager(db)
+    sub = sub_mgr.get_subscription(user_id)
+    if not sub or not sub.is_active:
+        raise HTTPException(status_code=400, detail="User has no active subscription")
+
+    max_devices = getattr(sub, "max_devices", None)
+    if max_devices is not None:
+        existing_slot_count = (
+            db.query(DeviceSlot)
+            .filter(DeviceSlot.client_user_id == user_id)
+            .count()
+        )
+        if existing_slot_count >= max_devices:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"User is at the device limit for their plan "
+                    f"({existing_slot_count}/{max_devices})."
+                ),
+            )
+
+    try:
+        slot = SlotManager(db).create_slot(
+            user=user,
+            label=data.label,
+            initial_server_id=data.initial_server_id,
+        )
+    except SlotManagerError as e:
+        raise HTTPException(status_code=getattr(e, "http_status", 400), detail=str(e))
+    except Exception as e:
+        logger.exception("admin_create_device_slot failed for user_id={}: {}", user_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    logger.info(
+        "Admin created device slot {} '{}' for user {} (id={})",
+        slot.id, data.label, user.username, user_id,
+    )
+    return {
+        "message": f"Slot created for {user.username}",
+        "slot": {
+            "id": slot.id,
+            "label": slot.label,
+            "active_server_id": slot.active_server_id,
+            "created_at": (slot.created_at.isoformat()
+                           if getattr(slot, "created_at", None) else None),
+        },
+    }

@@ -576,37 +576,51 @@ class EmailService:
     ) -> bool:
         """Confirm a successful payment. Fired by subscription_manager
         after the provider-specific webhook (Stripe, PayPal, NOWPayments,
-        CryptoPay) has marked the payment complete."""
+        CryptoPay) has marked the payment complete.
+
+        This is a receipt the customer keeps in their inbox forever —
+        it justifies a richer layout than the rest of the transactional
+        emails. The body is hand-rolled rather than going through
+        _render_email so the receipt block (amount / plan / period /
+        next billing) gets a proper card treatment, the way payment
+        processors like Stripe and Paddle do their own receipts.
+        """
         lang = "ru" if (lang or "").lower().startswith("ru") else "en"
         logo_url = self._resolve_logo_url(logo_url, portal_url)
         if lang == "ru":
-            label   = "Оплата подтверждена"
-            title   = "Спасибо!"
-            intro   = (
-                f"Здравствуйте, {username}! Мы получили вашу оплату <b>{amount} {currency}</b> "
-                f"за тариф <b>{tier}</b>. Подписка активна ещё <b>{period_days} дн.</b> "
-                f"— до <b>{new_expiry_date}</b>."
-            )
-            cta     = "Открыть портал"
-            subject = f"{app_name}: оплата подтверждена ({amount} {currency})"
-            plain   = (
+            label_eyebrow = "Платёж подтверждён"
+            hero_title    = "Спасибо за оплату"
+            hero_sub      = f"Здравствуйте, {username}! Доступ к VPN активен — ниже квитанция."
+            receipt_label = "Квитанция"
+            row_plan      = "Тариф"
+            row_amount    = "Сумма"
+            row_period    = "Срок"
+            row_period_v  = f"{period_days} дн."
+            row_until     = "Активна до"
+            cta           = "Открыть портал"
+            tip           = "Можно сохранить это письмо как чек об оплате."
+            subject       = f"{app_name}: платёж подтверждён ({amount} {currency})"
+            plain = (
                 f"{app_name}\n\n"
                 f"Здравствуйте, {username}.\n"
                 f"Спасибо за оплату {amount} {currency} за тариф {tier}.\n"
-                f"Срок подписки: {period_days} дн., до {new_expiry_date}.\n"
+                f"Подписка активна {period_days} дн., до {new_expiry_date}.\n"
                 f"Портал: {portal_url}\n"
             )
         else:
-            label   = "Payment confirmed"
-            title   = "Thanks for the payment"
-            intro   = (
-                f"Hi {username}, we received your <b>{amount} {currency}</b> payment for "
-                f"the <b>{tier}</b> plan. Your subscription is now active for the next "
-                f"<b>{period_days} days</b>, through <b>{new_expiry_date}</b>."
-            )
-            cta     = "Open the portal"
-            subject = f"{app_name}: payment confirmed ({amount} {currency})"
-            plain   = (
+            label_eyebrow = "Payment confirmed"
+            hero_title    = "Thanks for the payment"
+            hero_sub      = f"Hi {username}, your VPN is active. Receipt below."
+            receipt_label = "Receipt"
+            row_plan      = "Plan"
+            row_amount    = "Amount"
+            row_period    = "Period"
+            row_period_v  = f"{period_days} days"
+            row_until     = "Active until"
+            cta           = "Open the portal"
+            tip           = "Keep this email — it's your payment receipt."
+            subject       = f"{app_name}: payment confirmed ({amount} {currency})"
+            plain = (
                 f"{app_name}\n\n"
                 f"Hi {username},\n"
                 f"Thanks for your payment of {amount} {currency} for the {tier} plan.\n"
@@ -615,9 +629,163 @@ class EmailService:
             )
 
         support_hint = self._copy(lang, "support", support_email=support_email) if support_email else ""
+        brand_logo_img = (
+            f'<img src="{logo_url}" alt="{app_name}" style="height:38px;display:block;margin:0 auto 12px;border:0;"/>'
+            if logo_url else ""
+        )
+
+        # Receipt table — each row is a <tr> with key/value cells. Width
+        # forced so Gmail's auto-wrap doesn't break long plan names onto
+        # the same line as the value.
+        def row(k: str, v: str, *, accent: bool = False) -> str:
+            v_color  = "#0f172a" if not accent else "#0e7c2f"
+            v_weight = "600" if not accent else "700"
+            v_size   = "14px" if not accent else "16px"
+            return (
+                '<tr>'
+                f'<td style="padding:10px 0;color:#64748b;font-size:13px;'
+                f'font-family:Inter,Arial,sans-serif;border-top:1px solid #e2e8f0;">{k}</td>'
+                f'<td align="right" style="padding:10px 0;color:{v_color};font-size:{v_size};'
+                f'font-weight:{v_weight};font-family:Inter,Arial,sans-serif;'
+                f'border-top:1px solid #e2e8f0;">{v}</td>'
+                '</tr>'
+            )
+
+        receipt_table = (
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'width="100%" style="border-collapse:collapse;margin-top:8px;">'
+            + row(row_plan,   tier,                       accent=False)
+            + row(row_amount, f"{amount} {currency}",     accent=True)
+            + row(row_period, row_period_v,               accent=False)
+            + row(row_until,  new_expiry_date,            accent=False)
+            + '</table>'
+        )
+
+        cta_html = (
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'style="margin:24px auto 0;"><tr><td align="center" '
+            f'style="background:linear-gradient(135deg,#16a34a 0%,#0e7c2f 100%);'
+            f'border-radius:10px;">'
+            f'<a href="{portal_url}" style="display:inline-block;padding:14px 32px;'
+            f'color:#ffffff;text-decoration:none;font-family:Inter,Arial,sans-serif;'
+            f'font-size:15px;font-weight:600;letter-spacing:0.2px;">{cta} →</a>'
+            '</td></tr></table>'
+        ) if portal_url else ""
+
+        support_para = (
+            f'<p style="margin:18px 0 0;color:#64748b;font-size:13px;line-height:1.6;'
+            f'font-family:Inter,Arial,sans-serif;">{support_hint}</p>'
+            if support_hint else ""
+        )
+
+        html = f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{subject}</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;padding:32px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+             style="max-width:560px;background:#ffffff;border-radius:16px;
+                    box-shadow:0 1px 2px rgba(15,23,42,0.04),0 8px 24px rgba(15,23,42,0.06);
+                    overflow:hidden;">
+        <!-- HERO -->
+        <tr><td style="padding:32px 36px 24px;background:linear-gradient(135deg,#10b981 0%,#0e7c2f 100%);text-align:center;">
+          {brand_logo_img}
+          <div style="display:inline-block;padding:5px 12px;background:rgba(255,255,255,0.18);
+                      color:#ecfdf5;font-size:11px;font-weight:600;letter-spacing:1.6px;
+                      text-transform:uppercase;border-radius:99px;">{label_eyebrow}</div>
+          <h1 style="margin:14px 0 6px;color:#ffffff;font-family:Inter,Arial,sans-serif;
+                     font-size:26px;font-weight:700;letter-spacing:-0.4px;line-height:1.2;">{hero_title}</h1>
+          <p style="margin:0;color:rgba(255,255,255,0.85);font-family:Inter,Arial,sans-serif;
+                    font-size:14px;line-height:1.5;">{hero_sub}</p>
+        </td></tr>
+
+        <!-- RECEIPT -->
+        <tr><td style="padding:28px 36px 8px;">
+          <div style="font-size:11px;font-weight:600;letter-spacing:1.4px;color:#94a3b8;
+                      text-transform:uppercase;">{receipt_label}</div>
+          {receipt_table}
+        </td></tr>
+
+        <!-- CTA -->
+        <tr><td align="center" style="padding:0 36px 32px;">
+          {cta_html}
+          <p style="margin:18px 0 0;color:#94a3b8;font-size:12px;font-family:Inter,Arial,sans-serif;">{tip}</p>
+        </td></tr>
+
+        <!-- FOOTER -->
+        <tr><td style="padding:20px 36px 28px;border-top:1px solid #f1f5f9;background:#fafafa;">
+          <p style="margin:0;color:#64748b;font-size:12px;line-height:1.5;
+                    font-family:Inter,Arial,sans-serif;">
+            {app_name} · {tier}
+          </p>
+          {support_para}
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+        return self._send(to, subject, html, plain)
+
+    def send_subscription_cancelled_email(
+        self,
+        to: str,
+        username: str,
+        tier: str,
+        portal_url: str = "",
+        app_name: str = "Flirexa",
+        support_email: str = "",
+        lang: str = "en",
+        logo_url: str = "",
+    ) -> bool:
+        """Tell the customer their subscription was cancelled by the
+        operator (admin-side cancel, not their own self-cancel). Sent
+        from the cancel_subscription admin route; skipped silently
+        when the user has no email on file (migration 039)."""
+        lang = "ru" if (lang or "").lower().startswith("ru") else "en"
+        logo_url = self._resolve_logo_url(logo_url, portal_url)
+        if lang == "ru":
+            label = "Подписка отменена"
+            title = "Ваша подписка была отменена"
+            intro = (
+                f"Здравствуйте, {username}. Ваша подписка <b>{tier}</b> была "
+                f"отменена. Доступ к VPN отключён. Если это не должно было "
+                f"произойти, свяжитесь с поддержкой."
+            )
+            cta = "Открыть портал"
+            subject = f"{app_name}: подписка отменена"
+            plain = (
+                f"{app_name}\n\n"
+                f"Здравствуйте, {username}.\n"
+                f"Подписка {tier} была отменена. VPN-доступ отключён.\n"
+                f"Если возникли вопросы — войдите в портал: {portal_url}\n"
+            )
+        else:
+            label = "Subscription cancelled"
+            title = "Your subscription was cancelled"
+            intro = (
+                f"Hi {username}, your <b>{tier}</b> subscription has been "
+                f"cancelled and VPN access is now disabled. If this wasn't "
+                f"expected, please reach out to support."
+            )
+            cta = "Open portal"
+            subject = f"{app_name}: subscription cancelled"
+            plain = (
+                f"{app_name}\n\n"
+                f"Hi {username},\n"
+                f"Your {tier} subscription has been cancelled. VPN access is disabled.\n"
+                f"Questions? Sign in at: {portal_url}\n"
+            )
+        support_hint = self._copy(lang, "support", support_email=support_email) if support_email else ""
         cta_html = (
             f'<a href="{portal_url}" style="display:inline-block;margin:18px 0 4px;'
-            f'padding:10px 22px;background:#16a34a;color:#fff;text-decoration:none;'
+            f'padding:10px 22px;background:#0f3460;color:#fff;text-decoration:none;'
             f'border-radius:6px;font-size:14px;">{cta}</a>'
         ) if portal_url else ""
         footer_html = (
@@ -629,6 +797,86 @@ class EmailService:
             section_label=label,
             title=title,
             intro_html=f"<p>{intro}</p>",
+            body_html=cta_html,
+            footer_html=footer_html,
+            logo_url=logo_url,
+        )
+        return self._send(to, subject, html, plain)
+
+    def send_account_suspended_email(
+        self,
+        to: str,
+        username: str,
+        reason: str = "",
+        portal_url: str = "",
+        app_name: str = "Flirexa",
+        support_email: str = "",
+        lang: str = "en",
+        logo_url: str = "",
+    ) -> bool:
+        """Tell the customer their account was suspended (banned or
+        deactivated by an operator). `reason` is the optional admin-
+        provided ban_reason; rendered verbatim so the operator can
+        explain context to the customer."""
+        lang = "ru" if (lang or "").lower().startswith("ru") else "en"
+        logo_url = self._resolve_logo_url(logo_url, portal_url)
+        reason_html = (
+            f'<p style="margin:12px 0 0;color:#475569;font-size:13px;'
+            f'line-height:1.6;"><b>Reason / Причина:</b> {reason}</p>'
+            if reason else ""
+        )
+        if lang == "ru":
+            label = "Аккаунт приостановлен"
+            title = "Ваш аккаунт приостановлен"
+            intro = (
+                f"Здравствуйте, {username}. Ваш аккаунт был приостановлен "
+                f"администратором. VPN-доступ отключён. Свяжитесь с "
+                f"поддержкой, чтобы уточнить причину или восстановить доступ."
+            )
+            cta = "Связаться с поддержкой"
+            subject = f"{app_name}: аккаунт приостановлен"
+            plain_reason = f"Причина: {reason}\n" if reason else ""
+            plain = (
+                f"{app_name}\n\n"
+                f"Здравствуйте, {username}.\n"
+                f"Ваш аккаунт приостановлен. VPN-доступ отключён.\n"
+                f"{plain_reason}"
+                f"Свяжитесь с поддержкой: {support_email or portal_url}\n"
+            )
+        else:
+            label = "Account suspended"
+            title = "Your account has been suspended"
+            intro = (
+                f"Hi {username}, your account has been suspended by an "
+                f"administrator and VPN access is disabled. Contact support "
+                f"to find out why or to restore access."
+            )
+            cta = "Contact support"
+            subject = f"{app_name}: account suspended"
+            plain_reason = f"Reason: {reason}\n" if reason else ""
+            plain = (
+                f"{app_name}\n\n"
+                f"Hi {username},\n"
+                f"Your account has been suspended. VPN access is disabled.\n"
+                f"{plain_reason}"
+                f"Contact support: {support_email or portal_url}\n"
+            )
+        cta_target = f"mailto:{support_email}" if support_email else portal_url
+        cta_html = (
+            f'<a href="{cta_target}" style="display:inline-block;margin:18px 0 4px;'
+            f'padding:10px 22px;background:#dc2626;color:#fff;text-decoration:none;'
+            f'border-radius:6px;font-size:14px;">{cta}</a>'
+        ) if cta_target else ""
+        support_hint = self._copy(lang, "support", support_email=support_email) if support_email else ""
+        footer_html = (
+            f'<p style="margin:18px 0 0;color:#64748b;font-size:13px;line-height:1.6;">{support_hint}</p>'
+            if support_hint else ""
+        )
+        html = self._render_email(
+            app_name=app_name,
+            section_label=label,
+            title=title,
+            intro_html=f"<p>{intro}</p>{reason_html}",
             body_html=cta_html,
             footer_html=footer_html,
             logo_url=logo_url,

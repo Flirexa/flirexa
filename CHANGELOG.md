@@ -4,6 +4,103 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.41 — 2026-05-30
+
+Stable cuts an arc of test-channel iterations (1.9.34 → 1.9.41) into
+one promote. Highlights:
+
+### Added
+
+- **App-only servers (`for_app_only`).** New per-server toggle in the
+  Servers menu hides the server from the web client portal and the
+  public `/sub/{token}` URL while still exposing it to the official
+  mobile and desktop client app. Detection by the `X-Client-App`
+  header value or a matching user-agent prefix, so existing app
+  builds pick it up without a client release. Cards get a small
+  indigo "App-only" badge so the state is visible at a glance.
+- **Auto-hide unreachable servers.** The health checker stamps a
+  `last_good_health_at` timestamp on every successful poll;
+  customer-facing endpoints (`/servers`, `/devices`, `/sub/{token}`)
+  hide servers that haven't been healthy for 5 minutes. A new
+  `force_visible` admin override pins a server visible regardless
+  (amber "Pinned" badge). Servers that were never polled (just
+  added) count as healthy until the first poll lands, so freshly
+  added servers don't vanish before the first health pass.
+- **Admin Slots page → bulk delete + browseable Add Slot.** Per-row
+  delete + per-row checkbox + "select all slots of this user" shortcut
+  + toolbar bulk delete. The "Add Device Slot" toolbar button (also
+  available on the Users page) opens a modal that preloads the most
+  recent 50 customers; typing filters via the existing portal-users
+  search. Backend `DELETE /api/v1/clients/slots/admin/{id}` cascades
+  through SlotManager so peers on every server get cleaned up.
+- **Admin "Add Device Slot" on the Users page.** Old customers who
+  paid for a plan but never figured out the portal's Add Device flow
+  can be unblocked from `/portal-users/{id}` with one click. Enforces
+  the same `max_devices` cap as the self-serve endpoint.
+- **FCM push notifications (panel side).** New `fcm_tokens` table
+  keyed by `(user_id, device_id)` matches the `X-Device-Id` slot
+  bind. App registers via `POST /api/v1/client-portal/fcm/register`
+  on every signed-in cold start; `DELETE` clears on explicit sign-out.
+  `NotificationService.create_portal_notification` now best-effort
+  dispatches via FCM in addition to writing the in-app inbox row.
+  Sender uses the legacy `fcm.googleapis.com/fcm/send` endpoint with
+  an admin-configured Server Key (Settings → Mobile push). Empty key
+  → graceful no-op so the inbox keeps working without FCM credentials.
+  Tokens that come back `NotRegistered` / `InvalidRegistration` are
+  pruned automatically.
+- **Bulk `POST /api/v1/client-portal/notifications/mark-all-read`**
+  endpoint for the mobile and Windows clients.
+- **Redesigned donate modal.** Two screens (info → amount picker),
+  animated heart with ripple rings, $3/$5/$10/$25 presets + custom
+  amount + 180-char comment, confetti success overlay. Localised in
+  ru/en/de/fr/es. The "Support with $X" button currently plays the
+  success animation only — payment integration (Stripe / Patreon /
+  whatever) plugs in next.
+
+### Changed
+
+- `GET /client-portal/servers`, `GET /client-portal/devices`,
+  `GET /sub/{token}` route every server through a unified visibility
+  helper combining `customer_visible` × `for_app_only` × auto-hide
+  threshold × `force_visible`.
+- All PortalUsers prompts / confirms / alerts moved off hardcoded
+  English to `useI18n().t()`. New strings added to ru/en/de/fr/es:
+  ban-reason prompt, subscription cancel / reset traffic / delete
+  user confirmations, payment confirm / reject / delete dialogs, and
+  the broadcast "send to all X users" confirm with `{tier}`
+  interpolation.
+
+### Fixed
+
+- **`update_apply.sh` now finds alembic in legacy venv layouts.**
+  The script hard-coded `$INSTALL_DIR/venv/bin/alembic`, which broke
+  on installs whose venv had stayed at the legacy `/opt/vpnmanager/venv`
+  after the install-dir rename. Symptom: "Migration required but
+  alembic not available" + exit 1 with no migrations applied. Adds
+  a `find_alembic_bin` helper that searches `$ALEMBIC_BIN` override,
+  `$INSTALL_DIR/venv/bin/alembic`, `/opt/vpnmanager/venv/bin/alembic`,
+  `/opt/vpnmanager/venv/bin/alembic`, and the system PATH in order.
+  The error log now enumerates every path checked so future operators
+  can diagnose without grepping source.
+- **`manager.py` prefers the staged release's `update_apply.sh` over
+  the installed one.** When a buggy installed script would block its
+  own replacement (e.g. the alembic-search bug above), the update API
+  picks up the fixed script bundled in the new tarball as a way out
+  of the bootstrap trap.
+- 10 loguru calls in the new modules converted from `%`-style
+  placeholders to `{}`-style (caught by the pre-publish lint;
+  `%`-style format args silently drop through the stdlib→loguru
+  bridge at runtime).
+
+### Migrations
+
+- `042_app_features_batch` adds `servers.for_app_only`,
+  `servers.last_good_health_at`, `servers.force_visible`, and
+  creates the `fcm_tokens` table with a `(user_id, device_id)`
+  uniqueness constraint and indexes on both columns.
+
+---
+
 ## v1.9.15 — 2026-05-21
 
 ### Changed

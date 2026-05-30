@@ -245,6 +245,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Could not start update auto-check loop: {}", e)
 
+    # Hot-poll every customer-visible server's WG handshake state in the
+    # background so /clients, /clients/online and the slot endpoints don't
+    # each fire their own sequential SSH/agent round-trip. The cache is
+    # the only thing read in the hot request path — see
+    # src/modules/cache/handshake_cache.py for the design write-up.
+    try:
+        from ..modules.cache.handshake_cache import ensure_refresher_started
+        ensure_refresher_started()
+        logger.info("Handshake cache background refresher armed")
+    except Exception as e:
+        logger.warning("Could not start handshake cache refresher: {}", e)
+
     # Sync server fleet to current license tier on every startup. Catches the
     # case where a paid subscription expired while the box was off — without
     # this the excess servers would silently come back online next reboot.

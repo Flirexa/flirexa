@@ -43,6 +43,32 @@
       </div>
     </div>
 
+    <!-- ── Missing display-name banner ─────────────────────────
+         Customer-visible servers without a display_name fall back to
+         their raw admin name in the customer portal. Operators often
+         set the admin name as an IP / slug for ops convenience, so
+         clients then see something like a bare IP or "wg-de-1" slug
+         instead of "Frankfurt". One-click fix from this banner. -->
+    <div v-if="missingDisplayNameServers.length" class="display-name-banner">
+      <div class="display-name-banner__icon"><i class="mdi mdi-tag-text-outline"></i></div>
+      <div class="display-name-banner__body">
+        <div class="display-name-banner__title">
+          {{ $t('servers.missingDisplayBannerTitle', { count: missingDisplayNameServers.length }) }}
+        </div>
+        <div class="display-name-banner__text">
+          {{ $t('servers.missingDisplayBannerBody') }}
+        </div>
+        <ul class="display-name-banner__list">
+          <li v-for="srv in missingDisplayNameServers" :key="srv.id">
+            <strong>{{ srv.name }}</strong>
+            <button class="btn btn-sm btn-primary ms-2" @click="openRenameModal(srv)">
+              <i class="mdi mdi-pencil-outline me-1"></i>{{ $t('servers.setDisplayName') }}
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+
     <!-- ── Server grid ──────────────────────────────────────── -->
     <div v-if="store.servers.length" class="srv-grid" @click="openMenuId = null">
       <div v-for="server in store.servers" :key="server.id" class="srv-card">
@@ -62,6 +88,29 @@
               <span v-if="server.customer_visible === false" class="srv-proto srv-proto--hidden"
                 :title="$t('servers.hiddenFromCustomersHint') || 'This server is hidden from the customer portal'">
                 <i class="mdi mdi-eye-off-outline me-1"></i>{{ $t('servers.hiddenFromCustomersBadge') || 'Hidden' }}
+              </span>
+              <span v-if="server.for_app_only" class="srv-proto srv-proto--app-only"
+                :title="$t('servers.appOnlyHint') || 'Only visible to the official mobile / desktop app — hidden from the web portal and /sub URLs'">
+                <svg class="srv-badge-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="6" y="2" width="12" height="20" rx="2.5" />
+                  <path d="M11 18h2" />
+                  <path d="M9 6h6" stroke-opacity="0.55" />
+                </svg>
+                {{ $t('servers.appOnlyBadge') || 'App-only' }}
+              </span>
+              <span v-if="server.force_visible" class="srv-proto srv-proto--pinned"
+                :title="$t('servers.forceVisibleHint') || 'Pinned visible — auto-hide on missed health polls is skipped for this server'">
+                <svg class="srv-badge-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 17v5" />
+                  <path d="M9 10.76V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4.76a2 2 0 0 0 .9 1.67l1.5 1a2 2 0 0 1 .9 1.67V16a1 1 0 0 1-1 1H6.7a1 1 0 0 1-1-1v-.9a2 2 0 0 1 .9-1.67l1.5-1a2 2 0 0 0 .9-1.67Z" />
+                </svg>
+                {{ $t('servers.forceVisibleBadge') || 'Pinned' }}
+              </span>
+              <span v-else-if="!server.display_name"
+                class="srv-proto srv-proto--nodisplay"
+                :title="$t('servers.noDisplayNameHint')"
+                @click.stop="openRenameModal(server)">
+                <i class="mdi mdi-tag-off-outline me-1"></i>{{ $t('servers.noDisplayNameBadge') }}
               </span>
               <button v-if="server.agent_mode === 'agent'"
                 class="srv-agent-badge"
@@ -124,6 +173,18 @@
                   {{ (server.customer_visible !== false)
                       ? ($t('servers.hideFromCustomers') || 'Hide from customer portal')
                       : ($t('servers.showToCustomers') || 'Show in customer portal') }}
+                </button>
+                <button class="srv-menu__item" @click="menuAction(() => toggleForAppOnly(server))">
+                  <i class="mdi me-1" :class="server.for_app_only ? 'mdi-cellphone-off' : 'mdi-cellphone-lock'"></i>
+                  {{ server.for_app_only
+                      ? ($t('servers.unmarkAppOnly') || 'Also show on web portal')
+                      : ($t('servers.markAppOnly') || 'Mark as app-only') }}
+                </button>
+                <button class="srv-menu__item" @click="menuAction(() => toggleForceVisible(server))">
+                  <i class="mdi me-1" :class="server.force_visible ? 'mdi-shield-off-outline' : 'mdi-shield-check-outline'"></i>
+                  {{ server.force_visible
+                      ? ($t('servers.disableForceVisible') || 'Allow auto-hide when unreachable')
+                      : ($t('servers.enableForceVisible') || 'Pin visible (skip auto-hide)') }}
                 </button>
                 <template v-if="server.server_category !== 'proxy'">
                   <div class="srv-menu__sep"></div>
@@ -1744,6 +1805,18 @@ function menuAction(fn) { openMenuId.value = null; fn() }
 const brokenAgents = computed(() =>
   (store.servers || []).filter(s => s.agent_breaker?.open)
 )
+
+// Customer-visible servers that lack a `display_name`. The customer
+// portal's region picker falls back to `display_name → location →
+// name` — without display_name, the operator's admin-side name (often
+// an IP or short slug) is what the customer sees. Surfaces a banner
+// pointing them to the rename dialog so labels in the portal stay
+// human-readable.
+const missingDisplayNameServers = computed(() =>
+  (store.servers || []).filter(
+    s => s.customer_visible !== false && !s.display_name
+  )
+)
 const breakerActing = reactive({})
 
 function formatBreakerSince(seconds) {
@@ -2922,6 +2995,32 @@ async function toggleCustomerVisible(server) {
   }
 }
 
+// Mark a server as "app-only" — surfaced only to requests carrying
+// the X-Client-App header or a matching user-agent prefix. Web portal
+// users and router /sub fetchers stop seeing it. Default off.
+async function toggleForAppOnly(server) {
+  const next = !server.for_app_only
+  try {
+    await store.updateServer(server.id, { for_app_only: next })
+    await store.fetchServers()
+  } catch (err) {
+    alert((t('common.error') || 'Error') + ': ' + (err.response?.data?.detail || err.message))
+  }
+}
+
+// Pin this server visible regardless of the unreachable-N-minutes
+// auto-hide. Useful for flaky hosts the operator wants to keep
+// available even when health polls miss occasionally.
+async function toggleForceVisible(server) {
+  const next = !server.force_visible
+  try {
+    await store.updateServer(server.id, { force_visible: next })
+    await store.fetchServers()
+  } catch (err) {
+    alert((t('common.error') || 'Error') + ': ' + (err.response?.data?.detail || err.message))
+  }
+}
+
 // --- Expand address pool (grow CIDR without disrupting current clients) ---
 
 const showExpandPoolModal = ref(false)
@@ -3562,6 +3661,11 @@ onUnmounted(() => {
 .srv-proto--awg     { background: rgba(111,66,193,.13); color: #7c3aed; }
 .srv-proto--hidden  { background: rgba(148,163,184,.16); color: #64748b; }
 [data-theme="dark"] .srv-proto--hidden { background: rgba(148,163,184,.18); color: #94a3b8; }
+.srv-proto--app-only  { background: rgba(99,102,241,.16); color: #4f46e5; }
+[data-theme="dark"] .srv-proto--app-only { background: rgba(129,140,248,.18); color: #a5b4fc; }
+.srv-proto--pinned  { background: rgba(245,158,11,.16); color: #b45309; }
+[data-theme="dark"] .srv-proto--pinned { background: rgba(245,158,11,.20); color: #fbbf24; }
+.srv-badge-svg { vertical-align: -2px; margin-right: 4px; }
 .srv-proto--hy2     { background: rgba(253,126,20,.13);  color: #c05621; }
 .srv-proto--tuic    { background: rgba(32,201,151,.13);  color: #047857; }
 .srv-proto--default { background: rgba(115,103,240,.12); color: var(--vxy-primary); }
@@ -3656,6 +3760,69 @@ onUnmounted(() => {
   opacity: 0.7;
   margin-right: 6px;
 }
+
+/* Missing-display-name banner. Same shape as the agent-breaker banner
+   above (accent-tinted gradient + border-left strip) but using the
+   primary brand colour to signal "informational nudge" rather than
+   the orange "things are broken" treatment. */
+.display-name-banner {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  margin: 0 0 18px;
+  background: rgba(13, 110, 253, 0.07);
+  border: 1px solid rgba(13, 110, 253, 0.25);
+  border-left: 4px solid #0d6efd;
+  border-radius: 6px;
+  color: var(--bs-body-color);
+}
+.display-name-banner__icon {
+  font-size: 1.4rem;
+  color: #0d6efd;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.display-name-banner__body { flex: 1; min-width: 0; }
+.display-name-banner__title { font-weight: 600; margin-bottom: 4px; }
+.display-name-banner__text { font-size: .92em; opacity: 0.85; margin-bottom: 8px; }
+.display-name-banner__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.display-name-banner__list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+[data-theme="dark"] .display-name-banner {
+  background: rgba(13, 110, 253, 0.12);
+  border-color: rgba(13, 110, 253, 0.30);
+}
+
+/* Per-card "no display name" badge — fits next to the other srv-proto
+   pills, uses the same accent-tinted treatment as the banner. Click
+   opens the rename dialog. */
+.srv-proto--nodisplay {
+  background: rgba(13, 110, 253, 0.10);
+  color: #0d6efd;
+  border-color: rgba(13, 110, 253, 0.25);
+  cursor: pointer;
+}
+.srv-proto--nodisplay:hover {
+  background: rgba(13, 110, 253, 0.18);
+}
+[data-theme="dark"] .srv-proto--nodisplay {
+  background: rgba(13, 110, 253, 0.16);
+  color: #6ea8fe;
+  border-color: rgba(13, 110, 253, 0.30);
+}
+
 [data-theme="dark"] .agent-breaker-banner {
   background: rgba(255, 159, 67, 0.12);
   border-color: rgba(255, 159, 67, 0.30);

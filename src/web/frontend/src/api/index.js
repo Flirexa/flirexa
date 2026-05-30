@@ -201,6 +201,7 @@ export const clientsApi = {
   // Device slots — aggregated multi-region devices. One row per slot,
   // showing all regional peers, totals, and the slot's active server.
   listSlots: () => api.get('/clients/slots/admin'),
+  deleteSlot: (slotId) => api.delete(`/clients/slots/admin/${slotId}`),
 }
 
 // ===== Servers =====
@@ -303,6 +304,7 @@ export const portalUsersApi = {
   extendSubscription: (id, data) => api.post(`/portal-users/${id}/extend-subscription`, data),
   cancelSubscription: (id) => api.post(`/portal-users/${id}/cancel-subscription`),
   resetTraffic: (id) => api.post(`/portal-users/${id}/reset-traffic`),
+  addDeviceSlot: (id, data) => api.post(`/portal-users/${id}/devices`, data),
   deleteUser: (id) => api.delete(`/portal-users/${id}`),
   getPayments: (params) => api.get('/portal-users/payments', { params }),
   confirmPayment: (id) => api.post(`/portal-users/payments/${id}/confirm`),

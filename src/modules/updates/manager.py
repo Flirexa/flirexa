@@ -710,8 +710,26 @@ def _run_apply_script(
     The script writes its exit code to backup_dir/apply.exitcode when it finishes.
     cleanup_orphaned_updates() reads these files on the next API startup.
     """
-    if not _APPLY_SCRIPT.exists():
-        return 1, f"update_apply.sh not found at {_APPLY_SCRIPT}"
+    # Prefer the apply script bundled with the staged release over the one
+    # currently installed. If the installed copy has a bug that blocks
+    # updates from applying (e.g. 1.9.34's hardcoded venv path on legacy
+    # vpnmanager layouts → "Migration required but alembic not available"
+    # + exit 1), the only path out is to run the updated script that
+    # SHIPPED with the fix. The installed copy stays the fallback so
+    # rollback / older clients still work.
+    apply_script = _APPLY_SCRIPT
+    if staging_dir:
+        staged_script = Path(staging_dir) / "update_apply.sh"
+        if staged_script.exists():
+            apply_script = staged_script
+            logger.info(
+                "[UPDATE %d] using staged update_apply.sh from %s "
+                "(installed copy: %s)",
+                update_id, staged_script, _APPLY_SCRIPT,
+            )
+
+    if not apply_script.exists():
+        return 1, f"update_apply.sh not found at {apply_script}"
 
     log_file  = backup_dir / "apply.log"
     pid_file  = backup_dir / "apply.pid"
@@ -736,7 +754,7 @@ def _run_apply_script(
     backup_dir.mkdir(parents=True, exist_ok=True)
     with open(log_file, "w") as logf:
         proc = subprocess.Popen(
-            ["bash", str(_APPLY_SCRIPT)],
+            ["bash", str(apply_script)],
             env=env,
             stdout=logf,
             stderr=subprocess.STDOUT,

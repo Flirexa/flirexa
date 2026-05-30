@@ -187,13 +187,14 @@ onBeforeUnmount(() => {
 })
 
 const routeNameMap = {
-  'Dashboard': 'dashboard', 'Clients': 'clients', 'Servers': 'servers',
+  'Dashboard': 'dashboard', 'OnlineUsers': 'onlineUsers',
+  'Clients': 'clients', 'Slots': 'slots', 'Servers': 'servers',
   'Subscriptions': 'subscriptions', 'Payments': 'payments', 'Bots': 'bots',
   'TrafficRules': 'traffic', 'Settings': 'settings', 'Logs': 'logs',
   'AppLogs': 'appLogs', 'PortalUsers': 'portalUsers', 'PromoCodes': 'promoCodes',
   'SupportMessages': 'supportMessages', 'Applications': 'applications',
   'SystemHealth': 'systemHealth', 'ServerMonitoring': 'serverMonitoring',
-  'Backup': 'backup', 'Updates': 'updates',
+  'Backup': 'backup', 'Updates': 'updates', 'Plugins': 'plugins',
 }
 const routeKey = computed(() => routeNameMap[route.name] || (route.name || 'dashboard').toString().toLowerCase())
 

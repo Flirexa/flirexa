@@ -366,7 +366,20 @@ onMounted(async () => {
     if (match) selectedProvider.value = match.id
     else if (providers.value.length >= 1) selectedProvider.value = providers.value[0].id
   } catch { /* ignore */ }
-  if (props.plan) { selectedPlan.value = props.plan; if (props.plan.price_monthly_usd > 0) step.value = 2 }
+  if (props.plan) {
+    selectedPlan.value = props.plan
+    // Plans.vue picks a billing period (monthly/quarterly/yearly)
+    // and passes it on the plan object so the modal jumps straight
+    // to the payment step with the right duration. Previously the
+    // `duration` ref kept its default '30', so a customer who chose
+    // "1 year" saw the yearly price on the Plans card but got
+    // billed + provisioned for one month. Map billing_period to the
+    // backend's day count up front.
+    const map = { yearly: '365', quarterly: '90', monthly: '30' }
+    const d = map[props.plan.billing_period]
+    if (d) duration.value = d
+    if (props.plan.price_monthly_usd > 0) step.value = 2
+  }
 })
 
 onUnmounted(() => {

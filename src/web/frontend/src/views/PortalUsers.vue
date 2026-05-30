@@ -325,6 +325,10 @@
                     <button v-if="detail.telegram_id" class="btn btn-sm btn-outline-primary" @click="showMsgInput = !showMsgInput">
                       {{ $t('portalUsers.sendMessage') || 'Send Message' }}
                     </button>
+                    <button class="btn btn-sm btn-outline-info" @click="addSlot" :disabled="actionLoading">
+                      <i class="mdi mdi-plus-circle-outline me-1"></i>
+                      {{ $t('portalUsers.addSlot') || 'Add Device Slot' }}
+                    </button>
                   </div>
                   <div class="user-actions-danger">
                     <button class="btn btn-sm btn-outline-danger" @click="deleteUser" :disabled="actionLoading">
@@ -631,8 +635,11 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { portalUsersApi } from '../api'
 import { formatBytes } from '../utils'
+
+const { t } = useI18n()
 
 const users = ref([])
 const total = ref(0)
@@ -771,14 +778,14 @@ async function openDetail(userId) {
 }
 
 async function banUser() {
-  const reason = prompt('Ban reason:')
+  const reason = prompt(t('portalUsers.banReasonPrompt') || 'Ban reason:')
   if (reason === null) return
   actionLoading.value = true
   try {
     await portalUsersApi.update(detail.value.id, { is_banned: true, ban_reason: reason })
     await openDetail(detail.value.id)
     await loadUsers()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
@@ -788,7 +795,7 @@ async function unbanUser() {
     await portalUsersApi.update(detail.value.id, { is_banned: false })
     await openDetail(detail.value.id)
     await loadUsers()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
@@ -798,7 +805,29 @@ async function deactivateUser() {
     await portalUsersApi.update(detail.value.id, { is_active: false })
     await openDetail(detail.value.id)
     await loadUsers()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
+  actionLoading.value = false
+}
+
+// Admin: create a device slot on behalf of this user. Mirrors the
+// "Add device" button the customer would see in their own portal —
+// useful for old customers who paid for a plan but never figured
+// out where the button was. Backend enforces max_devices.
+async function addSlot() {
+  const promptMsg = t('portalUsers.addSlotPrompt') || 'Slot label (shown in the customer portal):'
+  const defaultLabel = t('portalUsers.addSlotDefaultLabel') || 'Device'
+  const label = (prompt(promptMsg, defaultLabel) || '').trim()
+  if (!label) return
+  actionLoading.value = true
+  try {
+    await portalUsersApi.addDeviceSlot(detail.value.id, { label })
+    await openDetail(detail.value.id)
+    await loadUsers()
+    const tpl = t('portalUsers.addSlotCreated') || 'Slot "{label}" created.'
+    alert(tpl.replace('{label}', label))
+  } catch (e) {
+    alert(e.response?.data?.detail || (t('common.error') || 'Error'))
+  }
   actionLoading.value = false
 }
 
@@ -808,7 +837,7 @@ async function activateUser() {
     await portalUsersApi.update(detail.value.id, { is_active: true })
     await openDetail(detail.value.id)
     await loadUsers()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
@@ -819,7 +848,7 @@ async function doGrant() {
     showGrant.value = false
     await openDetail(detail.value.id)
     await loadUsers()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
@@ -830,105 +859,106 @@ async function doExtend() {
     showExtend.value = false
     await openDetail(detail.value.id)
     await loadUsers()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 async function cancelSub() {
-  if (!confirm('Cancel this subscription?')) return
+  if (!confirm(t('portalUsers.cancelSubConfirm') || 'Cancel this subscription?')) return
   actionLoading.value = true
   try {
     await portalUsersApi.cancelSubscription(detail.value.id)
     await openDetail(detail.value.id)
     await loadUsers()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 async function resetTraffic() {
-  if (!confirm('Reset traffic counters for this user?')) return
+  if (!confirm(t('portalUsers.resetTrafficConfirm') || 'Reset traffic counters for this user?')) return
   actionLoading.value = true
   try {
     await portalUsersApi.resetTraffic(detail.value.id)
     await openDetail(detail.value.id)
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 async function deleteUser() {
-  if (!confirm(`Delete user "${detail.value.username}" permanently? This cannot be undone.`)) return
+  const tpl = t('portalUsers.deleteUserConfirm') || 'Delete user "{name}" permanently? This cannot be undone.'
+  if (!confirm(tpl.replace('{name}', detail.value.username))) return
   actionLoading.value = true
   try {
     await portalUsersApi.deleteUser(detail.value.id)
     showDetail.value = false
     detail.value = null
     await loadUsers()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 // Payments in detail modal
 async function confirmPaymentInDetail(paymentId) {
-  if (!confirm('Confirm this payment?')) return
+  if (!confirm(t('portalUsers.confirmPaymentConfirm') || 'Confirm this payment?')) return
   actionLoading.value = true
   try {
     await portalUsersApi.confirmPayment(paymentId)
     await openDetail(detail.value.id)
     await loadPayments()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 async function rejectPaymentInDetail(paymentId) {
-  if (!confirm('Reject this payment?')) return
+  if (!confirm(t('portalUsers.rejectPaymentConfirm') || 'Reject this payment?')) return
   actionLoading.value = true
   try {
     await portalUsersApi.rejectPayment(paymentId)
     await openDetail(detail.value.id)
     await loadPayments()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 async function deletePaymentInDetail(paymentId) {
-  if (!confirm('Delete this payment permanently?')) return
+  if (!confirm(t('portalUsers.deletePaymentConfirm') || 'Delete this payment permanently?')) return
   actionLoading.value = true
   try {
     await portalUsersApi.deletePayment(paymentId)
     await openDetail(detail.value.id)
     await loadPayments()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 // Payments in global table
 async function confirmPayment(paymentId) {
-  if (!confirm('Confirm this payment?')) return
+  if (!confirm(t('portalUsers.confirmPaymentConfirm') || 'Confirm this payment?')) return
   actionLoading.value = true
   try {
     await portalUsersApi.confirmPayment(paymentId)
     await loadPayments()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 async function rejectPayment(paymentId) {
-  if (!confirm('Reject this payment?')) return
+  if (!confirm(t('portalUsers.rejectPaymentConfirm') || 'Reject this payment?')) return
   actionLoading.value = true
   try {
     await portalUsersApi.rejectPayment(paymentId)
     await loadPayments()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
 async function deletePaymentGlobal(paymentId) {
-  if (!confirm('Delete this payment permanently?')) return
+  if (!confirm(t('portalUsers.deletePaymentConfirm') || 'Delete this payment permanently?')) return
   actionLoading.value = true
   try {
     await portalUsersApi.deletePayment(paymentId)
     await loadPayments()
-  } catch (e) { alert(e.response?.data?.detail || 'Error') }
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
   actionLoading.value = false
 }
 
@@ -951,7 +981,9 @@ async function sendMessage() {
 
 async function sendBroadcast() {
   if (!broadcastText.value.trim()) return
-  if (!confirm(`Send this message to all ${broadcastTier.value || 'active'} users?`)) return
+  const tier = broadcastTier.value || (t('portalUsers.broadcastActiveTier') || 'active')
+  const tpl = t('portalUsers.broadcastConfirm') || 'Send this message to all {tier} users?'
+  if (!confirm(tpl.replace('{tier}', tier))) return
   broadcastSending.value = true
   broadcastResult.value = ''
   try {

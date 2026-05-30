@@ -354,7 +354,7 @@ def get_full_health(db: Session = Depends(get_db)):
         Server, ServerStatus, Client, ClientStatus,
     )
     from ...modules.subscription.subscription_models import (
-        ClientPortalPayment, ClientPortalSubscription,
+        ClientPortalPayment, ClientPortalSubscription, SubscriptionStatus,
     )
 
     problems = []
@@ -461,9 +461,15 @@ def get_full_health(db: Session = Depends(get_db)):
         ).all()
         orphaned_payments = 0
         for p in payments_recent:
+            # Postgres stores the enum MEMBER NAME ("ACTIVE"), not
+            # the lowercase value. Comparing to the literal "active"
+            # string returned zero rows on every prod DB (subscription
+            # status was always "ACTIVE"), so the orphaned-payments
+            # invariant silently always reported 0 — a false safety
+            # signal. Compare to the enum value directly.
             active = db.query(ClientPortalSubscription).filter(
                 ClientPortalSubscription.user_id == p.user_id,
-                ClientPortalSubscription.status == "active",
+                ClientPortalSubscription.status == SubscriptionStatus.ACTIVE,
             ).first()
             if not active:
                 orphaned_payments += 1

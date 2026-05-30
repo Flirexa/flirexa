@@ -300,6 +300,30 @@ class ServerHealthChecker:
         except Exception as exc:
             logger.debug(f"State store record failed for server {result.server_id}: {exc}")
 
+        # Stamp last_good_health_at on successful poll so the customer-
+        # facing auto-hide filter (server_visible_to in client_portal)
+        # can tell which servers have been alive recently. Treats any
+        # non-offline raw status as "good" — degraded counts because
+        # the server is at least reachable. Best-effort: a failed
+        # commit just means the next poll re-stamps and we miss one
+        # tick on the auto-hide clock, which is fine.
+        if result.status != "offline" and self._db is not None:
+            try:
+                from src.database.models import Server as _Server
+                row = self._db.query(_Server).filter(_Server.id == result.server_id).first()
+                if row is not None:
+                    row.last_good_health_at = datetime.now(timezone.utc)
+                    self._db.commit()
+            except Exception as exc:
+                logger.debug(
+                    "last_good_health_at stamp failed for server {}: {}",
+                    result.server_id, exc,
+                )
+                try:
+                    self._db.rollback()
+                except Exception:
+                    pass
+
     @staticmethod
     def _wg_cmd(server) -> str:
         """Return 'awg' for AmneziaWG servers, 'wg' for WireGuard."""

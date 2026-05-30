@@ -72,6 +72,14 @@ class ClientInfoResponse(BaseModel):
     last_handshake: Optional[str] = None
     server_id: int
     server_name: Optional[str] = None
+    # Customer-facing label for the server. The portal prefers this over
+    # raw `server_name` when rendering region pickers / device rows — the
+    # operator typically writes admin-side names as IPs or short slugs,
+    # while ``display_name`` (or its fallback ``location``) is what makes
+    # sense to the end user. Resolved server-side with the same fallback
+    # chain the slot endpoints use so /wireguard/clients and /devices
+    # render identical labels.
+    server_display_name: Optional[str] = None
     server_type: Optional[str] = None
     bandwidth_limit: Optional[int] = None
     traffic_used_rx: int = 0
@@ -205,6 +213,11 @@ def get_clients_by_ids(
             last_handshake=_last_handshake_iso(c),
             server_id=c.server_id,
             server_name=c.server.name if c.server else None,
+            server_display_name=(
+                getattr(c.server, "display_name", None)
+                or getattr(c.server, "location", None)
+                or (c.server.name if c.server else None)
+            ) if c.server else None,
             server_type=getattr(c.server, "server_type", None) if c.server else None,
             bandwidth_limit=c.bandwidth_limit,
             traffic_used_rx=c.traffic_used_rx or 0,

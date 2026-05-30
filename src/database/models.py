@@ -271,6 +271,31 @@ class Server(Base):
         Boolean, default=True, nullable=False, server_default="true"
     )
 
+    # App-only visibility (migration 042): when True, this server is shown
+    # ONLY to requests that identify themselves as the official mobile or
+    # desktop app — via the ``X-Client-App`` header or a matching UA
+    # prefix. Subscription URL fetchers (router/openVPN clients reading
+    # ``/sub/{token}``) and unflagged browser sessions on the client
+    # portal never see these servers. Used so app-only servers
+    # (different keypair, different routing rules) don't leak into web
+    # users who would download a config that wouldn't work.
+    for_app_only: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+
+    # Auto-hide tracking (migration 042). Updated by the server health
+    # checker on every successful poll. NULL = never polled yet (treat
+    # as healthy until proven otherwise so freshly-added servers don't
+    # vanish before the first health pass). When the server hasn't been
+    # seen healthy for ``AUTO_HIDE_THRESHOLD_SECONDS`` (default 300s),
+    # customer-facing listings hide it unless ``force_visible=True``.
+    last_good_health_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    force_visible: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+
     # Drift detection (migration 010)
     drift_detected: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"
@@ -944,6 +969,43 @@ class PushNotification(Base):
 
     __table_args__ = (
         Index("ix_pn_user_unread", "user_id", "is_read"),
+    )
+
+
+class FcmToken(Base):
+    """Per-installation Firebase Cloud Messaging device token.
+
+    One row per (user, installation) pair — `device_id` matches the
+    X-Device-Id header the app already sends for slot device-bind, so
+    when a user has multiple apps signed in (phone + tablet), each
+    install registers its own FCM token and gets its own pushes.
+
+    Tokens rotate (FCM expires them on app reinstall, OS reset, etc).
+    The app re-registers on every signed-in cold start and the
+    register endpoint updates the row in place via the
+    (user_id, device_id) unique constraint.
+    """
+    __tablename__ = "fcm_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("client_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    device_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)  # android | ios | windows
+    token: Mapped[str] = mapped_column(Text, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "device_id", name="uq_fcm_user_device"),
     )
 
 

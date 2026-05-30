@@ -69,6 +69,17 @@
           </h3>
         </div>
         <div class="fx-slot-actions">
+          <!-- Release-device button. Only visible when the slot has
+               been claimed by a phone via the Option B device-bind.
+               One tap clears the bind so a replacement phone can take
+               the slot on its next connect. -->
+          <button v-if="slot.is_bound"
+                  class="fx-icon-btn-sm"
+                  :title="$t('devices.releaseDevice') || 'Release device — let a new phone claim this slot'"
+                  @click="doReleaseDevice(slot)"
+                  :disabled="releasing === slot.id">
+            <FxIcon name="unlink" :size="14" />
+          </button>
           <button class="fx-icon-btn-sm"
                   :title="$t('devices.delete') || 'Delete device'"
                   @click="confirmDelete(slot)">
@@ -216,10 +227,40 @@
       </div>
     </div>
 
-    <!-- Toasts -->
+    <!-- Toasts. Errors collapse to a one-line "Error - tap to expand"
+         pill so a 200-char stack trace doesn't take over the corner of
+         the screen. Tapping toggles the full text + a Copy button.
+         Success / info toasts stay verbatim — they're already short. -->
     <div class="fx-toast-wrap">
       <transition-group name="fx-toast-fade">
-        <div v-for="t in toasts" :key="t.id" class="fx-toast" :class="t.type">{{ t.message }}</div>
+        <div
+          v-for="t in toasts"
+          :key="t.id"
+          class="fx-toast"
+          :class="[t.type, { 'is-expanded': t.expanded }]"
+          @click="t.type === 'error' && (t.expanded = !t.expanded)"
+          :role="t.type === 'error' ? 'button' : undefined"
+          :tabindex="t.type === 'error' ? 0 : undefined"
+        >
+          <template v-if="t.type === 'error' && !t.expanded">
+            <span class="fx-toast-headline">
+              {{ $t('common.errorTapToExpand') || 'Error — tap to expand' }}
+            </span>
+          </template>
+          <template v-else-if="t.type === 'error' && t.expanded">
+            <div class="fx-toast-body">{{ t.message }}</div>
+            <button
+              class="fx-toast-copy"
+              @click.stop="copyToastMessage(t)"
+              :title="$t('common.copy') || 'Copy'"
+            >
+              {{ t.copied ? ($t('common.copied') || 'Copied ✓') : ($t('common.copy') || 'Copy') }}
+            </button>
+          </template>
+          <template v-else>
+            {{ t.message }}
+          </template>
+        </div>
       </transition-group>
     </div>
   </div>
@@ -240,6 +281,7 @@ const router = useRouter()
 const loading = ref(false)
 const creating = ref(false)
 const switching = ref(null)  // slot_id currently being switched
+const releasing = ref(null)  // slot_id currently being released from its device-bind
 const slots = ref([])
 const subscription = ref({})
 const servers = ref([])
@@ -318,11 +360,30 @@ const deleteTargetName = computed(() => deleteTarget.value?.label || '')
 let toastId = 0
 const toast = (message, type = 'info') => {
   const id = ++toastId
-  toasts.value.push({ id, message, type })
+  // Errors are collapsed by default with a click-to-expand affordance
+  // (operator request — full stack-trace toasts felt scary).
+  // Success/info toasts stay verbatim. We also give errors more time
+  // on screen because the user needs to read + (maybe) expand them.
+  toasts.value.push({
+    id,
+    message: String(message ?? ''),
+    type,
+    expanded: false,
+    copied: false,
+  })
+  const ttl = type === 'error' ? 8000 : 3500
   setTimeout(() => {
     const i = toasts.value.findIndex(x => x.id === id)
     if (i >= 0) toasts.value.splice(i, 1)
-  }, 3500)
+  }, ttl)
+}
+
+async function copyToastMessage(t) {
+  try {
+    await navigator.clipboard.writeText(t.message || '')
+    t.copied = true
+    setTimeout(() => { t.copied = false }, 1500)
+  } catch { /* clipboard blocked — silently ignore */ }
 }
 
 const hasActiveSub = computed(() => subscription.value.status === 'active')
@@ -352,6 +413,29 @@ const loadSlots = async () => {
     else toast(e.response?.data?.detail || e.message, 'error')
   } finally {
     loading.value = false
+  }
+}
+
+const doReleaseDevice = async (slot) => {
+  // Clear the slot's device-bind so a replacement phone can claim it
+  // on its next connect. We don't password-gate this the way delete
+  // does — release is recoverable (just connect again from any phone
+  // to re-bind), so the friction would be disproportionate. The
+  // backend endpoint returns the refreshed slot row so we can
+  // patch it back into `slots` without a full reload.
+  if (releasing.value === slot.id) return
+  releasing.value = slot.id
+  try {
+    const { data } = await portalApi.releaseSlotDevice(slot.id)
+    const idx = slots.value.findIndex(s => s.id === slot.id)
+    if (idx >= 0) slots.value.splice(idx, 1, data)
+    toast(t('devices.released') || 'Device released. The next phone to connect will be registered to this slot.', 'success')
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    const msg = typeof detail === 'string' ? detail : detail?.message || e.message || 'Error'
+    toast(msg, 'error')
+  } finally {
+    releasing.value = null
   }
 }
 

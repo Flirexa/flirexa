@@ -53,14 +53,17 @@ def get_cryptopay() -> CryptoPayAdapter:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class UserRegister(BaseModel):
-    email: EmailStr
+    # Email optional since migration 039 — see client_portal.py
+    email: Optional[EmailStr] = None
     password: str = Field(min_length=8, max_length=100)
     username: str = Field(min_length=3, max_length=50)
     full_name: Optional[str] = None
 
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    # Either `identifier` (preferred) or `email` (legacy clients).
+    identifier: Optional[str] = None
+    email: Optional[str] = None
     password: str
 
 
@@ -147,7 +150,7 @@ async def register(data: UserRegister, db: Session = Depends(get_db)):
     if error:
         raise HTTPException(status_code=400, detail=error)
 
-    token = create_access_token(user.id, user.email)
+    token = create_access_token(user.id, user.email or user.username)
 
     return {
         "access_token": token,
@@ -164,14 +167,17 @@ async def register(data: UserRegister, db: Session = Depends(get_db)):
 
 @router.post("/auth/login", response_model=TokenResponse)
 async def login(data: UserLogin, db: Session = Depends(get_db)):
-    """Login with email and password"""
+    """Login with email-or-username + password."""
+    identifier = (data.identifier or data.email or "").strip()
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Email or username required")
     manager = SubscriptionManager(db)
-    user = manager.authenticate_user(data.email, data.password)
+    user = manager.authenticate_user_by_identifier(identifier, data.password)
 
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_access_token(user.id, user.email)
+    token = create_access_token(user.id, user.email or user.username)
 
     return {
         "access_token": token,

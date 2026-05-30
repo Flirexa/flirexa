@@ -32,9 +32,9 @@
               <span style="font-family:var(--mono); font-size:11px">{{ primaryDevice.ipv4 || '—' }}</span>
               <span style="margin:0 6px; color:var(--text-4)">·</span>
               <span>{{ protocolLabel(primaryDevice.server_type) }}</span>
-              <template v-if="primaryDevice.server_name">
+              <template v-if="primaryDevice.server_display_name || primaryDevice.server_name">
                 <span style="margin:0 6px; color:var(--text-4)">·</span>
-                <span>{{ primaryDevice.server_name }}</span>
+                <span>{{ primaryDevice.server_display_name || primaryDevice.server_name }}</span>
               </template>
             </template>
             <template v-else>{{ statusSub }}</template>
@@ -340,9 +340,9 @@
                 </div>
                 <div class="fx-device-meta">
                   <span style="font-family:var(--mono)">{{ device.ipv4 || '—' }}</span>
-                  <template v-if="device.server_name">
+                  <template v-if="device.server_display_name || device.server_name">
                     <span style="margin:0 6px; color:var(--text-4)">·</span>
-                    <span style="font-family:inherit">{{ device.server_name }}</span>
+                    <span style="font-family:inherit">{{ device.server_display_name || device.server_name }}</span>
                   </template>
                   <span style="margin:0 6px; color:var(--text-4)">·</span>
                   <span style="font-family:inherit">{{ protocolLabel(device.server_type) }}</span>
@@ -535,7 +535,9 @@
                   <FxIcon :name="region.server_type === 'amneziawg' ? 'shield' : 'globe'" :size="14" />
                 </span>
                 <div class="fx-region-info">
-                  <div class="fx-region-name">{{ region.server_name || `server-${region.server_id}` }}</div>
+                  <div class="fx-region-name">
+                    {{ region.server_display_name || region.server_name || `server-${region.server_id}` }}
+                  </div>
                   <div class="fx-region-meta">
                     <span style="font-family:var(--mono); font-size:11px; color:var(--text-3)">{{ region.ipv4 || '—' }}</span>
                     <span style="margin:0 6px; color:var(--text-4)">·</span>

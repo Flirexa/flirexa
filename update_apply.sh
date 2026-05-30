@@ -79,6 +79,43 @@ effective_runtime_root() {
     fi
 }
 
+# Resolve the alembic CLI on this host. update_apply.sh used to assume
+# the venv lives at ``$INSTALL_DIR/venv``, which broke on installs
+# whose venv stayed at the legacy ``/opt/vpnmanager/venv`` after the
+# install dir was renamed to ``/opt/vpnmanager`` (mid-2026 migration).
+# Symptom: "Migration required but alembic not available" + exit 1
+# even though alembic itself was installed and the DB user worked.
+# Searches, in order:
+#   1. $ALEMBIC_BIN override (set by the operator if everything else
+#      is broken)
+#   2. $INSTALL_DIR/venv/bin/alembic            (new layout)
+#   3. /opt/vpnmanager/venv/bin/alembic         (explicit new path)
+#   4. /opt/vpnmanager/venv/bin/alembic          (legacy path)
+#   5. $(command -v alembic)                    (system-wide fallback)
+# Prints the first hit and returns 0, or returns 1 if nothing exists.
+find_alembic_bin() {
+    local candidates=()
+    [[ -n "${ALEMBIC_BIN:-}" ]] && candidates+=("$ALEMBIC_BIN")
+    candidates+=(
+        "$INSTALL_DIR/venv/bin/alembic"
+        "/opt/vpnmanager/venv/bin/alembic"
+        "/opt/vpnmanager/venv/bin/alembic"
+    )
+    for c in "${candidates[@]}"; do
+        if [[ -x "$c" ]]; then
+            printf '%s\n' "$c"
+            return 0
+        fi
+    done
+    local sys
+    sys="$(command -v alembic 2>/dev/null || true)"
+    if [[ -n "$sys" ]]; then
+        printf '%s\n' "$sys"
+        return 0
+    fi
+    return 1
+}
+
 mkdir -p "$LOCK_DIR"
 if ! { exec 200>"$LOCK_FILE"; } 2>/dev/null; then
     log_err "Cannot create lock file: $LOCK_FILE"
@@ -508,8 +545,9 @@ smoke_check() {
 
     local runtime_root
     runtime_root="$(effective_runtime_root)"
-    local alembic_bin="$INSTALL_DIR/venv/bin/alembic"
-    if [[ -f "$alembic_bin" && -f "$runtime_root/alembic.ini" ]]; then
+    local alembic_bin
+    alembic_bin="$(find_alembic_bin || true)"
+    if [[ -n "$alembic_bin" && -f "$runtime_root/alembic.ini" ]]; then
         cd "$runtime_root"
         local current_rev head_rev
         current_rev=$($alembic_bin current 2>/dev/null | awk '{print $1}' | tail -1 || true)
@@ -737,13 +775,19 @@ if [[ -f "$INSTALL_DIR/venv/bin/pip" && -f "$TARGET_RELEASE_DIR/requirements.txt
 fi
 
 if [[ "$REQUIRES_MIGRATION" == "true" ]]; then
-    local_alembic="$INSTALL_DIR/venv/bin/alembic"
-    if [[ ! -f "$local_alembic" || ! -f "$TARGET_RELEASE_DIR/alembic.ini" ]]; then
+    local_alembic="$(find_alembic_bin || true)"
+    if [[ -z "$local_alembic" || ! -f "$TARGET_RELEASE_DIR/alembic.ini" ]]; then
         log_err "Migration required but alembic not available"
+        log_err "  searched: \$INSTALL_DIR/venv/bin/alembic ($INSTALL_DIR/venv/bin/alembic)"
+        log_err "  searched: /opt/vpnmanager/venv/bin/alembic"
+        log_err "  searched: /opt/vpnmanager/venv/bin/alembic"
+        log_err "  searched: command -v alembic (system PATH)"
+        log_err "  alembic.ini present: $([[ -f "$TARGET_RELEASE_DIR/alembic.ini" ]] && echo yes || echo no) (at $TARGET_RELEASE_DIR/alembic.ini)"
+        log_err "  override available: export ALEMBIC_BIN=/path/to/alembic and re-run"
         exit 1
     fi
+    log "[S4] Running DB migrations using $local_alembic …"
     write_marker "phase_migration_started" "$(date --iso-8601=seconds)"
-    log "[S4] Running DB migrations …"
     if ! (cd "$TARGET_RELEASE_DIR" && "$local_alembic" upgrade head 2>&1 | tee -a "$STATE_DIR/apply.log"); then
         log_err "Migration failed — starting auto rollback"
         if rollback_from_backup; then

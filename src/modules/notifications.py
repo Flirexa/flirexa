@@ -160,7 +160,14 @@ class NotificationService:
         )
 
     def create_portal_notification(self, user_id: int, title: str, message: str):
-        """Create a push notification record for portal users"""
+        """Create a push notification record for portal users.
+
+        Persists to ``push_notifications`` so the in-app inbox shows it,
+        then best-effort dispatches via FCM to every registered
+        installation so the user gets a system-level push too. FCM
+        failure (no server key, network drop, dead tokens) is logged
+        but never surfaced — the inbox row is the source of truth.
+        """
         try:
             from src.database.models import PushNotification
             notification = PushNotification(
@@ -173,6 +180,13 @@ class NotificationService:
             self.db.commit()
         except Exception as e:
             logger.error(f"Failed to create portal notification: {e}")
+            return
+
+        try:
+            from src.modules.notifications_fcm import send_to_user
+            send_to_user(self.db, user_id, title, message)
+        except Exception as e:
+            logger.debug("FCM dispatch failed for user {}: {}", user_id, e)
 
     def notify_user_payment_confirmed(self, user_id: int, tier: str, days: int, expiry_date: str):
         """User notification: payment confirmed, subscription active"""

@@ -1,6 +1,12 @@
 """
 Flirexa Bandwidth Monitor
 Computes real-time bandwidth rates from cumulative WireGuard transfer counters.
+
+Reads peer transfer counters from the shared peer cache
+(``src.modules.cache.handshake_cache``). The background refresher polls
+every active server in parallel every ~8s with a per-server hard
+timeout, so this endpoint stays under 50ms even on a panel with 100
+servers — no network I/O on the request path.
 """
 
 from typing import Optional, Dict, List
@@ -10,7 +16,8 @@ from loguru import logger
 
 from ..database.models import Server, Client
 
-# Module-level storage for previous snapshots
+# Module-level storage for previous snapshots — drives the delta math
+# that converts cumulative WG counters into a per-peer Mbps rate.
 # {server_id: {"time": datetime, "peers": {public_key: (rx_bytes, tx_bytes)}}}
 _PREV_SNAPSHOT: Dict[int, dict] = {}
 
@@ -18,32 +25,6 @@ _PREV_SNAPSHOT: Dict[int, dict] = {}
 class BandwidthMonitor:
     def __init__(self, db: Session):
         self.db = db
-
-    def _get_wg(self, server):
-        """Create WireGuard manager or RemoteServerAdapter for a server."""
-        if (
-            server.ssh_host
-            or (server.agent_mode and server.agent_mode == "agent")
-            or (server.agent_mode and server.agent_mode == "mikrotik")
-        ):
-            from .remote_adapter import RemoteServerAdapter
-            return RemoteServerAdapter(
-                server=server,
-                interface=server.interface,
-                config_path=server.config_path,
-            )
-        # Local server — use AWG manager for amneziawg interfaces
-        if getattr(server, 'server_type', 'wireguard') == 'amneziawg':
-            from .amneziawg import AmneziaWGManager
-            return AmneziaWGManager(
-                interface=server.interface,
-                config_path=server.config_path,
-            )
-        from .wireguard import WireGuardManager
-        return WireGuardManager(
-            interface=server.interface,
-            config_path=server.config_path,
-        )
 
     def get_server_bandwidth(self, server_id: int) -> Optional[dict]:
         """
@@ -62,24 +43,29 @@ class BandwidthMonitor:
 
         now = datetime.now(timezone.utc)
 
-        # Fetch current peer data
-        wg = self._get_wg(server)
-        try:
-            peers = wg.get_all_peers()
-        except Exception as e:
-            logger.error(f"Bandwidth monitor: failed to get peers for server {server_id}: {e}")
-            return None
-        finally:
-            if hasattr(wg, 'close'):
-                try:
-                    wg.close()
-                except Exception:
-                    pass
+        # Read from the shared peer cache. If no fresh data for this
+        # server yet (cold start, just added, or recently invalidated)
+        # do one direct fetch to seed it — same cost as the old path,
+        # but only on cold start.
+        from ..modules.cache.handshake_cache import (
+            get_cache, ensure_refresher_started, fetch_server_peers_sync,
+        )
+        ensure_refresher_started()
+        cache = get_cache()
+
+        if not cache.has_fresh_data_for(server_id):
+            try:
+                snaps = fetch_server_peers_sync(server)
+                cache.replace_server(server_id, snaps)
+            except Exception as e:
+                logger.debug("Bandwidth monitor: lazy fetch for {} failed: {}", server_id, e)
+                return None
+
+        peer_snapshots = cache.get_server_peers(server_id)
 
         # Build current snapshot: {public_key: (rx, tx)}
-        current = {}
-        for p in peers:
-            current[p.public_key] = (p.transfer_rx, p.transfer_tx)
+        current = {pk: (snap.transfer_rx, snap.transfer_tx)
+                   for pk, snap in peer_snapshots.items()}
 
         # Client lookup: public_key -> (name, id, ipv4, owner_server_id)
         # Look up across ALL servers, not just this one — when dual-active

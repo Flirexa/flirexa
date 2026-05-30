@@ -668,8 +668,33 @@ class LicenseManager:
         if not hardware_id:
             return self._create_free_license("License has no hardware binding (hardware_id required)")
         if not hmac.compare_digest(hardware_id, self.get_server_id()):
-            logger.warning("License hardware ID mismatch")
-            return self._create_free_license("License not valid for this server")
+            # The embedded hardware_id doesn't match this machine. Before
+            # falling back to FREE, honor a previously-applied migration:
+            # a lifetime_protected license that was legitimately moved
+            # here (operator applied a migration code) carries a local
+            # applied-migration record that re-verifies against the key's
+            # migration_secret. This is what lets the move actually
+            # complete offline — without it the immutable, old-hardware-
+            # bound LICENSE_KEY would keep the panel on FREE forever.
+            # The check is self-gating: a non-lifetime_protected key has no
+            # migration_secret, so the HMAC re-verify inside returns False.
+            # No need to branch on the (normalized) license_type here.
+            migration_ok = False
+            try:
+                from .migration_code import current_hardware_authorized_by_migration
+                migration_ok = current_hardware_authorized_by_migration(
+                    payload, self.get_server_id()
+                )
+            except Exception as _mig_err:
+                logger.debug("migration authorization check errored: {}", _mig_err)
+            if migration_ok:
+                logger.info(
+                    "License hardware mismatch overridden by a verified applied-migration "
+                    "record — this machine is the authorized home of the migrated license"
+                )
+            else:
+                logger.warning("License hardware ID mismatch")
+                return self._create_free_license("License not valid for this server")
 
         # Check expiry. Trials (<= 14 days total) get no grace window — the
         # 7-day grace is meant for transient lic-server outages on paid

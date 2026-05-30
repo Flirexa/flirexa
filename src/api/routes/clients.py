@@ -128,70 +128,63 @@ class ExpiryRequest(BaseModel):
 
 
 def _enrich_handshakes(clients: list, db: Session):
-    """Fetch live WG handshake timestamps and inject into client objects.
+    """Inject live WG handshake timestamps into client objects.
 
-    Map key is ``(server_id, public_key)``, not just ``public_key``. Device
-    slots reuse the same client keypair across every region (so one config
-    works in multiple places), so a single pubkey identifies different
-    Client rows on different servers. Keying the map only by pubkey would
-    let a live handshake on, say, the Texas peer propagate to the Cali
-    Client row too — the admin "Online Users" tab would then show both
-    regions online even though traffic only ever hit one.
+    Uses the module-level handshake cache (``src.modules.cache.handshake_cache``)
+    populated every few seconds by a background task. On any cache miss
+    for a particular server (background tick hasn't run yet, server was
+    just added, or the cache was explicitly invalidated) the helper
+    does a one-off blocking fetch for that server only — same cost as
+    the old "always blocking" code path, but only on cold-start, never
+    on steady-state traffic.
+
+    Map key is ``(server_id, public_key)``, not just ``public_key``.
+    Device slots reuse the same client keypair across every region
+    (so one config works in multiple places), so a single pubkey
+    identifies different Client rows on different servers. Keying by
+    pubkey alone let a live handshake on, say, Texas propagate to the
+    Cali Client row — the admin "Online Users" tab would then show
+    both regions online when traffic only ever hit one.
     """
-    servers = db.query(Server).filter(Server.is_active == True).all()  # noqa
+    from src.modules.cache.handshake_cache import (
+        get_cache, ensure_refresher_started, fetch_server_peers_sync,
+    )
 
-    # Build (server_id, pubkey) → handshake_timestamp map
-    hs_map = {}
-    for server in servers:
-        server_type = getattr(server, 'server_type', 'wireguard') or 'wireguard'
-        is_proxy = getattr(server, 'server_category', 'vpn') == 'proxy' or server_type in ('hysteria2', 'tuic')
-        if is_proxy:
-            continue
+    # First call from a request handler kicks the background refresher.
+    ensure_refresher_started()
+    cache = get_cache()
 
-        peers = []
-        try:
-            # Remote-managed (SSH agent or Mikrotik REST) → route through
-            # the adapter. Without this, mikrotik servers fall into the
-            # `else` branch and try to call local `wg show` for a peer
-            # list that lives on the router — produces nothing and the
-            # online-users / clients tabs show no handshake activity.
-            _is_remote = bool(server.ssh_host) or (
-                (getattr(server, 'agent_mode', None) or '') == 'mikrotik'
-            )
-            if _is_remote:
-                from ...core.remote_adapter import RemoteServerAdapter
-                adapter = RemoteServerAdapter(
-                    server=server,
-                    interface=server.interface,
-                    config_path=server.config_path,
-                )
-                try:
-                    peers = adapter.get_all_peers()
-                finally:
-                    adapter.close()
-            elif server_type == 'amneziawg':
-                from ...core.amneziawg import AmneziaWGManager
-                mgr = AmneziaWGManager(interface=server.interface, config_path=server.config_path)
-                peers = mgr.get_all_peers()
-            else:
-                from ...core.wireguard import WireGuardManager
-                mgr = WireGuardManager(interface=server.interface, config_path=server.config_path)
-                peers = mgr.get_all_peers()
-        except Exception as e:
-            logger.debug(f"Handshake fetch failed for server {server.name}: {e}")
+    # Figure out which server ids the caller's client set even cares
+    # about — no point polling servers nobody has a peer on.
+    server_ids = {c.server_id for c in clients if c.server_id is not None}
+    if not server_ids:
+        return
 
-        for peer in peers:
-            hs = getattr(peer, 'latest_handshake', None)
-            if hs and isinstance(hs, (int, float)) and hs > 0:
-                hs_map[(server.id, peer.public_key)] = datetime.fromtimestamp(hs, tz=timezone.utc)
-            elif hs and isinstance(hs, datetime):
-                hs_map[(server.id, peer.public_key)] = hs if hs.tzinfo else hs.replace(tzinfo=timezone.utc)
+    # Lazy refetch any server that has no fresh data yet. This happens
+    # on cold start (first request after API boot) and after explicit
+    # invalidate (admin disabled a client; invalidator dropped the
+    # freshness marker so the next read repopulates).
+    needs_lazy = [sid for sid in server_ids if not cache.has_fresh_data_for(sid)]
+    if needs_lazy:
+        # Re-load the needed server rows in one query rather than once
+        # per id. Skip ones we can't see (already deleted, etc.).
+        stale_servers = (
+            db.query(Server)
+            .filter(Server.id.in_(needs_lazy), Server.is_active == True)  # noqa: E712
+            .all()
+        )
+        for srv in stale_servers:
+            try:
+                peers = fetch_server_peers_sync(srv)
+                cache.replace_server(srv.id, peers)
+            except Exception as e:
+                logger.debug("Lazy handshake refresh for server {} failed: {}", srv.id, e)
 
-    # Inject into client objects (transient, not saved to DB)
+    # Read from cache (free) and stamp the client objects in-place.
     for client in clients:
-        hs = hs_map.get((client.server_id, client.public_key))
-        if hs:
-            client.last_handshake = hs
+        ts = cache.get_for(client.server_id, client.public_key)
+        if ts:
+            client.last_handshake = ts
 
 
 # ============================================================================
@@ -304,8 +297,22 @@ def _format_bytes_short(b: int) -> str:
 
 @router.get("/map-data")
 async def get_map_data(db: Session = Depends(get_db)):
-    """Get geolocation data for all servers and connected clients."""
-    core = ManagementCore(db)
+    """Get geolocation data for all servers and connected clients.
+
+    Reads peer endpoints + handshake times from the shared peer cache
+    (``src.modules.cache.handshake_cache``) instead of polling every
+    server's WG interface on the request path. The background refresher
+    keeps the cache hot every 8s with per-server timeouts, so even one
+    unreachable agent doesn't stall this endpoint — we get its last
+    known snapshot or nothing, never a 15 s SSH timeout.
+    """
+    from src.modules.cache.handshake_cache import (
+        get_cache, ensure_refresher_started, fetch_server_peers_sync,
+    )
+
+    ensure_refresher_started()
+    cache = get_cache()
+
     servers = db.query(Server).all()
 
     server_list = []
@@ -313,84 +320,57 @@ async def get_map_data(db: Session = Depends(get_db)):
     all_ips = set()
     server_names = {}
 
+    # Cold-start lazy seed: any non-proxy server with no fresh cache yet
+    # gets one direct fetch so the very first map-data call after API
+    # boot still returns peer data. Subsequent calls hit cache only.
+    for server in servers:
+        is_proxy = getattr(server, 'server_category', 'vpn') == 'proxy' or \
+                   getattr(server, 'server_type', 'wireguard') in ('hysteria2', 'tuic')
+        if is_proxy:
+            continue
+        if not cache.has_fresh_data_for(server.id):
+            try:
+                cache.replace_server(server.id, fetch_server_peers_sync(server))
+            except Exception as e:
+                logger.debug("map-data lazy seed for server {} failed: {}", server.id, e)
+
+    now = datetime.now(timezone.utc)
+
     for server in servers:
         server_ip = server.endpoint.split(":")[0] if server.endpoint else None
         if server_ip:
             all_ips.add(server_ip)
             server_names[server.id] = {"name": server.name, "ip": server_ip}
 
-        # Proxy servers (Hysteria2, TUIC) have no WireGuard peers — skip peer fetch
-        _is_proxy = getattr(server, 'server_category', 'vpn') == 'proxy' or \
-                    getattr(server, 'server_type', 'wireguard') in ('hysteria2', 'tuic')
-        peers = []
-        if not _is_proxy:
-            try:
-                # Same routing as _enrich_handshakes — mikrotik mode has
-                # no ssh_host but lives remote, route through adapter.
-                _is_remote = bool(server.ssh_host) or (
-                    (getattr(server, 'agent_mode', None) or '') == 'mikrotik'
-                )
-                if _is_remote:
-                    from ...core.remote_adapter import RemoteServerAdapter
-                    adapter = RemoteServerAdapter(
-                        server=server,
-                        interface=server.interface,
-                        config_path=server.config_path
-                    )
-                    try:
-                        peers = adapter.get_all_peers()
-                    finally:
-                        adapter.close()
-                elif getattr(server, 'server_type', 'wireguard') == 'amneziawg':
-                    from ...core.amneziawg import AmneziaWGManager
-                    wg = AmneziaWGManager(interface=server.interface, config_path=server.config_path)
-                    peers = wg.get_all_peers()
-                else:
-                    from ...core.wireguard import WireGuardManager
-                    wg = WireGuardManager(interface=server.interface, config_path=server.config_path)
-                    peers = wg.get_all_peers()
-            except Exception as e:
-                logger.warning(f"Failed to get peers for server {server.name}: {e}")
-                peers = []
+        is_proxy = getattr(server, 'server_category', 'vpn') == 'proxy' or \
+                   getattr(server, 'server_type', 'wireguard') in ('hysteria2', 'tuic')
 
-        peer_endpoints = {}
-        for peer in peers:
-            endpoint = getattr(peer, "endpoint", None)
-            if endpoint and endpoint != "(none)":
-                peer_ip = endpoint.rsplit(":", 1)[0] if ":" in endpoint else endpoint
-                peer_endpoints[peer.public_key] = {
-                    "ip": peer_ip,
-                    "handshake": getattr(peer, "latest_handshake", None),
-                }
-                all_ips.add(peer_ip)
+        peer_snapshots = {} if is_proxy else cache.get_server_peers(server.id)
+        for snap in peer_snapshots.values():
+            ip = snap.endpoint_ip
+            if ip:
+                all_ips.add(ip)
 
         clients = db.query(Client).filter(Client.server_id == server.id).all()
         for client in clients:
-            peer_data = peer_endpoints.get(client.public_key)
-            if peer_data:
-                hs = peer_data.get("handshake")
-                is_active = False
-                hs_iso = None
-                if hs:
-                    if isinstance(hs, (int, float)) and hs > 0:
-                        hs_dt = datetime.fromtimestamp(hs, tz=timezone.utc)
-                        is_active = (datetime.now(timezone.utc) - hs_dt).total_seconds() < 180
-                        hs_iso = hs_dt.isoformat()
-                    elif isinstance(hs, datetime):
-                        hs_tz = hs.replace(tzinfo=timezone.utc) if hs.tzinfo is None else hs
-                        is_active = (datetime.now(timezone.utc) - hs_tz).total_seconds() < 180
-                        hs_iso = hs.isoformat()
-
-                traffic_total = (client.traffic_used_rx or 0) + (client.traffic_used_tx or 0)
-                client_list.append({
-                    "name": client.name,
-                    "server": server.name,
-                    "ip": peer_data["ip"],
-                    "traffic_total": traffic_total,
-                    "traffic_formatted": _format_bytes_short(traffic_total),
-                    "last_handshake": hs_iso,
-                    "active": is_active,
-                })
+            snap = peer_snapshots.get(client.public_key)
+            if not snap:
+                continue
+            peer_ip = snap.endpoint_ip
+            if not peer_ip:
+                continue
+            hs = snap.handshake
+            is_active = bool(hs and (now - hs).total_seconds() < 180)
+            traffic_total = (client.traffic_used_rx or 0) + (client.traffic_used_tx or 0)
+            client_list.append({
+                "name": client.name,
+                "server": server.name,
+                "ip": peer_ip,
+                "traffic_total": traffic_total,
+                "traffic_formatted": _format_bytes_short(traffic_total),
+                "last_handshake": hs.isoformat() if hs else None,
+                "active": is_active,
+            })
 
     geo_data = await _batch_geoip(list(all_ips))
 
@@ -416,8 +396,20 @@ async def get_map_data(db: Session = Depends(get_db)):
         client["lon"] = geo.get("lon")
         client["country"] = geo.get("country", "")
         client["city"] = geo.get("city", "")
+        client["country_code"] = geo.get("country_code", "")
 
     client_list = [c for c in client_list if c.get("lat") is not None]
+
+    # Optional per-panel visual filter — drops clients from the listed
+    # ISO country codes from the map ONLY (everything else, including
+    # traffic + analytics, stays). Configured via env var
+    # `MAP_HIDE_COUNTRIES=RU,BY` on the operator's panel; defaults to
+    # empty (no filtering). Used by panels that want to hide certain
+    # jurisdictions for compliance/perception reasons.
+    import os as _os
+    hide = {c.strip().upper() for c in (_os.getenv("MAP_HIDE_COUNTRIES") or "").split(",") if c.strip()}
+    if hide:
+        client_list = [c for c in client_list if (c.get("country_code") or "").upper() not in hide]
 
     return {"servers": server_list, "clients": client_list}
 
@@ -676,6 +668,14 @@ async def enable_client(
     if not core.enable_client(client_id):
         raise HTTPException(status_code=500, detail="Failed to enable client")
 
+    # Force the next handshake read to refetch this server — otherwise
+    # the UI's online indicator could lag by up to a refresh interval.
+    try:
+        from src.modules.cache.handshake_cache import get_cache
+        get_cache().invalidate_server(client.server_id)
+    except Exception:
+        pass
+
     return {"message": f"Client '{client.name}' enabled", "enabled": True}
 
 
@@ -696,6 +696,12 @@ async def disable_client(
 
     if not core.disable_client(client_id, reason):
         raise HTTPException(status_code=500, detail="Failed to disable client")
+
+    try:
+        from src.modules.cache.handshake_cache import get_cache
+        get_cache().invalidate_server(client.server_id)
+    except Exception:
+        pass
 
     return {"message": f"Client '{client.name}' disabled", "enabled": False}
 
@@ -1253,3 +1259,30 @@ def list_all_slots(db: Session = Depends(get_db)):
             },
         })
     return out
+
+
+@router.delete("/slots/admin/{slot_id}")
+def admin_delete_slot(slot_id: int, db: Session = Depends(get_db)):
+    """Admin: delete a device slot and all its peer-Clients.
+
+    Counterpart of the customer-facing DELETE on /client-portal/devices/{slot_id}
+    but reachable from the admin Slots page without impersonating the
+    customer. Cascades through SlotManager.delete_slot so peers on every
+    server get the wg-quick removed and the DB rows pruned in one go.
+    """
+    from ...modules.subscription.subscription_models import DeviceSlot
+    from ...modules.subscription.slot_manager import SlotManager
+
+    slot = db.query(DeviceSlot).filter(DeviceSlot.id == slot_id).first()
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot not found")
+
+    mgr = SlotManager(db)
+    try:
+        mgr.delete_slot(slot)
+    except Exception as exc:
+        logger.exception("admin_delete_slot({}) failed: {}", slot_id, exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    logger.info("Admin deleted device slot {} (user_id={})", slot_id, slot.client_user_id)
+    return {"status": "deleted", "slot_id": slot_id}

@@ -137,6 +137,19 @@ body.fx-portal {
   background: var(--bg-elev); color: var(--text); border-color: var(--border-strong);
 }
 .fx-btn-secondary:hover:not(:disabled) { background: var(--bg-hover); }
+
+/* Buttons rendered as <a> (router-link) inherit color from the
+   global `a:hover` rule in style.css, which painted the text in
+   --vxy-primary-dark on hover. On the Dashboard "Choose a plan"
+   button that ended up nearly the same shade as the darkened
+   .fx-btn-primary background, so the text looked invisible. Re-
+   assert the button-variant color so anchor-buttons keep their
+   original foreground on hover regardless of the global anchor
+   cascade. */
+a.fx-btn { text-decoration: none; }
+a.fx-btn-primary, a.fx-btn-primary:hover { color: var(--accent-fg); }
+a.fx-btn-secondary, a.fx-btn-secondary:hover { color: var(--text); }
+a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
 .fx-btn-ghost { background: transparent; color: var(--text-2); }
 .fx-btn-ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
 .fx-btn-danger-ghost { background: transparent; color: var(--danger); }
@@ -978,6 +991,46 @@ body.fx-portal {
 .fx-toast.error   { border-left-color: var(--danger); }
 .fx-toast.warning { border-left-color: var(--warning); }
 
+/* Error toast — collapsed by default ("Error — tap to expand"); the
+   one-line variant stays compact and signals interactivity with a
+   pointer cursor + subtle hover lift. Expanding swaps to a full
+   message view with a Copy button without pop-and-replace. */
+.fx-toast.error {
+  cursor: pointer;
+  user-select: none;
+  transition: transform .12s ease;
+}
+.fx-toast.error:hover { transform: translateY(-1px); }
+.fx-toast.error.is-expanded {
+  cursor: default;
+  max-width: 420px;
+  user-select: text;
+}
+.fx-toast-headline {
+  font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.fx-toast-headline::before {
+  content: ""; display: inline-block;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--danger);
+}
+.fx-toast-body {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 200px; overflow-y: auto;
+  padding: 2px 0 8px;
+}
+.fx-toast-copy {
+  border: 1px solid var(--border);
+  background: var(--bg-subtle); color: var(--text);
+  border-radius: var(--r-sm);
+  font-size: 11px; font-weight: 600;
+  padding: 4px 10px; cursor: pointer;
+}
+.fx-toast-copy:hover { background: var(--bg-elev); }
+
 /* ─── Switch ─── */
 .fx-switch { position: relative; display: inline-block; width: 38px; height: 22px; }
 .fx-switch input { display: none; }
@@ -1389,6 +1442,8 @@ body.fx-portal {
 .fx-pw-toggle:hover { color: var(--text); background: var(--bg-hover); }
 
 .fx-field-error { font-size: 11.5px; color: var(--danger); }
+.fx-field-warning { display:block; margin-top:6px; font-size: 11.5px; color: var(--text-2, var(--text)); opacity: 0.85; line-height: 1.4; }
+.fx-field-hint { margin-left: 6px; font-size: 11px; color: var(--text-3, var(--text-2, var(--text))); font-weight: 400; opacity: 0.7; }
 
 .fx-login-row {
   display: flex;

@@ -101,6 +101,12 @@ export const portalApi = {
   renameSlot: (slotId, label) =>
     api.patch(`/client-portal/devices/${slotId}`, { label }),
   deleteSlot: (slotId) => api.delete(`/client-portal/devices/${slotId}`),
+  // Clear the slot's device-bind so a different phone can claim it on
+  // its next wg-quick fetch. Used by the "Release device" button on
+  // bound slots — needed when the customer replaces or loses the
+  // originally-bound phone.
+  releaseSlotDevice: (slotId) =>
+    api.post(`/client-portal/devices/${slotId}/release`),
   getSlotServerConfig: (slotId, serverId) =>
     api.get(`/client-portal/devices/${slotId}/config/${serverId}`),
 

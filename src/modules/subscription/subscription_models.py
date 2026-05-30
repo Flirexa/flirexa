@@ -11,6 +11,7 @@ from typing import Optional
 import json
 
 from src.database.models import Base
+from src.database.encrypted_type import EncryptedText
 
 
 class SubscriptionTier(str, Enum):
@@ -75,7 +76,13 @@ class ClientUser(Base):
     id = Column(Integer, primary_key=True)
 
     # Authentication
-    email = Column(String(255), unique=True, nullable=False, index=True)
+    #
+    # `email` was required up through migration 038; migration 039
+    # relaxes it to nullable so customers in markets where revealing
+    # an email is a non-starter (WeChat / crypto buyers) can sign up
+    # with username only. Login takes either email OR username — see
+    # SubscriptionManager.authenticate_user_by_identifier.
+    email = Column(String(255), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=False)
     telegram_id = Column(String(50), unique=True, nullable=True, index=True)  # Link to Telegram bot
 
@@ -484,12 +491,13 @@ class DeviceSlot(Base):
 
     # Shared WG keypair. The same public_key is used on every server's
     # peer record so the user can rotate regions without re-keying.
-    # private_key is stored encrypted by the existing EncryptedText
-    # column on Client — here we just hold the raw text and let the
-    # admin API render it into configs.
+    # private_key + preshared_key are persisted via EncryptedText so a
+    # DB dump can't leak raw WireGuard secrets; the type transparently
+    # handles legacy plain-text rows on read. Migration 040 re-writes
+    # existing rows through the encrypter on upgrade.
     public_key = Column(String(64), nullable=False)
-    private_key = Column(Text, nullable=False)
-    preshared_key = Column(Text, nullable=True)
+    private_key = Column(EncryptedText(), nullable=False)
+    preshared_key = Column(EncryptedText(), nullable=True)
 
     # Which server is currently accepting handshakes for this slot. The
     # portal /devices/{id}/switch-server endpoint moves this pointer and
@@ -499,6 +507,21 @@ class DeviceSlot(Base):
         ForeignKey("servers.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+    # Device-bind (Option B): once the slot serves a wg-quick config to
+    # a given device id (the mobile app's installation UUID, sent as
+    # X-Device-Id), it's pinned to that device. Subsequent config
+    # fetches without a matching id are rejected 403 DEVICE_NOT_AUTHORIZED.
+    # The bind is set atomically by the wg-quick endpoint with
+    # `UPDATE … WHERE device_id IS NULL`, so two phones racing can't
+    # both claim a slot — only the row that was still NULL at write
+    # time matches. The customer-facing /devices/{id}/release clears
+    # this so a user who replaces their phone can take the slot back.
+    # NULL = unbound (free for any device to claim on first connect),
+    # which keeps legacy apps without the header working until they
+    # update and lets the operator delete-and-recreate a slot to reset
+    # the binding from the admin side.
+    device_id = Column(String(64), nullable=True, index=True)
 
     # Token-bucket rate limit on region switches. The toggle endpoint
     # consumes ``1`` token per switch; the bucket refills continuously at

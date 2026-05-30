@@ -50,7 +50,9 @@ from ..database.models import (
     SubscriptionStatus,
     SystemConfig,
 )
-from ..modules.subscription.subscription_models import ClientPortalPayment, ClientPortalSubscription
+from ..modules.subscription.subscription_models import (
+    ClientPortalPayment, ClientPortalSubscription, ClientUserClients,
+)
 
 
 # ─── result types ────────────────────────────────────────────────────────────
@@ -174,9 +176,14 @@ class BusinessValidator:
         """
         now = datetime.now(timezone.utc)
 
+        # `expiry_date` is the canonical column on ClientPortalSubscription —
+        # there's no `end_date`. An earlier rename left this check referring
+        # to the wrong name and the BV worker started raising
+        # `type object 'ClientPortalSubscription' has no attribute 'end_date'`
+        # on every cycle (operator's logs: 34 errors / hour).
         q = self.db.query(ClientPortalSubscription).filter(
             ClientPortalSubscription.status == SubscriptionStatus.ACTIVE,
-            ClientPortalSubscription.end_date > now,
+            ClientPortalSubscription.expiry_date > now,
         )
         if user_id is not None:
             q = q.filter(ClientPortalSubscription.user_id == user_id)
@@ -185,12 +192,16 @@ class BusinessValidator:
         self._report.checked += len(active_subs)
 
         for sub in active_subs:
-            # Check if this user has any enabled client
+            # Portal users link to their WG clients via the join table
+            # ClientUserClients — NOT via Client.telegram_user_id (which
+            # is the legacy Telegram-bot owner column). The old query
+            # joined on the wrong column and never matched a portal
+            # user's peers, so this invariant silently never fired.
             has_enabled = (
                 self.db.query(Client)
-                .join(Client.server)
+                .join(ClientUserClients, ClientUserClients.client_id == Client.id)
                 .filter(
-                    Client.telegram_user_id == sub.user_id,
+                    ClientUserClients.client_user_id == sub.user_id,
                     Client.enabled == True,
                 )
                 .first()
@@ -205,7 +216,7 @@ class BusinessValidator:
                 entity_id=sub.id,
                 description=(
                     f"User {sub.user_id} has active subscription (tier={sub.tier}, "
-                    f"ends={sub.end_date.date()}) but no enabled WG/proxy client"
+                    f"ends={sub.expiry_date.date()}) but no enabled WG/proxy client"
                 ),
                 severity="error",
             )

@@ -15,15 +15,8 @@
       </div>
 
       <form class="fx-login-form" @submit.prevent="handleRegister" novalidate>
-        <div class="fx-field">
-          <label for="r-email">{{ $t('auth.email') }}</label>
-          <div class="fx-field-input">
-            <FxIcon name="mail" :size="16" />
-            <input id="r-email" v-model="form.email" type="email" placeholder="your@email.com"
-                   autocomplete="email" required />
-          </div>
-        </div>
-
+        <!-- Username first since email is now optional. Putting it on top
+             makes the required-vs-optional grouping obvious. -->
         <div class="fx-field">
           <label for="r-username">{{ $t('auth.username') }}</label>
           <div class="fx-field-input">
@@ -31,6 +24,21 @@
             <input id="r-username" v-model="form.username" type="text" placeholder="username"
                    autocomplete="username" minlength="3" required />
           </div>
+        </div>
+
+        <div class="fx-field">
+          <label for="r-email">
+            {{ $t('auth.email') }}
+            <span class="fx-field-hint">{{ $t('auth.optional') }}</span>
+          </label>
+          <div class="fx-field-input">
+            <FxIcon name="mail" :size="16" />
+            <input id="r-email" v-model="form.email" type="email" placeholder="your@email.com"
+                   autocomplete="email" />
+          </div>
+          <span class="fx-field-warning">
+            {{ form.email ? $t('auth.emailNote') : $t('auth.emailWarning') }}
+          </span>
         </div>
 
         <div class="fx-field">
@@ -146,7 +154,12 @@ const handleRegister = async () => {
 
   loading.value = true
   try {
-    const response = await portalApi.register(form.value)
+    // Strip blank email so backend stores NULL rather than empty
+    // string (unique-index respects NULL but treats empty strings as
+    // duplicates after the second username-only signup).
+    const payload = { ...form.value }
+    if (!payload.email || !payload.email.trim()) delete payload.email
+    const response = await portalApi.register(payload)
     localStorage.setItem('client_access_token', response.data.access_token)
     localStorage.setItem('client_user', JSON.stringify(response.data.user))
     router.push('/')

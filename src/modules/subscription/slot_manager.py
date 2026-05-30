@@ -57,23 +57,30 @@ SLOT_SWITCH_REFILL_SECONDS_PER_TOKEN = float(os.getenv(
 ))
 
 
-def _slot_peer_name(slot: "DeviceSlot", server: "Server") -> str:
+def _slot_peer_name(
+    slot: "DeviceSlot",
+    server: "Server",
+    username: Optional[str] = None,
+) -> str:
     """Build the per-server peer name shown to admins in the Clients list.
 
-    Prefer the customer's chosen label ("Phone", "Laptop") over the
-    internal ``slot-{id}`` form, because:
+    Format: ``{username}-{hash}``. The server name used to be appended
+    here, but every admin-side Clients table already has a separate
+    `Server` column so the suffix was just duplicate noise — operators
+    were complaining that names like ``Phone-b00c-USA-California`` were
+    longer than they needed to be (operator report 2026-05-27). Dropping the
+    server part also frees up room in the column for long usernames.
 
-    1. Admin scanning the Clients list cares about *which device* a
-       peer belongs to, not about a slot's database row ID.
-    2. ``slot.id`` is an auto-increment column — deleting and recreating
-       a device hands out a higher ID each time, which looks like
-       leaking IDs but is just postgres's standard sequence behaviour.
-       Switching to label makes the name stable across recreates as long
-       as the customer reuses the same label.
-    3. ``Client.name`` is unique per server, so two devices in one
-       account both labelled "Phone" would collide. Append a short
-       suffix from the slot's keypair (deterministic, 4 chars from the
-       pubkey hash, base64-style) to disambiguate while staying readable.
+    Why the 4-char hash stays: ``Client.name`` is unique per server,
+    and one user can hold multiple device slots — two slots from the
+    same customer on the same region would collide on just the
+    username. The hash is derived from the slot's keypair so it's
+    stable across the slot's lifetime.
+
+    When ``username`` isn't supplied (legacy callers) we fall back to
+    the slot's customer-chosen label so we still produce something
+    meaningful; new code paths in this file resolve the username from
+    the db and pass it in.
 
     Output is sanitised to ``[A-Za-z0-9._-]`` and capped at 100 chars to
     fit the ``clients.name`` column.
@@ -81,21 +88,19 @@ def _slot_peer_name(slot: "DeviceSlot", server: "Server") -> str:
     import re
     import hashlib
 
-    label = (getattr(slot, "label", None) or "Device").strip()
-    label_clean = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-") or "Device"
+    base = (username or getattr(slot, "label", None) or "Device").strip()
+    base_clean = re.sub(r"[^A-Za-z0-9._-]+", "-", base).strip("-") or "Device"
 
     # 4-char suffix derived from the slot's shared public key. Stable per
-    # slot, unpredictable enough to disambiguate two same-labelled slots.
+    # slot, unpredictable enough to disambiguate two same-username slots
+    # on the same server.
     pubkey = (getattr(slot, "public_key", None) or "").encode("utf-8")
     if pubkey:
         suffix = hashlib.sha256(pubkey).hexdigest()[:4]
     else:
         suffix = format(getattr(slot, "id", 0) or 0, "x")[-4:].rjust(4, "0")
 
-    server_part = re.sub(r"[^A-Za-z0-9._-]+", "-",
-                        (getattr(server, "name", None) or "srv")).strip("-") or "srv"
-
-    raw = f"{label_clean}-{suffix}-{server_part}"
+    raw = f"{base_clean}-{suffix}"
     return raw[:100]
 
 
@@ -303,7 +308,7 @@ class SlotManager:
                     expiry_date = datetime.now(timezone.utc) + timedelta(days=expiry_days)
 
                 # 3. Create the Client row with the SHARED keypair.
-                peer_name = _slot_peer_name(slot, server)
+                peer_name = _slot_peer_name(slot, server, user.username)
                 is_active_peer = (server.id == active.id)
                 client = Client(
                     name=peer_name,
@@ -649,7 +654,13 @@ class SlotManager:
 
         # 5. Create Client row with the slot's shared keypair.
         is_active_peer = (server.id == slot.active_server_id)
-        peer_name = _slot_peer_name(slot, server)
+        # Pre-resolve the slot's owner so the peer name carries the
+        # customer's username — matches what create_slot does and
+        # keeps admin-side naming consistent across both code paths.
+        owner = self.db.query(ClientUser).filter(
+            ClientUser.id == slot.client_user_id
+        ).first()
+        peer_name = _slot_peer_name(slot, server, owner.username if owner else None)
         client = Client(
             name=peer_name,
             server_id=server.id,
