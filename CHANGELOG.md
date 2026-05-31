@@ -4,6 +4,32 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.48 — 2026-06-01
+
+Local post-update hooks + per-site landing analytics on the license server.
+
+### Added
+
+- **`/etc/vpnmanager-local-hooks/post-update.d/`** — operators with
+  per-box customisations (overridden `client-portal-dist`, branded
+  assets, custom nginx snippets that would otherwise be clobbered by
+  each upstream tarball) can drop executable scripts there. They run
+  in lexical order after a successful update, with `TARGET_VERSION`
+  and `INSTALL_DIR` in the env. Hook failures log but don't roll back
+  the update — the upstream code is already live; the hook's job is
+  purely to overlay local overrides on top.
+- **License server: per-site analytics.** `POST /api/visit`,
+  `/api/heartbeat`, and `/api/copy-install` now accept an optional
+  `site` field in the JSON body. Multiple landings (flirexa.biz,
+  vpnsponge.xyz, future operators) can ping the same license server
+  without merging into one bucket. Backward-compatible: missing /
+  unknown `site` → "flirexa" (legacy file paths unchanged). The
+  admin panel's Traffic page grows a per-site tab strip and a
+  "Portal conversions" card with per-tier breakdown for non-flirexa
+  sites.
+
+---
+
 ## v1.9.47 — 2026-05-31
 
 Security fix + activation-code support in `/api/license`.

@@ -75,11 +75,28 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.meta.requiresAuth && !hasToken) {
-    return next('/login')
+    // Preserve the originally requested URL so the auth views can
+    // bounce there after a successful login / register. Used by the
+    // marketing landing: "Choose plan" links deep-link to /plans
+    // and unauth customers end up on /register?next=/plans, then
+    // straight at /plans once signed up.
+    const next_url = to.fullPath
+    // Skip when already going to / (avoids ?next=%2F loops).
+    if (next_url && next_url !== '/') {
+      return next({ path: '/register', query: { next: next_url } })
+    }
+    return next('/register')
   }
 
   if ((to.path === '/login' || to.path === '/register') && hasToken) {
-    return next('/')
+    // Already authenticated — if they came in with a next= hint,
+    // honor it so the marketing-landing → register → /plans loop
+    // works even on the second visit when the user happened to
+    // already be logged in.
+    const hinted = typeof to.query.next === 'string' && to.query.next.startsWith('/')
+      ? to.query.next
+      : '/'
+    return next(hinted)
   }
 
   next()

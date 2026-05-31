@@ -84,7 +84,7 @@
 
       <div class="fx-login-foot">
         {{ $t('auth.haveAccount') }}
-        <router-link to="/login" class="fx-login-link">{{ $t('auth.signInLink') }}</router-link>
+        <router-link :to="{ path: '/login', query: $route.query.next ? { next: $route.query.next } : {} }" class="fx-login-link">{{ $t('auth.signInLink') }}</router-link>
       </div>
     </main>
 
@@ -100,13 +100,14 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 import FxIcon from '../components/FxIcon.vue'
 import bundledLogo from '../assets/flirexa-logo.png'
 
 const router = useRouter()
+const route = useRoute()
 const { t } = useI18n()
 
 // Show only the operator's customer-facing name. Empty → hide text.
@@ -162,7 +163,15 @@ const handleRegister = async () => {
     const response = await portalApi.register(payload)
     localStorage.setItem('client_access_token', response.data.access_token)
     localStorage.setItem('client_user', JSON.stringify(response.data.user))
-    router.push('/')
+    // Honor ?next= so a customer who hit "Choose plan" on the
+    // marketing landing (deep-link target /register?next=/plans)
+    // lands on the plans picker immediately after signup, with no
+    // detour through the dashboard. The router guard's whitelist
+    // (path must start with /) prevents open-redirect abuse.
+    const nextParam = typeof route.query.next === 'string' && route.query.next.startsWith('/')
+      ? route.query.next
+      : '/'
+    router.push(nextParam)
   } catch (err) {
     if (err.response?.data?.detail) {
       if (typeof err.response.data.detail === 'string') {

@@ -152,7 +152,7 @@
 
         <div class="fx-login-foot">
           {{ $t('auth.noAccount') }}
-          <router-link to="/register" class="fx-login-link">{{ $t('auth.signUpLink') }}</router-link>
+          <router-link :to="{ path: '/register', query: $route.query.next ? { next: $route.query.next } : {} }" class="fx-login-link">{{ $t('auth.signUpLink') }}</router-link>
         </div>
       </template>
     </main>
@@ -253,7 +253,13 @@ const handleLogin = async () => {
     localStorage.setItem('client_access_token', response.data.access_token)
     localStorage.setItem('client_user', JSON.stringify(response.data.user))
     if (remember.value) localStorage.setItem('remember_me', 'true')
-    router.push('/')
+    // Honor ?next= so the landing-site "Choose plan" deep-link
+    // (→ /register?next=/plans) lands the user where they expected
+    // after sign-in instead of dumping them on the dashboard.
+    const nextParam = typeof route.query.next === 'string' && route.query.next.startsWith('/')
+      ? route.query.next
+      : '/'
+    router.push(nextParam)
   } catch (err) {
     if (err.response?.data?.detail) {
       error.value = typeof err.response.data.detail === 'string'

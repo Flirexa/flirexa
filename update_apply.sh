@@ -828,6 +828,35 @@ if ! smoke_check "$TARGET_VERSION"; then
 fi
 write_marker "phase_health_ok" "$(date --iso-8601=seconds)"
 rm -f "$INSTALL_DIR/data/restart_pending" 2>/dev/null || true
+
+# ── Local post-update hooks ───────────────────────────────────────────────────
+# Operators with per-box customisations (e.g. an overridden client-portal
+# dist, custom nginx snippets, branded assets that the upstream tarball
+# would clobber on every update) can drop executable scripts in
+# /etc/vpnmanager-local-hooks/post-update.d/ — they run in lexical order
+# after a successful update.
+#
+# The hook receives TARGET_VERSION + INSTALL_DIR in the env so it can
+# decide whether the new version changed anything it cares about. A
+# non-zero exit is logged but does NOT roll back the update — the
+# upstream code is already live and healthy at this point; the hook's
+# job is purely to restore local overrides on top.
+LOCAL_HOOK_DIR="/etc/vpnmanager-local-hooks/post-update.d"
+if [[ -d "$LOCAL_HOOK_DIR" ]]; then
+    log "[S6] Running local post-update hooks ($LOCAL_HOOK_DIR) …"
+    # nullglob via the find — if dir exists but is empty, the loop is empty.
+    while IFS= read -r -d '' hook; do
+        log "  ↳ $(basename "$hook")"
+        if TARGET_VERSION="$TARGET_VERSION" INSTALL_DIR="$INSTALL_DIR" \
+           bash "$hook" 2>&1 | sed 's/^/    /'; then
+            :
+        else
+            log_warn "  hook $(basename "$hook") exited non-zero — continuing anyway"
+        fi
+    done < <(find "$LOCAL_HOOK_DIR" -maxdepth 1 -type f -executable -print0 | sort -z)
+    write_marker "phase_local_hooks_done" "$(date --iso-8601=seconds)"
+fi
+
 clear_maintenance_flag
 log "=== UPDATE COMPLETE ==="
 exit 0
