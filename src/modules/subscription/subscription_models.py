@@ -522,6 +522,16 @@ class DeviceSlot(Base):
     # update and lets the operator delete-and-recreate a slot to reset
     # the binding from the admin side.
     device_id = Column(String(64), nullable=True, index=True)
+    # When the current device_id was claimed. Used to age out abandoned
+    # binds (see device_last_seen_at + STALE_BIND_MINUTES in
+    # client_portal.get_slot_config).
+    device_bound_at = Column(DateTime, nullable=True)
+    # Bumped on every wg-quick fetch that matches the bound device_id.
+    # If a mismatching id arrives and this timestamp is older than
+    # STALE_BIND_MINUTES, the slot silently rebinds to the new id —
+    # otherwise we'd brick legitimate customers whose SecureStore
+    # regenerated their UUID after a force-close or app-cache wipe.
+    device_last_seen_at = Column(DateTime, nullable=True)
 
     # Token-bucket rate limit on region switches. The toggle endpoint
     # consumes ``1`` token per switch; the bucket refills continuously at

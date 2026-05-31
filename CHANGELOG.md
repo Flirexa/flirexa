@@ -4,6 +4,33 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.46 — 2026-05-31
+
+Stale device-bind auto-release + customer-facing release endpoint.
+Pair with the latest mobile build that surfaces a "Release this
+device" button on `DEVICE_NOT_AUTHORIZED`.
+
+### Added
+
+- **`device_bound_at` + `device_last_seen_at` on `device_slots`.**
+  Stamped when a slot first binds and bumped on every matched
+  wg-quick fetch. Migration 043 adds both columns; existing rows
+  start NULL and get filled on the next request.
+- **Stale-bind auto-release.** If a mismatching device id arrives
+  for a slot whose last_seen is older than 5 minutes, the slot
+  silently rebinds to the new id instead of returning 403. Covers
+  the recurring "force-close → reinstall → locked out" cycle where
+  expo-secure-store regenerates the device UUID and the customer
+  had no path to recover without operator intervention. A real
+  concurrent second device bumps the heartbeat continuously, so
+  the threshold doesn't open a hole for account-sharing.
+- **`POST /client-portal/devices/{slot_id}/release`.** Owner-only
+  endpoint that clears the bind so the next connect can claim the
+  slot. The mobile app calls this from the new modal action button
+  when it hits 403.
+
+---
+
 ## v1.9.45 — 2026-05-31
 
 Hotfix on top of v1.9.44 to drop a vendor host that leaked into the
