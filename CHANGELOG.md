@@ -4,6 +4,38 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.47 — 2026-05-31
+
+Security fix + activation-code support in `/api/license`.
+
+### Fixed
+
+- **`POST /api/v1/system/license` accepted any input as valid.** The
+  guard `if info.type.value == "trial" and "Invalid" in
+  info.validation_message` was always false because the
+  `_create_free_license` fallback returns `type=FREE`, not `TRIAL`.
+  Any string (including pasted activation codes, random text, blank
+  input) returned `{"status": "activated"}` to the frontend, which
+  then showed "License activated successfully!" even though no real
+  key landed in `.env`. Now any input whose `validation_message`
+  contains "Invalid" / "invalid", or that silently falls back to
+  the FREE tier despite the user submitting a non-empty value, gets
+  rejected with HTTP 400 and the actual error message.
+- Same bug fixed in `/api/v1/system/license/replay`.
+
+### Added
+
+- **First-time activation via activation code.** `POST
+  /api/v1/system/license` now branches on input shape: a 16-char
+  alphanumeric string (with optional dashes) is treated as an
+  activation code and round-tripped to the license server's
+  `POST /api/activate` to exchange for a signed license key bound
+  to this machine's hardware id. Full RSA-signed license keys
+  still take the local-validation path as before. Customers can
+  paste either form into the Settings → License field.
+
+---
+
 ## v1.9.46 — 2026-05-31
 
 Stale device-bind auto-release + customer-facing release endpoint.
