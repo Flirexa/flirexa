@@ -4,6 +4,19 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.52 — 2026-06-01
+
+### Reverted
+
+- Client portal router no longer bounces unauthenticated visitors to
+  `/register`. Defaults back to `/login` (the original behaviour) — the
+  redirect-to-register guard was too aggressive for returning customers
+  who only wanted to sign back in. The `?next=` deep-link preservation
+  is kept either way, so marketing-landing "Choose plan" links still
+  route correctly after auth.
+
+---
+
 ## v1.9.51 — 2026-06-01
 
 First fiat-acquirer payment provider plus a few rollout fixes that came
