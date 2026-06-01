@@ -4,6 +4,21 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.54 — 2026-06-01
+
+### Fixed
+
+- NOWPayments invoice POST no longer sends `"order_id": null`. The
+  create-invoice route was passing `order_id=None` in metadata to let
+  the provider default to the generated id, but `meta.get("order_id",
+  fallback)` returns the explicit None instead of the fallback when the
+  key is present — so the body shipped a JSON null and NOWPayments
+  rejected with "order_id must be one of [string, number, object]".
+  Fixed on both sides: the route omits the key, and the provider uses
+  `or invoice_id` so an explicit-None still falls back.
+
+---
+
 ## v1.9.53 — 2026-06-01
 
 ### Fixed

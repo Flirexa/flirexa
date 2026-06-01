@@ -115,7 +115,11 @@ class NOWPaymentsProvider(PaymentProvider):
         payload = {
             "price_amount": amount_float,
             "price_currency": currency.lower(),
-            "order_id": meta.get("order_id", invoice_id),
+            # `or invoice_id` (not `meta.get(..., invoice_id)`) so an
+            # explicit None in metadata still falls back to the generated id.
+            # NOWPayments rejects null with
+            #   "order_id must be one of [string, number, object]".
+            "order_id": meta.get("order_id") or invoice_id,
             "order_description": description or "VPN Subscription",
             "ipn_callback_url": meta.get("ipn_callback_url", ""),
             "success_url": meta.get("success_url", ""),
