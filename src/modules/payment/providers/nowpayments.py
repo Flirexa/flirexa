@@ -112,20 +112,22 @@ class NOWPaymentsProvider(PaymentProvider):
         invoice_id = self.generate_invoice_id()
         meta = metadata or {}
 
+        # NOWPayments rejects null AND empty string on URL fields with
+        #   "X is not allowed to be empty" or
+        #   "X must be one of [string, number, object]"
+        # Build the URL keys conditionally — when omitted, the API uses
+        # the dashboard-level default instead of failing the request.
         payload = {
             "price_amount": amount_float,
             "price_currency": currency.lower(),
-            # `or invoice_id` (not `meta.get(..., invoice_id)`) so an
-            # explicit None in metadata still falls back to the generated id.
-            # NOWPayments rejects null with
-            #   "order_id must be one of [string, number, object]".
             "order_id": meta.get("order_id") or invoice_id,
             "order_description": description or "VPN Subscription",
-            "ipn_callback_url": meta.get("ipn_callback_url", ""),
-            "success_url": meta.get("success_url", ""),
-            "cancel_url": meta.get("cancel_url", ""),
             "is_fee_paid_by_user": False,
         }
+        for key in ("ipn_callback_url", "success_url", "cancel_url"):
+            v = meta.get(key)
+            if v:
+                payload[key] = v
 
         # Optional: pre-select pay currency
         if meta.get("pay_currency"):

@@ -4,6 +4,21 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.55 — 2026-06-01
+
+### Fixed
+
+- NOWPayments invoice POST now sends real `success_url` / `cancel_url`
+  (derived from `CLIENT_PORTAL_URL` or the bare `CLIENT_PORTAL_DOMAIN`)
+  instead of empty strings. Previously every invoice 400'd with
+  "success_url is not allowed to be empty" — NOWPayments validates URL
+  fields and rejects `""`, so the route now passes the portal root
+  (`/?paid=1` / `/?paid=0`) and the provider omits any URL field that
+  is still empty so misconfigured panels degrade to dashboard defaults
+  rather than erroring out.
+
+---
+
 ## v1.9.54 — 2026-06-01
 
 ### Fixed
