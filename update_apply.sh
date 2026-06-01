@@ -508,10 +508,17 @@ smoke_check() {
     local portal_port="${CLIENT_PORTAL_PORT:-10090}"
     local api_ok=false
     local health_json=""
+    # SMOKE_MAX_ATTEMPTS × 2s = total wait for the API to come up after
+    # the swap+restart. Default 60 (= 120s) — small VPS boxes with the
+    # full plugin set + online license validator cold-start hit 70-90s
+    # routinely. The previous 15-attempt (30s) ceiling false-failed
+    # otherwise-healthy applies and triggered auto-rollback. Override
+    # via env if a deployment really needs a tighter or longer wait.
+    local max_attempts="${SMOKE_MAX_ATTEMPTS:-60}"
 
     log "Smoke check …"
 
-    for i in $(seq 1 15); do
+    for i in $(seq 1 "$max_attempts"); do
         sleep 2
         health_json=$(curl -sf --max-time 5 "http://localhost:${port}/health?detail=true" 2>/dev/null || true)
         if [[ -n "$health_json" ]]; then
@@ -519,9 +526,9 @@ smoke_check() {
             log "  API health endpoint OK (attempt $i)"
             break
         fi
-        log "  waiting for API … ($i/15)"
+        log "  waiting for API … ($i/${max_attempts})"
     done
-    $api_ok || { log_err "API health check failed after 30s"; return 1; }
+    $api_ok || { log_err "API health check failed after $((max_attempts * 2))s"; return 1; }
 
     if ! echo "$health_json" | grep -q '"status":"healthy"'; then
         log_err "API health payload not healthy"

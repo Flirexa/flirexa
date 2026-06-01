@@ -60,6 +60,7 @@ class PaymentMethod(str, Enum):
     # so include them too to avoid future enum-mismatch crashes.
     CRYPTOPAY = "cryptopay"
     NOWPAYMENTS = "nowpayments"
+    PAYLIO = "paylio"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

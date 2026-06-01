@@ -75,14 +75,19 @@
             </div>
           </div>
 
-          <!-- Card provider (Stripe, Mollie, Razorpay, Payme): single currency,
-               no picker — checkout decides the actual card type on its end. -->
+          <!-- Card provider (Stripe, Mollie, Razorpay, Payme, PayLio): single
+               currency, no picker — checkout decides the actual card type on
+               its end. Surface the provider's display name so single-provider
+               setups don't leave the customer wondering who they're paying. -->
           <div v-if="providerKind === 'card'" class="card-pay-summary">
             <div class="card-pay-line">
               <span class="card-pay-icon">{{ getProviderIcon(selectedProvider) }}</span>
               <div>
                 <div class="card-pay-title">{{ $t('pay.payByCard') }}</div>
-                <div class="card-pay-sub">{{ $t('pay.cardCheckoutHint') }}</div>
+                <div class="card-pay-sub">
+                  <span class="fw-bold">{{ selectedProviderName }}</span>
+                  · {{ $t('pay.cardCheckoutHint') }}
+                </div>
               </div>
             </div>
           </div>
@@ -247,12 +252,17 @@ const invoiceDisplayAmount = computed(() => {
 // just fire createInvoice() with USD. Crypto providers and PayPal still need
 // per-currency picking client-side because amount must be encoded in the
 // invoice. Keep this set in sync with the backend provider plugin set.
-const CARD_PROVIDERS = ['stripe', 'mollie', 'razorpay', 'payme']
+const CARD_PROVIDERS = ['stripe', 'mollie', 'razorpay', 'payme', 'paylio']
 
 const providerKind = computed(() => {
   if (CARD_PROVIDERS.includes(selectedProvider.value)) return 'card'
   if (selectedProvider.value === 'paypal') return 'paypal'
   return 'crypto'
+})
+
+const selectedProviderName = computed(() => {
+  const p = providers.value.find((x) => x.id === selectedProvider.value)
+  return p?.display_name || p?.name || selectedProvider.value
 })
 
 // When the operator switches provider, reset the currency to one that
@@ -273,6 +283,7 @@ const getProviderIcon = (id) => {
     mollie:      '💳',
     razorpay:    '💳',
     payme:       '💳',
+    paylio:      '💳',
   }
   return icons[id] || '💰'
 }

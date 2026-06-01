@@ -4,6 +4,47 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.51 — 2026-06-01
+
+First fiat-acquirer payment provider plus a few rollout fixes that came
+out of the first end-to-end test on a real customer flow.
+
+### Added
+
+- **PayLio payment provider.** Auto-loaded plugin in
+  `plugins/payments/paylio_provider.py`. Customers pay with Visa /
+  Mastercard / Apple Pay / Google Pay / SEPA; the operator receives
+  USDC on Polygon at `PAYLIO_PAYOUT_ADDRESS`. PayLio's IPN is an
+  unsigned HTTP GET (`?ipn_token=…`), so the plugin re-verifies every
+  callback against `/api/v1/payment-status` with the operator's API key
+  before crediting — treating the callback itself as an untrusted hint
+  per the upstream docs. New GET route at `/client-portal/webhooks/paylio`
+  (the existing `POST /webhooks/{provider}` dispatcher is method-locked
+  and can't accept GET).
+- Config: `PAYLIO_API_KEY`, `PAYLIO_PAYOUT_ADDRESS`, optional
+  `PAYLIO_CURRENCIES` (default `USD`), optional `PAYLIO_PROVIDER` to
+  lock to a single upstream provider (`stripe`, `moonpay`, …) instead
+  of the multi-acquirer router.
+- Migration `044_paymentmethod_paylio`: adds `'PAYLIO'` (uppercase, for
+  SQLAlchemy's `SQLEnum` serialisation) and `'paylio'` to the
+  `paymentmethod` Postgres ENUM. Idempotent — `ADD VALUE IF NOT EXISTS`.
+
+### Changed
+
+- `update_apply.sh` smoke-check ceiling raised from 15 attempts (30s)
+  to 60 attempts (120s), env-tunable via `SMOKE_MAX_ATTEMPTS`. The
+  previous 30s window false-failed otherwise-healthy applies on small
+  boxes (1 vCPU / 1 GB) where the full plugin set + online license
+  validator routinely cold-starts in 70-90s, triggering unnecessary
+  auto-rollbacks.
+- Client portal `PaymentModal` now treats `paylio` as a card-style
+  provider (single-currency, hosted-checkout flow) and surfaces the
+  selected provider's display name in the "Pay by card" summary so
+  single-provider portals don't leave the customer wondering who
+  they're paying.
+
+---
+
 ## v1.9.48 — 2026-06-01
 
 Local post-update hooks + per-site landing analytics on the license server.
