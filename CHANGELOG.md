@@ -4,6 +4,22 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.53 — 2026-06-01
+
+### Fixed
+
+- Client portal NOWPayments path now uses the hosted-checkout
+  `NOWPaymentsProvider` (POST `/v1/invoice` + `ipn_callback_url`)
+  matching what the create-invoice route expects. Previously the portal
+  process loaded the legacy `CryptoPaymentProvider` (POST `/v1/payment`,
+  reads `metadata["callback_url"]`), so every customer payment failed
+  with "API error: ipn_callback_url must be a string" — the legacy
+  class looked for a metadata key the create-invoice flow never sets,
+  serialised `null`, and NOWPayments rejected the request. The API
+  service already used the new class; this aligns both processes.
+
+---
+
 ## v1.9.52 — 2026-06-01
 
 ### Reverted

@@ -109,8 +109,14 @@ async def lifespan(app: FastAPI):
     np_sandbox = os.getenv("NOWPAYMENTS_SANDBOX", "false").lower() == "true"
     if np_key:
         try:
-            from src.modules.subscription.crypto_payment import CryptoPaymentProvider
-            client_portal.nowpayments_provider = CryptoPaymentProvider(
+            # Use the hosted-checkout NOWPaymentsProvider (POST /v1/invoice +
+            # `ipn_callback_url`), matching what `src/api/main.py` loads. The
+            # legacy `CryptoPaymentProvider` posts to /v1/payment, which
+            # rejects every request from the create-invoice flow because the
+            # metadata key it reads (`callback_url`) is never set — every
+            # customer hits "API error: ipn_callback_url must be a string".
+            from src.modules.payment.providers.nowpayments import NOWPaymentsProvider
+            client_portal.nowpayments_provider = NOWPaymentsProvider(
                 api_key=np_key, ipn_secret=np_secret, sandbox=np_sandbox
             )
             print(f"✅ NOWPayments initialized (sandbox: {np_sandbox})")
