@@ -4,6 +4,23 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.56 — 2026-06-01
+
+### Fixed
+
+- NOWPayments invoice now sets `price_currency` to a fiat code (USD/EUR)
+  instead of forwarding the customer's crypto pick verbatim. The
+  PaymentModal seeds `selectedCurrency='USDT'` for the NOWPayments
+  provider; the route was passing `currency='USDT'` straight through to
+  `price_currency`, which NOWPayments interprets as "this invoice
+  costs 4 USDT" and runs its hosted-checkout availability lookup
+  against the wrong base. Every coin then showed up as "This currency
+  is currently unavailable. Try it in 2 hours" on the hosted checkout.
+  The customer's crypto pick is now forwarded as `pay_currency` so the
+  hosted page still lands on the right coin's address.
+
+---
+
 ## v1.9.55 — 2026-06-01
 
 ### Fixed
