@@ -75,11 +75,16 @@
             </div>
           </div>
 
-          <!-- Card provider (Stripe, Mollie, Razorpay, Payme, PayLio): single
-               currency, no picker — checkout decides the actual card type on
-               its end. Surface the provider's display name so single-provider
-               setups don't leave the customer wondering who they're paying. -->
-          <div v-if="providerKind === 'card'" class="card-pay-summary">
+          <!-- Every provider we ship (Stripe / Mollie / Razorpay / Payme /
+               PayLio / NOWPayments / PayPal / CryptoPay) opens its own
+               hosted checkout where the customer picks the actual coin /
+               card / currency. Surface the provider's display name so
+               single-provider setups don't leave the customer wondering
+               who they're paying, and skip the client-side currency
+               picker entirely — it was confusing customers and, on
+               NOWPayments, pre-seeded `price_currency=USDT` which broke
+               every coin's availability lookup on the hosted page. -->
+          <div class="card-pay-summary">
             <div class="card-pay-line">
               <span class="card-pay-icon">{{ getProviderIcon(selectedProvider) }}</span>
               <div>
@@ -88,30 +93,6 @@
                   <span class="fw-bold">{{ selectedProviderName }}</span>
                   · {{ $t('pay.cardCheckoutHint') }}
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- PayPal currency picker (USD / EUR) -->
-          <div v-else-if="providerKind === 'paypal'">
-            <label class="form-label fw-bold small">{{ $t('pay.selectCurrency') }}</label>
-            <div class="crypto-grid">
-              <div v-for="cur in paypalCurrencies" :key="cur.code" class="crypto-option"
-                :class="{ selected: selectedCurrency === cur.code }" @click="selectedCurrency = cur.code">
-                <span class="crypto-option-icon">{{ cur.icon }}</span>
-                <span class="crypto-option-name">{{ cur.code }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Crypto currency picker (CryptoPay, NOWPayments) -->
-          <div v-else>
-            <label class="form-label fw-bold small">{{ $t('pay.selectCurrency') }}</label>
-            <div class="crypto-grid">
-              <div v-for="currency in cryptoCurrencies" :key="currency.code" class="crypto-option"
-                :class="{ selected: selectedCurrency === currency.code }" @click="selectedCurrency = currency.code">
-                <span class="crypto-option-icon">{{ getCryptoIcon(currency.code) }}</span>
-                <span class="crypto-option-name">{{ currency.code }}</span>
               </div>
             </div>
           </div>
@@ -158,7 +139,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 
@@ -174,18 +155,14 @@ const step = ref(1)
 const plans = ref([])
 const providers = ref([])
 const selectedProvider = ref('cryptopay')
-const cryptoCurrencies = ref([
-  { code: 'USDT', name: 'Tether' }, { code: 'BTC', name: 'Bitcoin' },
-  { code: 'TON', name: 'Toncoin' }, { code: 'ETH', name: 'Ethereum' },
-  { code: 'USDC', name: 'USD Coin' }, { code: 'BUSD', name: 'Binance USD' }
-])
-const paypalCurrencies = ref([
-  { code: 'USD', icon: '$', name: 'US Dollar' },
-  { code: 'EUR', icon: '€', name: 'Euro' },
-])
 const selectedPlan = ref(null)
 const duration = ref('30')
-const selectedCurrency = ref('USDT')
+// Always submit USD as the price denomination — every hosted-checkout
+// provider we ship accepts it and runs its own coin / fiat picker
+// downstream. Forcing the customer to pick a crypto here was both
+// redundant and bug-prone: NOWPayments interpreted `currency=USDT` as
+// the price unit and broke availability lookup on its hosted page.
+const selectedCurrency = ref('USD')
 const invoice = ref(null)
 const loading = ref(false)
 const error = ref(null)
@@ -246,32 +223,9 @@ const invoiceDisplayAmount = computed(() => {
   return `$${invoice.value.amount_usd || totalPrice.value}`
 })
 
-// Card-style providers go through their own hosted checkout (Stripe Checkout,
-// Mollie hosted, Razorpay popup, Payme). For these we skip currency picking —
-// the gateway shows its own currency conversion / supported-cards UI — and
-// just fire createInvoice() with USD. Crypto providers and PayPal still need
-// per-currency picking client-side because amount must be encoded in the
-// invoice. Keep this set in sync with the backend provider plugin set.
-const CARD_PROVIDERS = ['stripe', 'mollie', 'razorpay', 'payme', 'paylio']
-
-const providerKind = computed(() => {
-  if (CARD_PROVIDERS.includes(selectedProvider.value)) return 'card'
-  if (selectedProvider.value === 'paypal') return 'paypal'
-  return 'crypto'
-})
-
 const selectedProviderName = computed(() => {
   const p = providers.value.find((x) => x.id === selectedProvider.value)
   return p?.display_name || p?.name || selectedProvider.value
-})
-
-// When the operator switches provider, reset the currency to one that
-// the new provider supports so the next /payments/invoice request doesn't
-// 422 ("currency not supported by stripe" etc.).
-watch(selectedProvider, (id) => {
-  if (CARD_PROVIDERS.includes(id)) selectedCurrency.value = 'USD'
-  else if (id === 'paypal') selectedCurrency.value = 'USD'
-  else selectedCurrency.value = 'USDT'
 })
 
 const getProviderIcon = (id) => {

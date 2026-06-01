@@ -4,6 +4,22 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.57 — 2026-06-01
+
+### Changed
+
+- Client portal payment modal step 2 no longer shows the bottom
+  currency picker. Every shipped provider (Stripe / Mollie /
+  Razorpay / Payme / PayLio / NOWPayments / PayPal / CryptoPay)
+  opens its own hosted checkout where the customer picks the actual
+  coin / card / fiat — the client-side picker was redundant and was
+  pre-seeding `currency=USDT` for NOWPayments, breaking availability
+  lookup on the hosted page. Replaced with a single "Pay by card ·
+  <Provider Name>" summary and `selectedCurrency` is hardcoded to
+  USD; the backend handles per-provider quirks.
+
+---
+
 ## v1.9.56 — 2026-06-01
 
 ### Fixed
