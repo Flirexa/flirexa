@@ -4,6 +4,17 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.58 — 2026-06-01
+
+### Changed
+
+- Referral tooltip now notes that the referrer needs an active paid
+  subscription themselves when their friend pays — the +7-days bonus
+  extends `expiry_date`, so it has nothing to attach to on a free-tier
+  account and gets silently dropped. Updated across en/ru/es/de/fr.
+
+---
+
 ## v1.9.57 — 2026-06-01
 
 ### Changed

@@ -329,7 +329,7 @@ export default {
     diagnostics: 'Vérifications de connectivité entre toutes les paires de sites. Montre quels sites peuvent se joindre et identifie les problèmes de routage.',
     subscriptionLink: 'Un lien partageable qui retourne votre config WireGuard actuelle. Quiconque a ce lien peut configurer un client. Régénérez si compromis.',
     autoRenew: 'Lorsqu\'activé, votre abonnement est renouvelé automatiquement avant expiration via votre dernier moyen de paiement.',
-    referral: 'Partagez votre lien unique. Chaque ami qui souscrit à un plan payant vous donne +7 jours ajoutés à votre abonnement actuel.',
+    referral: "Partagez votre lien unique. Chaque ami qui souscrit à un plan payant vous donne +7 jours ajoutés à votre abonnement actuel. Note : vous devez avoir un abonnement payant actif au moment du paiement de votre ami — le bonus prolonge vos jours restants, il n'y a donc rien à prolonger si vous êtes encore sur le plan gratuit.",
   },
   support: {
     title: 'Support',

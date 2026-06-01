@@ -329,7 +329,7 @@ export default {
     diagnostics: 'Konnektivitätsprüfung zwischen allen Standortpaaren. Zeigt welche Standorte sich erreichen können und identifiziert Routing-Probleme.',
     subscriptionLink: 'Ein teilbarer Link der Ihre aktuelle WireGuard-Konfiguration zurückgibt. Jeder mit diesem Link kann einen Client konfigurieren. Bei Kompromittierung neu generieren.',
     autoRenew: 'Wenn aktiviert, wird Ihr Abonnement vor dem Ablauf automatisch über Ihre letzte Zahlungsmethode verlängert.',
-    referral: 'Teilen Sie Ihren einzigartigen Link. Jeder Freund, der ein kostenpflichtiges Abonnement abschließt, gibt Ihnen +7 Tage zu Ihrem Abonnement.',
+    referral: 'Teilen Sie Ihren einzigartigen Link. Jeder Freund, der ein kostenpflichtiges Abonnement abschließt, gibt Ihnen +7 Tage zu Ihrem Abonnement. Hinweis: Sie müssen ein aktives kostenpflichtiges Abonnement haben, wenn Ihr Freund zahlt — der Bonus verlängert Ihre verbleibenden Tage, im Free-Tarif gibt es nichts zu verlängern.',
   },
   support: {
     title: 'Support',

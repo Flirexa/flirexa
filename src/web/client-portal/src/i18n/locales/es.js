@@ -329,7 +329,7 @@ export default {
     diagnostics: 'Comprobaciones de conectividad entre todos los pares de sitios. Muestra qué sitios pueden comunicarse e identifica problemas de enrutamiento.',
     subscriptionLink: 'Un enlace compartible que devuelve su configuración WireGuard actual. Cualquiera con este enlace puede configurar un cliente. Regenere si se compromete.',
     autoRenew: 'Cuando está activado, su suscripción se renueva automáticamente antes de expirar usando su último método de pago.',
-    referral: 'Comparta su enlace único. Cada amigo que se suscriba a un plan de pago le da +7 días añadidos a su suscripción actual.',
+    referral: 'Comparta su enlace único. Cada amigo que se suscriba a un plan de pago le da +7 días añadidos a su suscripción actual. Nota: usted debe tener una suscripción de pago activa cuando su amigo paga — el bono extiende sus días restantes, así que no hay nada a lo que añadirlo si todavía está en el plan gratuito.',
   },
   support: {
     title: 'Soporte',

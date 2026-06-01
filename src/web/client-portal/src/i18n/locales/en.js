@@ -491,7 +491,7 @@ export default {
     diagnostics: 'Run connectivity checks between all site pairs. Shows which sites can reach each other and identifies routing issues.',
     subscriptionLink: 'A shareable link that returns your current WireGuard config. Anyone with this link can configure a WireGuard client. Regenerate if compromised.',
     autoRenew: 'When enabled, your subscription is automatically renewed before expiry using your last payment method.',
-    referral: 'Share your unique link. Each friend who subscribes to a paid plan gives you +7 days added to your current subscription.',
+    referral: 'Share your unique link. Each friend who subscribes to a paid plan gives you +7 days added to your current subscription. Note: you must have an active paid subscription yourself when your friend pays — the bonus extends your remaining days, so it has nothing to attach to if you are still on the free tier.',
   },
   support: {
     title: 'Support',
