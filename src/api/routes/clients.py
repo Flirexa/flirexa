@@ -9,6 +9,7 @@ import re
 import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 import io
 import qrcode
@@ -195,6 +196,7 @@ def _enrich_handshakes(clients: list, db: Session):
 def list_clients(
     server_id: Optional[int] = Query(None, description="Filter by server ID"),
     enabled_only: bool = Query(False, description="Only show enabled clients"),
+    q: Optional[str] = Query(None, description="Substring search on name or ipv4"),
     limit: int = Query(500, ge=1, le=500, description="Max items to return"),
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     db: Session = Depends(get_db)
@@ -204,7 +206,13 @@ def list_clients(
 
     - **server_id**: Optional filter by server
     - **enabled_only**: Only return enabled clients
-    - **limit**: Max items per page (1-500, default 50)
+    - **q**: Optional substring search on `name` or `ipv4`. Server-side
+      so the admin Clients tab can find peers that fall outside the
+      first 500-row page after panels grow past ~500 clients
+      (operator report 2026-06-01 — 800+ clients across multiple
+      servers + frontend filtering an alphabetically-truncated slice =
+      search came back empty for live, traffic-flowing peers).
+    - **limit**: Max items per page (1-500, default 500)
     - **offset**: Items to skip (default 0)
 
     Declared as `def`: body uses sync SQLAlchemy plus `_enrich_handshakes`
@@ -219,6 +227,13 @@ def list_clients(
 
     if enabled_only:
         query = query.filter(Client.enabled == True)
+
+    if q:
+        pattern = f"%{q.strip()}%"
+        query = query.filter(or_(
+            Client.name.ilike(pattern),
+            Client.ipv4.ilike(pattern),
+        ))
 
     total = query.count()
     clients = query.order_by(Client.name).offset(offset).limit(limit).all()

@@ -927,13 +927,14 @@ function showError(msg) {
 }
 
 const filteredClients = computed(() => {
+  // `search` is forwarded to the backend (?q=) via the watcher below — the
+  // store only holds the matching slice, so we no longer filter by name/ipv4
+  // client-side. Doing so used to hide rows that fell outside the 500-row
+  // alphabetic page once a panel grew past 500 clients (operator report:
+  // 800+ clients across servers; searching for a live, traffic-flowing
+  // peer came back empty because the loaded slice didn't include it).
+  // Status / server are cheap to apply locally so they stay.
   let result = store.clients
-  if (search.value) {
-    const q = search.value.toLowerCase()
-    result = result.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.ipv4?.includes(q)
-    )
-  }
   if (filterStatus.value === 'enabled') result = result.filter((c) => c.enabled)
   if (filterStatus.value === 'disabled') result = result.filter((c) => !c.enabled)
   if (filterStatus.value === 'online') result = result.filter((c) => isClientOnline(c))
@@ -1004,6 +1005,21 @@ const allPageSelected = computed(() =>
 
 // Reset page when filters or sort change
 watch([search, filterStatus, filterServer, sortKey, sortDir], () => { currentPage.value = 1 })
+
+// Debounced server-side search. The `/clients` endpoint accepts `?q=` and
+// filters by name/ipv4 substring server-side, so search now actually
+// reaches rows past the 500-row pagination ceiling. 250ms gives a
+// snappy-feeling keystroke without spamming the backend.
+let _searchDebounce = null
+watch(search, (val) => {
+  if (_searchDebounce) clearTimeout(_searchDebounce)
+  _searchDebounce = setTimeout(() => {
+    const params = {}
+    const q = (val || '').trim()
+    if (q) params.q = q
+    store.fetchClients(params)
+  }, 250)
+})
 
 function toggleSelect(id) {
   const s = new Set(selectedIds.value)

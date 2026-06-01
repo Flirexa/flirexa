@@ -4,6 +4,26 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.59 — 2026-06-01
+
+### Fixed
+
+- Admin Clients tab now searches via the backend (`/clients?q=`). The
+  page used to load the first 500 rows alphabetically and filter
+  `name` / `ipv4` client-side, which silently hid peers past the
+  500-row cap once a panel grew past that many clients across its
+  servers. A live, traffic-flowing peer would show up in the server
+  card's TOP CONSUMERS list (agent-side data) while the Clients tab
+  returned "No clients found" for the same name — operator report
+  from the field with 800+ clients.
+
+  Backend: `/clients` accepts `?q=` and filters by `name` / `ipv4`
+  ILIKE substring in SQL. Frontend: debounces the search box (250ms),
+  forwards `q` to the endpoint, drops the local name/ipv4 filter,
+  keeps status / server filters local.
+
+---
+
 ## v1.9.58 — 2026-06-01
 
 ### Changed
