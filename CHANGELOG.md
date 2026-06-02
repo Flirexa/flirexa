@@ -4,6 +4,25 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.60 — 2026-06-02
+
+### Fixed
+
+- **Delete server no longer hangs the panel on a dead remote.** Remote-side
+  cleanup (WG peer removal, interface stop, agent uninstall) is now
+  bounded by a 15s time budget. Once exhausted, the remaining remote
+  ops skip with a logged warning and the DB delete proceeds. The
+  previous flow could spend 50+ seconds blocked when a remote went
+  unreachable (per-call timeouts × N clients), with the operator
+  staring at a hung UI.
+- **Traffic-sync circuit breaker.** When a server's `get_all_peers()`
+  raises, the traffic-sync worker now suspends sync for that server
+  for 10 minutes instead of hammering it every cycle. A single dead
+  remote with N clients used to produce N error log lines per cycle
+  indefinitely. A successful re-fetch heals the breaker.
+
+---
+
 ## v1.9.59 — 2026-06-01
 
 ### Fixed
