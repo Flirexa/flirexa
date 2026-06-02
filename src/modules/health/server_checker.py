@@ -304,25 +304,38 @@ class ServerHealthChecker:
         # facing auto-hide filter (server_visible_to in client_portal)
         # can tell which servers have been alive recently. Treats any
         # non-offline raw status as "good" — degraded counts because
-        # the server is at least reachable. Best-effort: a failed
-        # commit just means the next poll re-stamps and we miss one
-        # tick on the auto-hide clock, which is fine.
-        if result.status != "offline" and self._db is not None:
+        # the server is at least reachable.
+        #
+        # IMPORTANT: `check_all` runs `check_server` in a `ThreadPoolExecutor`,
+        # so this `_record_state` can fire from worker threads. SQLAlchemy
+        # sessions are NOT thread-safe — sharing `self._db` across threads
+        # caused commits to fail silently into the `except` below, leaving
+        # `last_good_health_at` permanently NULL even for healthy servers.
+        # Symptom on the field: every server in the panel showed an
+        # "agent unhealthy" badge despite live health probes succeeding,
+        # because the customer-facing auto-hide read NULL as
+        # "never-confirmed-alive" past the freshly-added grace window.
+        # Use a fresh per-call session via the SessionLocal factory so each
+        # thread gets its own connection from the pool. Best-effort: a
+        # failed commit just means the next poll re-stamps and we miss
+        # one tick on the auto-hide clock.
+        if result.status != "offline":
             try:
+                from src.database.connection import SessionLocal
                 from src.database.models import Server as _Server
-                row = self._db.query(_Server).filter(_Server.id == result.server_id).first()
-                if row is not None:
-                    row.last_good_health_at = datetime.now(timezone.utc)
-                    self._db.commit()
+                _s = SessionLocal()
+                try:
+                    row = _s.query(_Server).filter(_Server.id == result.server_id).first()
+                    if row is not None:
+                        row.last_good_health_at = datetime.now(timezone.utc)
+                        _s.commit()
+                finally:
+                    _s.close()
             except Exception as exc:
                 logger.debug(
                     "last_good_health_at stamp failed for server {}: {}",
                     result.server_id, exc,
                 )
-                try:
-                    self._db.rollback()
-                except Exception:
-                    pass
 
     @staticmethod
     def _wg_cmd(server) -> str:
@@ -873,9 +886,48 @@ class ServerHealthChecker:
         )
 
     def _record_state(self, result: ServerHealth):
-        """Feed result to health state store (anti-flapping)."""
+        """Feed result to health state store (anti-flapping) AND stamp
+        ``last_good_health_at`` in the DB on a successful poll.
+
+        This used to be a stamp-only method earlier in the file but a
+        later refactor added this lighter override that dropped the
+        stamp side-effect — Python takes the LAST class-body definition,
+        so the older stamping version became dead code and
+        ``last_good_health_at`` stayed NULL forever. Symptom on the
+        field: panel showed "agent unhealthy" badges on every server
+        even with live agents responding 200 OK, because the customer-
+        facing auto-hide treats stale-or-null timestamps as "lost". A
+        single missing stamp is fine; permanent NULL across every
+        server is not.
+
+        ``check_all`` runs ``check_server`` in a ``ThreadPoolExecutor``,
+        so this can fire from worker threads. SQLAlchemy sessions are
+        not thread-safe — share-one-session-across-threads is what was
+        already silently failing the original stamp logic via the
+        ``except`` it had. Use a fresh per-call session from
+        ``SessionLocal`` so each worker thread gets its own connection
+        from the pool.
+        """
         try:
             from src.modules.health.state_store import health_state_store
             health_state_store.update(result)
         except Exception:
             pass
+
+        if result.status != "offline":
+            try:
+                from src.database.connection import SessionLocal
+                from src.database.models import Server as _Server
+                _s = SessionLocal()
+                try:
+                    row = _s.query(_Server).filter(_Server.id == result.server_id).first()
+                    if row is not None:
+                        row.last_good_health_at = datetime.now(timezone.utc)
+                        _s.commit()
+                finally:
+                    _s.close()
+            except Exception as exc:
+                logger.debug(
+                    "last_good_health_at stamp failed for server {}: {}",
+                    result.server_id, exc,
+                )

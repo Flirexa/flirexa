@@ -4,6 +4,26 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.61 — 2026-06-02
+
+### Fixed
+
+- **`last_good_health_at` actually gets stamped now.**
+  `ServerHealthChecker._record_state` had two definitions inside the
+  same class body. Python honours the LAST one, so a later refactor
+  that added a lighter override silently shadowed the stamping logic
+  and the timestamp stayed NULL forever for every server. Auto-hide
+  and admin "agent healthy" badges both read that field — every panel
+  in the field was decorating servers as "agent unhealthy" despite
+  live agents responding 200 on /health. Move the stamp into the
+  surviving override and switch to a fresh per-call `SessionLocal`,
+  because `check_all` fires this from `ThreadPoolExecutor` workers
+  and the original `self._db` share-across-threads was already a
+  SQLAlchemy thread-safety violation that would have failed the
+  commit even without the dead-code shadow.
+
+---
+
 ## v1.9.60 — 2026-06-02
 
 ### Fixed
