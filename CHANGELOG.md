@@ -4,6 +4,42 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.66 — 2026-06-05
+
+### Fixed
+
+- **Servers tab stays usable when a server is dead.** Three defences
+  layered together: (1) `/api/v1/servers` now serialises rows one by
+  one — a single corrupt row gets skipped + logged instead of nuking
+  the whole response. (2) The Servers Pinia store caches the last
+  successful list in `localStorage`; if a refresh 5xx's on first load,
+  the cached list renders with a "Showing cached list — API
+  unreachable" banner so operators still see (and can delete) every
+  server. (3) `server_manager.delete_server` no longer hard-fails when
+  `_get_wg()` itself blows up — with `force=true` it falls through to
+  DB-only delete, matching the operator's "I want this row gone"
+  intent. Backed by a new `POST /servers/{id}/purge` route that the
+  panel offers as a one-click "purge from panel" fallback when even
+  the normal force-delete errors out, instead of dropping the operator
+  to `psql`.
+
+---
+
+## v1.9.62 — 2026-06-04
+
+### Fixed
+
+- Admin Clients tab: typing into the search box now keeps the
+  filtered view visible across the 15s live-poll cycle. The poll
+  used to call `store.fetchClients()` with no arguments, dropping
+  the active `?q=` and reloading the full list under the search
+  results within seconds. Same fix covers the bulk-action follow-up
+  refetches and the on-mount load — every refetch reads the current
+  `search` ref via a single helper so the textbox is always the
+  source of truth.
+
+---
+
 ## v1.9.61 — 2026-06-02
 
 ### Fixed
