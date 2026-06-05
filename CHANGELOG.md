@@ -4,6 +4,19 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.67 — 2026-06-05
+
+### Added
+
+- **Client rename in the admin Edit dialog.** The Edit modal now has
+  a Name field at the top — change the label, click Save, the WG peer
+  is renamed in place (key + IP unchanged, no client reconfig needed).
+  Backend already supported `name` on the `PUT /clients/{id}` payload;
+  this just wires it through the existing Edit form so operators stop
+  needing `psql` to clean up auto-generated names.
+
+---
+
 ## v1.9.66 — 2026-06-05
 
 ### Fixed
