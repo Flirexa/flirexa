@@ -4,6 +4,42 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.71 — 2026-06-06
+
+### Added
+
+- **Operator-defined subscription duration ladders.** A new
+  `pricing_tiers` column on `subscription_plans` lets the admin
+  define an arbitrary list of `(days, price_usd, label)` entries
+  per plan, replacing the hard-coded 30/90/365-day buttons in the
+  customer checkout. Examples the admin can now ship without code
+  changes: 2-month / 6-month / 18-month / 2-year / 5-year tiers,
+  trial periods, multi-device-tier ladders. Schema migration is
+  alembic `045_pricing_tiers` (JSONB on Postgres, JSON on SQLite).
+
+  - Backend: `tariffs.py` CRUD accepts a validated `pricing_tiers`
+    list (max 12 entries, days 1..3650, price ≥ 0); customer
+    `/portal/v1/subscription/plans` echoes the list as-is.
+    `create-invoice` validates the requested `duration_days`
+    against the ladder when set — submitting a duration that
+    isn't in the list returns 400 instead of guessing a prorated
+    price.
+  - Admin UI: `Subscriptions.vue` plan editor gained a "Custom
+    durations" group between Pricing and Limits — add/remove rows
+    inline with day count + price + free-form label fields.
+  - Customer UI: `PaymentModal.vue` renders the custom ladder
+    verbatim when present, falls back to the legacy
+    1-month / 3-month / 1-year buttons when the plan ships no
+    `pricing_tiers`. `duration_days` API cap raised 365 → 3650
+    to accommodate multi-year prepay.
+
+  Backwards-compatible: existing plans keep working with the
+  legacy `price_monthly_usd` / `price_quarterly_usd` /
+  `price_yearly_usd` columns until the operator opts in to the
+  ladder.
+
+---
+
 ## v1.9.70 — 2026-06-06
 
 ### Security & Correctness — customer-portal sweep
