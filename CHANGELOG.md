@@ -4,6 +4,20 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.68 — 2026-06-05
+
+### Fixed
+
+- **i18n for the new client-name field + cached-servers banner.**
+  1.9.66 added the stale-cache banner on the Servers tab and 1.9.67
+  added the Name input to the client Edit dialog, but both shipped
+  with English-only inline fallbacks instead of real i18n keys. This
+  release adds `clients.nameLabel`, `clients.namePlaceholder`,
+  `servers.cacheBannerTitle`, `servers.cacheBannerBody`, and
+  `common.retry` to all five locales (en / ru / es / fr / de).
+
+---
+
 ## v1.9.67 — 2026-06-05
 
 ### Added
