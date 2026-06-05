@@ -4,6 +4,71 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.70 — 2026-06-06
+
+### Security & Correctness — customer-portal sweep
+
+A multi-angle audit of `/portal/v1/*` and the Vue SPA produced a stack
+of fixes for the customer-facing surface. None of these are reactive
+to a customer report; all are pre-emptive hardening.
+
+- **Webhook idempotency** for NowPayments / PayLio / CryptoPay / PayPal:
+  `get_payment_by_invoice(for_update=True)` now serialises concurrent
+  webhook deliveries for the same invoice at the row level, on top of
+  the existing `with_for_update()` inside `complete_payment` itself
+  (defence in depth — both layers are independently sufficient).
+- **CryptoPay underpayment**: the previous 1% under-tolerance has been
+  removed. Webhook amounts must meet or exceed the invoiced amount.
+- **Promo code race**: invoice-creation now takes a row lock on the
+  promo before reading `is_valid`, and `complete_payment` increments
+  `used_count` via a conditional atomic UPDATE so two concurrent
+  redemptions of a one-use code can no longer both apply the discount.
+- **Email enumeration on register** is closed. Email-collision and
+  username-collision now return the same generic "An account with
+  this email or username already exists" message; the actual cause
+  is still in the operator log.
+- **Password reset token** lookup runs under `with_for_update()` so a
+  duplicate reset attempt for the same token serialises and the
+  second one finds the token already nulled out instead of racing.
+- **Legacy webhook plugin path** (`process_webhook(data)` single-arg)
+  is now refused with 501 instead of accepting the payload without
+  signature verification — plugins must upgrade to the new
+  `process_webhook(body, headers)` API.
+- **Forgot-password rate limit** moved to a separate bucket so reset
+  spam against a victim's email no longer consumes the IP's
+  login-bucket quota.
+- **Payment provider exceptions** no longer echo raw `str(e)` to the
+  client — generic "Payment provider error" with full exception
+  logged server-side.
+- **Password field length** unified at 8–128 chars across register
+  and change/reset (was 100 on register only).
+- **i18n parity**: the auth section keys that en/ru carried but
+  es/fr/de did not are now backfilled. The i18n loader is
+  explicitly configured to silently fall back to en in production
+  and to warn on missing keys in dev so future drift surfaces fast.
+- **Devices.vue cooldown timers** track each slot's setInterval
+  handle, replace stale ones on re-trigger, and clear them all on
+  component unmount — fast region-switching used to leak parallel
+  tickers.
+- **PaymentModal**: crypto-amount step now carries an exchange-rate
+  disclaimer. If a promo code becomes invalid between validate-time
+  and invoice-creation, the local promo state is reset cleanly so
+  the modal isn't stuck on a stale discount.
+- **Plans.vue**: dropped the dead "Free Plan" button branch — the
+  Free-tier case is already handled above as a disabled "Current
+  plan" / "Free tier" button.
+- **Login.vue a11y**: form errors are now associated with their
+  inputs via `aria-describedby` + `aria-invalid` so screen readers
+  announce them.
+
+### Known follow-up
+- The access token still lives in `localStorage`, not in an httpOnly
+  cookie. Migration requires CSRF-token plumbing and a refresh-token
+  endpoint and is tracked separately rather than bundled with this
+  release.
+
+---
+
 ## v1.9.69 — 2026-06-05
 
 ### Added
