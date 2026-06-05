@@ -4,6 +4,22 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.69 — 2026-06-05
+
+### Added
+
+- **`endpoint_host` on the customer servers list.** `GET /portal/v1/servers`
+  now emits the public host of each server's WG/AWG endpoint so a
+  native mobile/desktop client can run its own TCP-connect probe and
+  show a ping that matches the device's own network path. Previously
+  the only ping signal was the panel→server `/probe` RTT, which is
+  unrelated to the customer's actual route and routinely off by
+  hundreds of ms. No new info is leaked — the host was already in the
+  wg-quick config the customer downloaded to connect. Apps fall back
+  to `/probe` when the field is absent (older panels).
+
+---
+
 ## v1.9.68 — 2026-06-05
 
 ### Fixed
