@@ -4,6 +4,32 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.72 — 2026-06-06
+
+### Fixed
+
+- **Admin Servers tab blank-white when any server has an open agent
+  circuit breaker.** Two latent bugs in `Servers.vue` started firing
+  together as soon as a real broken-agent appeared:
+  - The agent-unreachable banner used `$tc` (vue-i18n v8 plural API)
+    which doesn't exist on the v9 composition-mode template proxy,
+    so the moment `brokenAgents.length > 0` the render threw a
+    `TypeError: $tc is not a function` and the entire grid stopped
+    painting. Switched to `$t(key, count, params)` which v9 supports
+    natively.
+  - The `newServer` `ref({...})` was declared ~100 lines after four
+    `watch(() => newServer.value.X, …)` watchers that referenced it.
+    Vue calls each watch source-fn once during setup to track
+    dependencies — accessing `newServer` in the TDZ threw
+    `Cannot access 'newServer' before initialization` on initial
+    render. Moved the declaration up so the watchers see a real ref.
+
+  Either bug alone could blank the page; the combination is why
+  even refreshing/relogging-in didn't recover the view. Operators
+  saw a working sidebar and header with a fully white content area.
+
+---
+
 ## v1.9.71 — 2026-06-06
 
 ### Added
