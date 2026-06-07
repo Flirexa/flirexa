@@ -4,6 +4,36 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.73 — 2026-06-07
+
+### Fixed
+
+- **Red "Request timed out" toast spam when multiple operators share
+  the panel.** Five admin views had `setInterval(...)` poll loops
+  that fired axios calls without bracketing them through
+  `setBackgroundPoll(true/false)` — so a single slow agent on any one
+  tick fired the global error interceptor's "Request timed out" toast
+  on every operator's screen, even though the request would have
+  succeeded a second later. The same toast doubles every time another
+  operator joins the panel (their polls overlap with yours). New
+  `silentPoll(fn)` helper in `api/index.js` brackets a single async
+  tick the way the existing `useLivePoll` composable already does for
+  Clients / Online Users. Applied to:
+  - `Servers.vue` 5s bandwidth fan-out poll (the loudest one — fires
+    every 5s, hits every server's agent)
+  - `Navbar.vue` 60s update-badge poll + 30s agent-breaker counter
+  - `Dashboard.vue` 30s map data refresh
+  - `SystemHealth.vue` 60s component poll
+  - `ServerMonitoring.vue` 60s aggregate poll
+  - `Updates.vue` 60s self-healing background refresh
+
+  Genuine failures (5xx responses, hard network drops) still surface
+  the toast for explicit user actions — silentPoll only suppresses
+  the periodic background ticks where a one-off slow agent already
+  recovers on the next cycle.
+
+---
+
 ## v1.9.72 — 2026-06-06
 
 ### Fixed
