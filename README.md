@@ -107,7 +107,7 @@ The paid plugins live in `plugins/<name>/` as license-gated declarations. Withou
 | **Business** | $49 | + `multi-server`, `client-tg-bot`, `traffic-rules`, `white-label-basic`, `auto-backup` |
 | **Enterprise** | $149 | + `corporate-vpn` (site-to-site mesh), `manager-rbac` (multi-admin RBAC) |
 
-**Subscriptions are crypto-only.** We accept BTC, USDT (TRC-20 / ERC-20), Monero, ETH, and 50+ other currencies via NOWPayments recurring subscriptions. No fiat, no Visa/Mastercard — keeps onboarding simple in the jurisdictions where most Flirexa operators actually run their services. If you need a fiat invoice for accounting purposes, email `support@flirexa.biz` and we'll issue one and accept the crypto-equivalent.
+**Subscriptions are billed by card in fiat.** We accept Visa/Mastercard, Apple Pay, Google Pay, and bank transfer in USD/EUR via [PayLio](https://paylio.org) recurring subscriptions. If you need an invoice for accounting purposes, email `support@flirexa.biz` and we'll issue one.
 
 Pricing and licensing: [flirexa.biz](https://flirexa.biz)
 
@@ -223,7 +223,7 @@ See [docs/plugins.md](docs/plugins.md) for the full plugin authoring guide and [
 
 Active items, in rough order. See [ROADMAP.md](ROADMAP.md) for the full picture.
 
-- **2026 Q2** — Crypto subscription billing on `flirexa.biz` (NOWPayments recurring)
+- **2026 Q2** — Card / fiat subscription billing on `flirexa.biz` (PayLio recurring, USD/EUR)
 - **2026 Q2** — Signed plugin distribution from license server (paid plugins as `.tar.gz` packages)
 - **2026 Q3** — Public demo instance (`demo.flirexa.biz`)
 - **2026 Q3** — Plugin marketplace (community-authored plugins)

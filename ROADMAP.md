@@ -10,8 +10,8 @@ If you'd like to see something prioritised, [open a discussion](https://github.c
 
 The repository is public, but the commercial loop isn't fully wired yet. This quarter is about closing that.
 
-- [ ] **Crypto subscription billing on flirexa.biz**
-  Recurring NOWPayments subscriptions for all paid tiers — BTC, USDT, Monero, ETH, and 50+ other currencies. Webhooks for renewal / cancellation / past-due. Email notifications. Card / fiat payments are deliberately not on the roadmap; the crypto-only flow matches the operating reality of our target operators and avoids merchant-of-record entanglements with our jurisdiction.
+- [ ] **Card / fiat subscription billing on flirexa.biz**
+  Recurring PayLio subscriptions for all paid tiers — Visa/Mastercard, Apple Pay, Google Pay, and bank transfer in USD/EUR. Webhooks for renewal / cancellation / past-due. Email notifications.
 - [ ] **Signed plugin distribution**
   Paid plugins (`extra-protocols`, `multi-server`, `corporate-vpn`, …) ship as RSA-signed `.tar.gz` packages from the license server. The plugin loader downloads and verifies them on startup for licensees. Today they live in the private `flirexa-pro` repo and are baked into the official installer; this formalises the channel.
 - [ ] **Domain consolidation**
