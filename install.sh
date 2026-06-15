@@ -42,7 +42,7 @@ INSTALL_TELEMETRY="${INSTALL_TELEMETRY:-on}"
 # here, that would leak operator infra into the open-core mirror.
 UPDATE_SERVER="${UPDATE_SERVER:-https://flirexa.biz}"
 CHANNEL="${CHANNEL:-stable}"
-INSTALL_LOG="${INSTALL_LOG:-/tmp/flirexa-install-${INSTALL_ID}.log}"
+INSTALL_LOG="${INSTALL_LOG:-/tmp/vpnmanager-install-${INSTALL_ID}.log}"
 
 # Track which phase we're in so the EXIT trap can label an unexpected death.
 CURRENT_PHASE="boot"
