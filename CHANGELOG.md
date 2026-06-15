@@ -4,6 +4,27 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.94 — 2026-06-15
+
+### Added
+
+- **Clients table: a dedicated "Protocol" column.** Each client now shows the
+  protocol it connects over — WireGuard, AmneziaWG, Hysteria2 or TUIC (derived
+  from its server) — as a colour-coded, sortable badge. Previously the protocol
+  was only surfaced for proxy clients, tucked inside the IP column; the column is
+  also carried into the compact mobile rows.
+
+### Fixed
+
+- **Promo codes could be redeemed more than once per user.** `/promo CODE` only
+  checked a code's global `used_count`, so the same portal user could re-run a
+  `days` code for N× free days, or spam a `percent` code to drain a limited code's
+  budget. Redemptions are now tracked per user with a unique constraint
+  (`promo_redemptions`), enforced atomically, so each user may redeem a given code
+  at most once.
+
+---
+
 ## v1.9.92 — 2026-06-15
 
 Consolidated release covering a full bug-audit sweep plus UI polish since v1.9.73.

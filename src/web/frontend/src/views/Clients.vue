@@ -60,6 +60,7 @@
               <th class="sortable-th" @click="toggleSort('name')">{{ $t('common.name') }}<span class="sort-arrow">{{ sortIcon('name') }}</span></th>
               <th class="d-none d-lg-table-cell sortable-th" @click="toggleSort('server')">{{ $t('clients.server') }}<span class="sort-arrow">{{ sortIcon('server') }}</span></th>
               <th class="d-none d-md-table-cell sortable-th" @click="toggleSort('ip')">{{ $t('dashboard.ip') }}<span class="sort-arrow">{{ sortIcon('ip') }}</span></th>
+              <th class="d-none d-md-table-cell sortable-th" @click="toggleSort('protocol')">{{ $t('clients.protocol') }}<span class="sort-arrow">{{ sortIcon('protocol') }}</span></th>
               <th class="d-none d-sm-table-cell sortable-th" @click="toggleSort('status')">{{ $t('common.status') }}<span class="sort-arrow">{{ sortIcon('status') }}</span></th>
               <th class="d-none d-md-table-cell sortable-th" @click="toggleSort('traffic')">{{ $t('dashboard.traffic') }}<span class="sort-arrow">{{ sortIcon('traffic') }}</span></th>
               <th class="d-none d-lg-table-cell sortable-th" @click="toggleSort('bandwidth')">{{ $t('dashboard.bandwidth') }}<span class="sort-arrow">{{ sortIcon('bandwidth') }}</span></th>
@@ -86,23 +87,30 @@
                   <small class="text-muted" :title="client.created_at">{{ $t('clients.created') }}: {{ formatDateShort(client.created_at) }}</small>
                   <small v-if="!isClientOnline(client) && client.last_handshake" class="text-muted ms-2">· {{ lastSeenText(client) }}</small>
                 </div>
-                <!-- xs: status badge + IP/protocol in one line (status column hidden on xs) -->
-                <div class="d-flex align-items-center gap-1 mt-1 d-sm-none">
+                <!-- xs: status + protocol + IP in one line (those columns hidden on xs) -->
+                <div class="d-flex align-items-center flex-wrap gap-1 mt-1 d-sm-none">
                   <span class="badge" :class="client.enabled ? 'badge-online' : 'badge-offline'"
                     style="height:auto;padding:0.1em 0.4em;border-radius:3px;font-size:0.6em;line-height:1.5">
                     {{ client.enabled ? $t('common.enabled') : $t('common.disabled') }}
                   </span>
-                  <small class="text-muted text-truncate">{{ isProxyClient(client) ? getServerProtocol(client.server_id) : (client.ipv4 || '—') }}</small>
+                  <span class="badge" :class="protocolBadgeClass(client)" style="font-size:0.6em">{{ getServerProtocol(client.server_id) }}</span>
+                  <small v-if="!isProxyClient(client)" class="text-muted text-truncate">{{ client.ipv4 || '—' }}</small>
                 </div>
-                <!-- sm only: just IP/protocol (status column visible on sm) -->
-                <small class="text-muted d-none d-sm-block d-md-none">{{ isProxyClient(client) ? getServerProtocol(client.server_id) : (client.ipv4 || '—') }}</small>
+                <!-- sm only: protocol + IP (status column visible on sm, IP/protocol columns hidden) -->
+                <div class="d-none d-sm-block d-md-none mt-1">
+                  <span class="badge" :class="protocolBadgeClass(client)" style="font-size:0.62em">{{ getServerProtocol(client.server_id) }}</span>
+                  <small v-if="!isProxyClient(client)" class="text-muted ms-1">{{ client.ipv4 || '—' }}</small>
+                </div>
               </td>
               <td class="d-none d-lg-table-cell">
                 <small class="text-muted">{{ getServerName(client.server_id) }}</small>
               </td>
               <td class="d-none d-md-table-cell">
-                <span v-if="isProxyClient(client)" class="text-muted small fst-italic">{{ getServerProtocol(client.server_id) }}</span>
+                <span v-if="isProxyClient(client)" class="text-muted">—</span>
                 <code v-else>{{ client.ipv4 }}</code>
+              </td>
+              <td class="d-none d-md-table-cell">
+                <span class="badge" :class="protocolBadgeClass(client)">{{ getServerProtocol(client.server_id) }}</span>
               </td>
               <td class="d-none d-sm-table-cell">
                 <span class="badge" :class="client.enabled ? 'badge-online' : 'badge-offline'">
@@ -161,7 +169,7 @@
               </td>
             </tr>
             <tr v-if="pagedClients.length === 0" class="clients-empty-row">
-              <td colspan="9" class="text-center text-muted py-4">
+              <td colspan="10" class="text-center text-muted py-4">
                 {{ store.loading ? $t('common.loading') : $t('dashboard.noClients') }}
               </td>
             </tr>
@@ -992,6 +1000,9 @@ const filteredClients = computed(() => {
         case 'ip':
           va = a.ipv4 || ''; vb = b.ipv4 || ''
           return va.localeCompare(vb, undefined, { numeric: true }) * dir
+        case 'protocol':
+          va = getServerProtocol(a.server_id); vb = getServerProtocol(b.server_id)
+          return va < vb ? -dir : va > vb ? dir : 0
         case 'status':
           va = a.enabled ? 1 : 0; vb = b.enabled ? 1 : 0
           return (va - vb) * dir
@@ -1260,6 +1271,16 @@ function getServerProtocol(serverId) {
   if (t === 'tuic') return 'TUIC'
   if (t === 'amneziawg') return 'AmneziaWG'
   return 'WireGuard'
+}
+
+// Soft-badge colour per protocol: proxy protocols warning, AmneziaWG info,
+// plain WireGuard primary. Mirrors getServerProtocol's server_type mapping.
+function protocolBadgeClass(client) {
+  const srv = servers.value.find(s => s.id === client?.server_id)
+  const t = srv?.server_type || ''
+  if (t === 'hysteria2' || t === 'tuic') return 'badge-soft-warning'
+  if (t === 'amneziawg') return 'badge-soft-info'
+  return 'badge-soft-primary'
 }
 
 function isProxyClient(client) {

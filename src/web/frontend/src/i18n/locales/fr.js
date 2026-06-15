@@ -465,6 +465,7 @@ export default {
     allServers: 'Tous les serveurs',
     newClient: '+ Nouveau client',
     server: 'Serveur',
+    protocol: 'Protocole',
     expiry: 'Expiration',
     createTitle: 'Cr\u00e9er un nouveau client',
     clientName: 'Nom du client',

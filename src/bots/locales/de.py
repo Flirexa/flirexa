@@ -351,6 +351,7 @@ MESSAGES = {
     "promo_enter": "Verwendung: /promo CODE\n\nBeispiel: /promo SAVE20",
 
     "promo_invalid": "Ungültiger Promo-Code. Bitte prüfen und erneut versuchen.",
+    "promo_already_used": "Sie haben diesen Promo-Code bereits verwendet.",
 
     "promo_applied": (
         "*Promo-Code {code} angewendet!*\n\n"

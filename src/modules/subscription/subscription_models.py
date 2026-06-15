@@ -456,6 +456,27 @@ class PromoCode(Base):
         return f"<PromoCode {self.code} {self.discount_type}={self.discount_value}>"
 
 
+class PromoRedemption(Base):
+    """One row per (promo_code, client_user) — enforces one redemption per user.
+
+    Without this a `days`-type promo could be re-run by the same user for
+    unlimited free days. The UNIQUE constraint is the race-safe backstop; the
+    bot also checks for an existing row before applying.
+    """
+    __tablename__ = "promo_redemptions"
+    __table_args__ = (
+        UniqueConstraint("promo_code_id", "client_user_id", name="uq_promo_redemption_user"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    promo_code_id = Column(Integer, ForeignKey("promo_codes.id", ondelete="CASCADE"), nullable=False, index=True)
+    client_user_id = Column(Integer, ForeignKey("client_users.id", ondelete="CASCADE"), nullable=False, index=True)
+    redeemed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def __repr__(self):
+        return f"<PromoRedemption promo={self.promo_code_id} user={self.client_user_id}>"
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # LINKING TABLE
 # ═══════════════════════════════════════════════════════════════════════════

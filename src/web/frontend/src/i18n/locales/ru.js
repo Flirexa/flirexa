@@ -473,6 +473,7 @@ export default {
     allServers: 'Все серверы',
     newClient: '+ Новый клиент',
     server: 'Сервер',
+    protocol: 'Протокол',
     expiry: 'Срок',
     createTitle: 'Создать клиента',
     clientName: 'Имя клиента',

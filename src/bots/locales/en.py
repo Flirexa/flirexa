@@ -355,6 +355,7 @@ MESSAGES = {
     "promo_enter": "Usage: /promo CODE\n\nExample: /promo SAVE20",
 
     "promo_invalid": "Invalid promo code. Please check and try again.",
+    "promo_already_used": "You've already used this promo code.",
 
     "promo_applied": (
         "*Promo code {code} applied!*\n\n"
