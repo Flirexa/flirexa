@@ -4,6 +4,52 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.92 — 2026-06-15
+
+Consolidated release covering a full bug-audit sweep plus UI polish since v1.9.73.
+
+### Fixed
+
+- **Stored XSS in the dashboard map.** Server/client names and other fields were
+  interpolated raw into Leaflet popup HTML; a client named with an `<img onerror>`
+  payload could run script in the admin panel. All interpolated values are now
+  HTML-escaped.
+- **Server health alerts were silently disabled.** A duplicate `_record_state`
+  override called a non-existent state-store method (the error was swallowed), so
+  the anti-flapping state machine and Telegram/portal down-alerts never fired.
+  Removed the bad override — server/agent down alerts work again.
+- **Traffic double-counting.** A peer transiently absent from `wg show`
+  (pre-handshake, interface just restarted) was read as `(0,0)`, which rebased the
+  baseline to zero and double-counted the peer's whole counter on the next sync.
+  Absent peers are now skipped without touching the baseline.
+- **AmneziaWG peers lost on restart.** `save_config` used a bare interface name
+  instead of the full config path, so runtime peer add/remove never persisted to
+  disk and vanished on the next `awg-quick down/up`.
+- **Telegram client bot leaked a DB session on every device-add** (a wrong
+  `close()` call); added a global error handler to the bot.
+- **Device-limit over-allocation (TOCTOU).** Concurrent add-device requests could
+  exceed `max_devices`; the count-then-create is now serialized with a per-user
+  advisory lock.
+- **Frontend lifecycle/race fixes:** leaked intervals and object URLs, poll races
+  clobbering fresher data, double-submit on payment actions, money values now
+  rendered with two decimals, debounced search.
+- **Hysteria2/TUIC config generation** broke on IPv6 endpoints (`split(":")`);
+  fixed with a bracket-aware host parser. Hysteria2 now fails loudly on an
+  unresolved server auth password instead of emitting a non-connecting URI.
+- **Installer:** the self-signed web-setup path now generates the nginx
+  `ssl_dhparam` file, fixing fresh installs where HTTPS stayed down (`nginx -t`
+  failed) while services were up.
+- **Update apply** now extracts release tarballs with `filter="data"`.
+
+### Changed
+
+- Clients and Portal Users views: dialogs are centered, scrollable, and go
+  full-screen on small screens; the config block no longer overflows; payment and
+  subscription statuses are localized across all five languages.
+- Settings: added an update-channel switch (stable/test), defaulting to stable.
+
+---
+
 ## v1.9.73 — 2026-06-07
 
 ### Fixed

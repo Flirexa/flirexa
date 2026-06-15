@@ -10,7 +10,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 import io
 import qrcode
 import httpx
@@ -131,13 +131,11 @@ class ExpiryRequest(BaseModel):
 def _enrich_handshakes(clients: list, db: Session):
     """Inject live WG handshake timestamps into client objects.
 
-    Uses the module-level handshake cache (``src.modules.cache.handshake_cache``)
-    populated every few seconds by a background task. On any cache miss
-    for a particular server (background tick hasn't run yet, server was
-    just added, or the cache was explicitly invalidated) the helper
-    does a one-off blocking fetch for that server only — same cost as
-    the old "always blocking" code path, but only on cold-start, never
-    on steady-state traffic.
+    Reads from the module-level handshake cache. The cache is warmed
+    by a background refresher armed in api lifespan — no sync SSH
+    fetches on the request path (that was the 2026-06-11 outage
+    cause; sync fallback fan-out across servers buried the single
+    api worker, which then back-propagated into the customer portal).
 
     Map key is ``(server_id, public_key)``, not just ``public_key``.
     Device slots reuse the same client keypair across every region
@@ -146,40 +144,14 @@ def _enrich_handshakes(clients: list, db: Session):
     pubkey alone let a live handshake on, say, Texas propagate to the
     Cali Client row — the admin "Online Users" tab would then show
     both regions online when traffic only ever hit one.
+
+    Cold-cache window after API boot is ~one refresh interval
+    (REFRESH_INTERVAL_SECONDS, ~8s) where handshakes show as None.
+    Visible only to the operator immediately after a service restart.
     """
-    from src.modules.cache.handshake_cache import (
-        get_cache, ensure_refresher_started, fetch_server_peers_sync,
-    )
+    from src.modules.cache.handshake_cache import get_cache
 
-    # First call from a request handler kicks the background refresher.
-    ensure_refresher_started()
     cache = get_cache()
-
-    # Figure out which server ids the caller's client set even cares
-    # about — no point polling servers nobody has a peer on.
-    server_ids = {c.server_id for c in clients if c.server_id is not None}
-    if not server_ids:
-        return
-
-    # Lazy refetch any server that has no fresh data yet. This happens
-    # on cold start (first request after API boot) and after explicit
-    # invalidate (admin disabled a client; invalidator dropped the
-    # freshness marker so the next read repopulates).
-    needs_lazy = [sid for sid in server_ids if not cache.has_fresh_data_for(sid)]
-    if needs_lazy:
-        # Re-load the needed server rows in one query rather than once
-        # per id. Skip ones we can't see (already deleted, etc.).
-        stale_servers = (
-            db.query(Server)
-            .filter(Server.id.in_(needs_lazy), Server.is_active == True)  # noqa: E712
-            .all()
-        )
-        for srv in stale_servers:
-            try:
-                peers = fetch_server_peers_sync(srv)
-                cache.replace_server(srv.id, peers)
-            except Exception as e:
-                logger.debug("Lazy handshake refresh for server {} failed: {}", srv.id, e)
 
     # Read from cache (free) and stamp the client objects in-place.
     for client in clients:
@@ -197,7 +169,7 @@ def list_clients(
     server_id: Optional[int] = Query(None, description="Filter by server ID"),
     enabled_only: bool = Query(False, description="Only show enabled clients"),
     q: Optional[str] = Query(None, description="Substring search on name or ipv4"),
-    limit: int = Query(500, ge=1, le=500, description="Max items to return"),
+    limit: Optional[int] = Query(None, ge=1, description="Max items to return (omit for all)"),
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     db: Session = Depends(get_db)
 ):
@@ -208,11 +180,19 @@ def list_clients(
     - **enabled_only**: Only return enabled clients
     - **q**: Optional substring search on `name` or `ipv4`. Server-side
       so the admin Clients tab can find peers that fall outside the
-      first 500-row page after panels grow past ~500 clients
-      (operator report 2026-06-01 — 800+ clients across multiple
-      servers + frontend filtering an alphabetically-truncated slice =
-      search came back empty for live, traffic-flowing peers).
-    - **limit**: Max items per page (1-500, default 500)
+      first page after panels grow past any default cap (operator
+      report 2026-06-01 — 800+ clients across multiple servers +
+      frontend filtering an alphabetically-truncated slice = search
+      came back empty for live, traffic-flowing peers).
+    - **limit**: Max items to return. **Omit to return all rows.**
+      Any positive integer caps the result; otherwise the entire
+      filtered set is returned. The previous hard 500-cap silently
+      truncated panels with more clients than that — operator with
+      506 saw "506" on the dashboard but only 500 in the Clients tab.
+      `_enrich_handshakes` is per-server (uses a shared handshake
+      cache populated by a background task), not per-client, so
+      returning the full set scales with the server count, not the
+      client count.
     - **offset**: Items to skip (default 0)
 
     Declared as `def`: body uses sync SQLAlchemy plus `_enrich_handshakes`
@@ -220,7 +200,20 @@ def list_clients(
     loop blocked while any of those fired, so /clients piled up behind
     /servers and /bandwidth on busy panels with multiple servers.
     """
-    query = db.query(Client)
+    # Defer the EncryptedText columns — the admin Clients tab never
+    # renders private_key / preshared_key / proxy_password, but reading
+    # the ORM object without defer forces a Fernet AES+HMAC decrypt of
+    # all three on every single row. With ~thousands of clients per
+    # operator, that's seconds of CPU per request and a measurable
+    # share of one API worker on every poll. (2026-06-11 second wave
+    # was exactly this path under py-spy.) If something downstream
+    # actually needs those columns, accessing them triggers a normal
+    # deferred-load query.
+    query = db.query(Client).options(
+        defer(Client.private_key),
+        defer(Client.preshared_key),
+        defer(Client.proxy_password),
+    )
 
     if server_id is not None:
         query = query.filter(Client.server_id == server_id)
@@ -317,48 +310,57 @@ async def get_map_data(db: Session = Depends(get_db)):
     Reads peer endpoints + handshake times from the shared peer cache
     (``src.modules.cache.handshake_cache``) instead of polling every
     server's WG interface on the request path. The background refresher
-    keeps the cache hot every 8s with per-server timeouts, so even one
-    unreachable agent doesn't stall this endpoint — we get its last
-    known snapshot or nothing, never a 15 s SSH timeout.
+    armed in api lifespan keeps the cache hot — no sync SSH fetches
+    on the request path. Servers with cold cache simply contribute
+    no peers this tick; the refresher catches up within
+    REFRESH_INTERVAL_SECONDS (~8s).
     """
-    from src.modules.cache.handshake_cache import (
-        get_cache, ensure_refresher_started, fetch_server_peers_sync,
-    )
+    from src.modules.cache.handshake_cache import get_cache
 
-    ensure_refresher_started()
     cache = get_cache()
 
-    servers = db.query(Server).all()
+    # Server.endpoint/name/etc are plaintext columns; the encrypted
+    # ones (ssh_password, ssh_private_key, agent_api_key) are not
+    # touched by this endpoint, so we project to the minimum field
+    # set and skip the Fernet decrypt entirely.
+    server_rows = db.query(
+        Server.id, Server.name, Server.endpoint,
+        Server.server_category, Server.server_type,
+    ).all()
+    server_ids = [r.id for r in server_rows]
+
+    # ONE batched lookup of all peers' client rows we might surface,
+    # rather than N queries (one per server). Also skips Client's
+    # encrypted columns by projecting to just what we render here.
+    client_rows = []
+    if server_ids:
+        client_rows = (
+            db.query(
+                Client.public_key, Client.name, Client.server_id,
+                Client.traffic_used_rx, Client.traffic_used_tx,
+            )
+            .filter(Client.server_id.in_(server_ids))
+            .all()
+        )
+    # Bucket by (server_id, public_key) for O(1) lookup against the
+    # peer cache snapshot.
+    clients_by_key = {(r.server_id, r.public_key): r for r in client_rows}
 
     server_list = []
     client_list = []
     all_ips = set()
     server_names = {}
 
-    # Cold-start lazy seed: any non-proxy server with no fresh cache yet
-    # gets one direct fetch so the very first map-data call after API
-    # boot still returns peer data. Subsequent calls hit cache only.
-    for server in servers:
-        is_proxy = getattr(server, 'server_category', 'vpn') == 'proxy' or \
-                   getattr(server, 'server_type', 'wireguard') in ('hysteria2', 'tuic')
-        if is_proxy:
-            continue
-        if not cache.has_fresh_data_for(server.id):
-            try:
-                cache.replace_server(server.id, fetch_server_peers_sync(server))
-            except Exception as e:
-                logger.debug("map-data lazy seed for server {} failed: {}", server.id, e)
-
     now = datetime.now(timezone.utc)
 
-    for server in servers:
+    for server in server_rows:
         server_ip = server.endpoint.split(":")[0] if server.endpoint else None
         if server_ip:
             all_ips.add(server_ip)
             server_names[server.id] = {"name": server.name, "ip": server_ip}
 
-        is_proxy = getattr(server, 'server_category', 'vpn') == 'proxy' or \
-                   getattr(server, 'server_type', 'wireguard') in ('hysteria2', 'tuic')
+        is_proxy = (server.server_category == 'proxy') or \
+                   (server.server_type in ('hysteria2', 'tuic'))
 
         peer_snapshots = {} if is_proxy else cache.get_server_peers(server.id)
         for snap in peer_snapshots.values():
@@ -366,19 +368,18 @@ async def get_map_data(db: Session = Depends(get_db)):
             if ip:
                 all_ips.add(ip)
 
-        clients = db.query(Client).filter(Client.server_id == server.id).all()
-        for client in clients:
-            snap = peer_snapshots.get(client.public_key)
-            if not snap:
-                continue
+        for pubkey, snap in peer_snapshots.items():
             peer_ip = snap.endpoint_ip
             if not peer_ip:
                 continue
+            cli = clients_by_key.get((server.id, pubkey))
+            if not cli:
+                continue
             hs = snap.handshake
             is_active = bool(hs and (now - hs).total_seconds() < 180)
-            traffic_total = (client.traffic_used_rx or 0) + (client.traffic_used_tx or 0)
+            traffic_total = (cli.traffic_used_rx or 0) + (cli.traffic_used_tx or 0)
             client_list.append({
-                "name": client.name,
+                "name": cli.name,
                 "server": server.name,
                 "ip": peer_ip,
                 "traffic_total": traffic_total,
@@ -389,7 +390,7 @@ async def get_map_data(db: Session = Depends(get_db)):
 
     geo_data = await _batch_geoip(list(all_ips))
 
-    for server in servers:
+    for server in server_rows:
         info = server_names.get(server.id)
         if not info:
             continue
@@ -690,6 +691,11 @@ async def enable_client(
         get_cache().invalidate_server(client.server_id)
     except Exception:
         pass
+    try:
+        from src.core.bandwidth_monitor import invalidate_bandwidth_response_cache
+        invalidate_bandwidth_response_cache(client.server_id)
+    except Exception:
+        pass
 
     return {"message": f"Client '{client.name}' enabled", "enabled": True}
 
@@ -715,6 +721,11 @@ async def disable_client(
     try:
         from src.modules.cache.handshake_cache import get_cache
         get_cache().invalidate_server(client.server_id)
+    except Exception:
+        pass
+    try:
+        from src.core.bandwidth_monitor import invalidate_bandwidth_response_cache
+        invalidate_bandwidth_response_cache(client.server_id)
     except Exception:
         pass
 
@@ -1265,6 +1276,9 @@ def list_all_slots(db: Session = Depends(get_db)):
             "active_server_name":   active_srv.name if active_srv else None,
             "created_at":           s.created_at.isoformat() if s.created_at else None,
             "last_switched_at":     s.last_switched_at.isoformat() if s.last_switched_at else None,
+            "device_id":            s.device_id,
+            "device_bound_at":      s.device_bound_at.isoformat() if s.device_bound_at else None,
+            "device_last_seen_at":  s.device_last_seen_at.isoformat() if s.device_last_seen_at else None,
             "peers":                sorted(peer_objs, key=lambda p: p["server_id"]),
             "totals": {
                 "regions":              len(peer_objs),
@@ -1274,6 +1288,36 @@ def list_all_slots(db: Session = Depends(get_db)):
             },
         })
     return out
+
+
+@router.post("/slots/admin/{slot_id}/release-device")
+def admin_release_slot_device(slot_id: int, db: Session = Depends(get_db)):
+    """Admin counterpart of the customer-side /client-portal/devices/{slot_id}/release.
+    Clears the bind so the next wg-quick fetch atomically re-claims for
+    whichever device connects next. Used by the operator Slots page when
+    a customer's app shows "device locked" after a force-close / reinstall
+    and they need to be unstuck without contacting support themselves.
+    """
+    from ...modules.subscription.subscription_models import DeviceSlot as _DeviceSlot
+
+    slot = db.query(_DeviceSlot).filter(_DeviceSlot.id == slot_id).first()
+    if not slot:
+        raise HTTPException(status_code=404, detail="Slot not found")
+    prev = slot.device_id
+    db.query(_DeviceSlot).filter(_DeviceSlot.id == slot.id).update(
+        {
+            "device_id":           None,
+            "device_bound_at":     None,
+            "device_last_seen_at": None,
+        },
+        synchronize_session=False,
+    )
+    db.commit()
+    logger.info(
+        "Admin released device bind on slot {} (was: {})",
+        slot_id, prev or "(none)",
+    )
+    return {"ok": True, "slot_id": slot_id, "previous_device_id": prev}
 
 
 @router.delete("/slots/admin/{slot_id}")

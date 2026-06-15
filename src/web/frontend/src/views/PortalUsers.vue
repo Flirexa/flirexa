@@ -21,7 +21,7 @@
 
     <!-- Create Account Modal -->
     <div v-if="showCreateAccount" class="modal d-block" style="background:rgba(0,0,0,.5)" @click.self="showCreateAccount=false">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-fullscreen-sm-down">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">{{ $t('portalUsers.createAccountTitle') }}</h5>
@@ -38,7 +38,7 @@
             </div>
             <div class="mb-2">
               <label class="form-label small fw-bold">{{ $t('portalUsers.passwordLabel') }}</label>
-              <input type="text" class="form-control form-control-sm" v-model="newAccount.password" placeholder="Min 6 characters" />
+              <input type="text" class="form-control form-control-sm" v-model="newAccount.password" placeholder="Min 8 characters" minlength="8" />
             </div>
             <div class="mb-2">
               <label class="form-label small fw-bold">{{ $t('portalUsers.fullNameLabel') }}</label>
@@ -200,7 +200,7 @@
 
     <!-- Detail Modal -->
     <div v-if="showDetail" class="modal d-block" tabindex="-1" @mousedown.self="showDetail=false">
-      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable modal-fullscreen-lg-down">
         <div class="modal-content">
           <!-- Header with status indicator -->
           <div class="modal-header border-secondary py-2">
@@ -361,17 +361,17 @@
                         <small class="text-muted d-block mb-1">{{ $t('portalUsers.tier') }}</small>
                         <span class="badge fs-6" :class="tierBadge(detail.subscription.tier)">{{ detail.subscription.tier }}</span>
                         <div class="mt-1">
-                          <span class="badge" :class="subStatusBadge(detail.subscription.status)">{{ detail.subscription.status }}</span>
+                          <span class="badge" :class="subStatusBadge(detail.subscription.status)">{{ statusLabel(detail.subscription.status) }}</span>
                         </div>
                       </div>
                     </div>
                     <div class="col-md-3">
                       <div class="stat-card p-3 h-100 text-center">
                         <small class="text-muted d-block mb-1">{{ $t('portalUsers.expiryDate') || 'Expiry' }}</small>
-                        <span class="fw-medium">{{ detail.subscription.expiry_date ? formatDate(detail.subscription.expiry_date) : 'Never' }}</span>
+                        <span class="fw-medium">{{ detail.subscription.expiry_date ? formatDate(detail.subscription.expiry_date) : ($t('portalUsers.never') || 'Never') }}</span>
                         <div v-if="detail.subscription.days_remaining != null" class="mt-1">
                           <span class="badge" :class="detail.subscription.days_remaining <= 3 ? 'badge-offline' : detail.subscription.days_remaining <= 7 ? 'badge-warning' : 'badge-soft-info'">
-                            {{ detail.subscription.days_remaining }}d left
+                            {{ $t('portalUsers.daysLeft', { n: detail.subscription.days_remaining }) }}
                           </span>
                         </div>
                       </div>
@@ -486,7 +486,7 @@
                         <td><code>{{ d.ipv4 }}</code></td>
                         <td>
                           <span class="badge" :class="d.enabled ? 'badge-online' : 'badge-offline'">
-                            {{ d.enabled ? 'ON' : 'OFF' }}
+                            {{ d.enabled ? ($t('portalUsers.deviceOn') || 'ON') : ($t('portalUsers.deviceOff') || 'OFF') }}
                           </span>
                         </td>
                         <td>{{ d.bandwidth_limit ? d.bandwidth_limit + ' Mbps' : '∞' }}</td>
@@ -527,7 +527,7 @@
                         <td class="fw-medium">${{ p.amount_usd }}</td>
                         <td>{{ p.payment_method || '-' }}</td>
                         <td>
-                          <span class="badge" :class="paymentBadge(p.status)">{{ p.status }}</span>
+                          <span class="badge" :class="paymentBadge(p.status)">{{ statusLabel(p.status) }}</span>
                         </td>
                         <td>{{ p.subscription_tier || '-' }}</td>
                         <td>
@@ -583,8 +583,8 @@
                 <th>{{ $t('portalUsers.date') }}</th>
                 <th>{{ $t('portalUsers.username') }}</th>
                 <th>{{ $t('portalUsers.amount') }}</th>
-                <th>{{ $t('portalUsers.method') }}</th>
-                <th>{{ $t('portalUsers.tier') }}</th>
+                <th class="d-none d-md-table-cell">{{ $t('portalUsers.method') }}</th>
+                <th class="d-none d-lg-table-cell">{{ $t('portalUsers.tier') }}</th>
                 <th>{{ $t('common.status') }}</th>
                 <th>{{ $t('common.actions') }}</th>
               </tr>
@@ -594,9 +594,9 @@
                 <td><small>{{ formatDate(p.created_at) }}</small></td>
                 <td>{{ p.username || '-' }}</td>
                 <td class="fw-medium">${{ p.amount_usd }}</td>
-                <td>{{ p.payment_method || '-' }}</td>
-                <td>{{ p.subscription_tier || '-' }}</td>
-                <td><span class="badge" :class="paymentBadge(p.status)">{{ p.status }}</span></td>
+                <td class="d-none d-md-table-cell">{{ p.payment_method || '-' }}</td>
+                <td class="d-none d-lg-table-cell">{{ p.subscription_tier || '-' }}</td>
+                <td><span class="badge" :class="paymentBadge(p.status)">{{ statusLabel(p.status) }}</span></td>
                 <td>
                   <div class="d-flex gap-1">
                     <button
@@ -1018,6 +1018,16 @@ function subStatusBadge(status) {
 function paymentBadge(status) {
   const map = { completed: 'badge-online', pending: 'badge-warning', expired: 'badge-soft-secondary', failed: 'badge-offline', rejected: 'badge-offline' }
   return map[status] || 'badge-soft-secondary'
+}
+
+// Localize raw backend status strings (payment + subscription) so a RU/DE/etc
+// operator doesn't see English "expired / cancelled / completed" in the badges.
+// Falls back to the raw value when no translation key exists.
+function statusLabel(status) {
+  if (status === null || status === undefined || status === '') return '-'
+  const key = 'puStatus.' + String(status).toLowerCase()
+  const tr = t(key)
+  return tr === key ? status : tr
 }
 
 function formatDate(dt) {

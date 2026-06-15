@@ -202,6 +202,7 @@ export const clientsApi = {
   // showing all regional peers, totals, and the slot's active server.
   listSlots: () => api.get('/clients/slots/admin'),
   deleteSlot: (slotId) => api.delete(`/clients/slots/admin/${slotId}`),
+  releaseSlotDevice: (slotId) => api.post(`/clients/slots/admin/${slotId}/release-device`),
 }
 
 // ===== Servers =====
@@ -211,6 +212,10 @@ export const serversApi = {
   create: (data) => api.post('/servers', data, { timeout: 300000 }),
   update: (id, data) => api.put(`/servers/${id}`, data),
   delete: (id, force = false) => api.delete(`/servers/${id}`, { params: { force } }),
+  // Hard purge — DB-only delete, no remote cleanup attempt. Used as a
+  // last-resort from the panel when the normal force-delete blew up
+  // (e.g. dead remote that even the time-budget can't unblock).
+  purge: (id) => api.post(`/servers/${id}/purge`, {}, { timeout: 30000 }),
   // Bringing up/down a remote interface can take 30-60s on first boot
   // (kernel module load + iptables rules + agent round-trip), so the
   // global 15s default is too aggressive for these calls.
@@ -407,6 +412,10 @@ export const systemApi = {
   getPublicIp: () => api.get('/system/public-ip'),
   getAppLogs: (params) => api.get('/system/app-logs', { params }),
   getAppLogsErrors: (params) => api.get('/system/app-logs/errors', { params }),
+  // Update channel (stable | test). Backed by system_config key
+  // `update_channel`; defaults to stable. The Updates page reads it too.
+  getUpdateChannel: () => api.get('/updates/channel'),
+  setUpdateChannel: (channel) => api.post('/updates/channel', { channel }),
 }
 
 export const appAccountsApi = {
@@ -435,5 +444,23 @@ export const healthApi = {
 
 // Exported so composables (useLivePoll) can bracket their tick calls.
 export { setBackgroundPoll }
+
+// Convenience: bracket a single async tick. Equivalent to manually
+// calling setBackgroundPoll(true) … setBackgroundPoll(false) around
+// `fn`. Used by `setInterval` poll sites that aren't wired through
+// `useLivePoll` (bandwidth fan-out, navbar badges, system-health,
+// dashboard map refresh, etc.) so the global response interceptor
+// doesn't fire a "Request timed out" toast each cycle when one of
+// the user's agents is being slow — multiple operators sharing the
+// panel make those toasts pop on everyone's screen, even though
+// the request would have succeeded a second later.
+export async function silentPoll(fn) {
+  setBackgroundPoll(true)
+  try {
+    return await fn()
+  } finally {
+    setBackgroundPoll(false)
+  }
+}
 
 export default api

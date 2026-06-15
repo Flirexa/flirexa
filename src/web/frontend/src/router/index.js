@@ -122,6 +122,11 @@ const routes = [
     component: () => import('../views/Applications.vue'),
   },
   {
+    path: '/notifications',
+    name: 'Notifications',
+    component: () => import('../views/Notifications.vue'),
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('../views/Dashboard.vue'),

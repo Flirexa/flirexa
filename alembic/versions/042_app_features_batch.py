@@ -8,7 +8,7 @@ Bundles four panel-side features requested by operators (2026-05-28):
 
 1. ``servers.for_app_only`` — when True, the server is shown only to
    requests identified as the mobile/desktop app (X-Client-App header
-   or Acme VPNVPN/* UA). Web portal users and subscription URL
+   or BrandVPN/* UA). Web portal users and subscription URL
    fetchers don't see it. Default False (existing rows behave as
    before).
 2. ``servers.last_good_health_at`` — DATETIME timestamp updated by the

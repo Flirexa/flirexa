@@ -368,7 +368,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { systemApi, clientsApi, serversApi, portalUsersApi } from '../api'
+import { systemApi, clientsApi, serversApi, portalUsersApi, silentPoll } from '../api'
 import { formatBytes } from '../utils'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -551,6 +551,15 @@ function initMap() {
   linesLayer = L.layerGroup().addTo(map)
 }
 
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function updateMapMarkers(data) {
   if (!map || !markersLayer) return
 
@@ -575,10 +584,10 @@ function updateMapMarkers(data) {
 
     marker.bindPopup(`
       <div style="min-width:160px">
-        <strong>${srv.name}</strong><br>
-        <span style="color:#888">${srv.city}${srv.city && srv.country ? ', ' : ''}${srv.country}</span><br>
-        <code style="font-size:11px">${srv.ip}</code><br>
-        <span style="color:#4a9eff">&#9679;</span> ${srv.clients_count} client${srv.clients_count !== 1 ? 's' : ''} connected
+        <strong>${escapeHtml(srv.name)}</strong><br>
+        <span style="color:#888">${escapeHtml(srv.city)}${srv.city && srv.country ? ', ' : ''}${escapeHtml(srv.country)}</span><br>
+        <code style="font-size:11px">${escapeHtml(srv.ip)}</code><br>
+        <span style="color:#4a9eff">&#9679;</span> ${escapeHtml(srv.clients_count)} client${srv.clients_count !== 1 ? 's' : ''} connected
       </div>
     `)
 
@@ -603,12 +612,12 @@ function updateMapMarkers(data) {
 
     marker.bindPopup(`
       <div style="min-width:160px">
-        <strong>${cl.name}</strong>
+        <strong>${escapeHtml(cl.name)}</strong>
         <span style="color:${color};font-size:10px"> &#9679; ${isActive ? 'active' : 'idle'}</span><br>
-        <span style="color:#888">${cl.city}${cl.city && cl.country ? ', ' : ''}${cl.country}</span><br>
-        <code style="font-size:11px">${cl.ip}</code><br>
-        Traffic: <strong>${cl.traffic_formatted}</strong><br>
-        Server: ${cl.server}
+        <span style="color:#888">${escapeHtml(cl.city)}${cl.city && cl.country ? ', ' : ''}${escapeHtml(cl.country)}</span><br>
+        <code style="font-size:11px">${escapeHtml(cl.ip)}</code><br>
+        Traffic: <strong>${escapeHtml(cl.traffic_formatted)}</strong><br>
+        Server: ${escapeHtml(cl.server)}
       </div>
     `)
 
@@ -669,7 +678,7 @@ onMounted(async () => {
   // The headline counters (clients/servers/active) are live on the
   // dedicated Online Users page; Dashboard stays a calmer overview that
   // loads once and stays put (no flicker, no constant polling).
-  mapRefreshTimer = setInterval(loadMapData, 30000)
+  mapRefreshTimer = setInterval(() => silentPoll(loadMapData), 30000)
 })
 
 onUnmounted(() => {

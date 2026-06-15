@@ -100,7 +100,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSystemStore } from '../stores/system'
 import { useServersStore } from '../stores/servers'
-import api from '../api'
+import api, { silentPoll } from '../api'
 
 defineEmits(['open-donate'])
 
@@ -176,8 +176,13 @@ async function refreshAgentBreakerCount() {
 onMounted(() => {
   refreshUpdateBadge()
   refreshAgentBreakerCount()
-  _updateBadgeTimer = setInterval(refreshUpdateBadge, 60 * 1000)
-  _serversTimer = setInterval(refreshAgentBreakerCount, 30 * 1000)
+  // silentPoll marks each tick as a background poll so a transient
+  // slow agent doesn't make the global "Request timed out" toast pop
+  // on the navbar — especially noisy with multiple operators in the
+  // panel simultaneously, where every navbar refresh on every screen
+  // gets a red toast.
+  _updateBadgeTimer = setInterval(() => silentPoll(refreshUpdateBadge), 60 * 1000)
+  _serversTimer = setInterval(() => silentPoll(refreshAgentBreakerCount), 30 * 1000)
   document.addEventListener('visibilitychange', _refreshOnFocus)
 })
 onBeforeUnmount(() => {

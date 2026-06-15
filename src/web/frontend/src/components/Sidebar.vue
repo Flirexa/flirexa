@@ -14,7 +14,7 @@
         </router-link>
       </li>
       <li class="sidebar-section-title">{{ $t('nav.management') || 'MANAGEMENT' }}</li>
-      <li class="nav-item" v-for="item in mgmtItems" :key="item.path">
+      <li class="nav-item" v-for="item in visibleMgmtItems" :key="item.path">
         <router-link :to="item.path" class="nav-link" @click="system.closeSidebar()">
           <span class="nav-icon"><i :class="'mdi mdi-' + item.mdi"></i></span>
           <span>{{ $t(`nav.${item.key}`) }}</span>
@@ -37,12 +37,16 @@
 </template>
 
 <script setup>
+import { computed, onMounted } from 'vue'
 import { useSystemStore } from '../stores/system'
 import { useBrandingStore } from '../stores/branding'
 import { useLicenseStore } from '../stores/license'
+import { useAppsStore } from '../stores/apps'
 const system = useSystemStore()
 const branding = useBrandingStore()
 const license = useLicenseStore()
+const apps = useAppsStore()
+onMounted(() => { if (!apps.loaded) apps.refresh() })
 
 // Each item that maps to a paid feature carries `feature` and `tier`.
 // `tierBadgeFor(item)` returns the tier name ('Pro' / 'Business' /
@@ -70,10 +74,20 @@ const mgmtItems = [
   { path: '/payments',          mdi: 'credit-card-outline',          key: 'payments' },
   { path: '/promo-codes',       mdi: 'ticket-percent-outline',       key: 'promoCodes',      feature: 'promo_codes',  tier: 'Starter' },
   { path: '/support-messages',  mdi: 'message-text-outline',         key: 'supportMessages' },
+  { path: '/notifications',     mdi: 'bell-ring-outline',            key: 'notifications',   feature: 'app_integration', tier: 'Enterprise', requiresAppsEnabled: true },
   { path: '/bots',              mdi: 'robot-outline',                key: 'bots' },
   { path: '/applications',      mdi: 'account-key-outline',          key: 'applications',    feature: 'manager_rbac', tier: 'Enterprise' },
   { path: '/traffic',           mdi: 'chart-line',                   key: 'traffic',         feature: 'traffic_rules', tier: 'Pro' },
 ]
+// Items flagged `requiresAppsEnabled` only show after the operator turns
+// on Settings → Apps. Hides Push Notifications for operators that don't
+// ship a customer app — leaving the menu entry visible would be
+// misleading and that's exactly the gap that triggered the user's
+// complaint (the entry showed even for installs with no FCM key set
+// and no branded app to push to).
+const visibleMgmtItems = computed(() =>
+  mgmtItems.filter(it => !it.requiresAppsEnabled || apps.enabled)
+)
 const sysItems = [
   { path: '/health',            mdi: 'heart-pulse',                  key: 'systemHealth' },
   { path: '/server-monitoring', mdi: 'monitor-dashboard',            key: 'serverMonitoring' },

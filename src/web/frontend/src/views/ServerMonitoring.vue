@@ -173,7 +173,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { healthApi, serversApi } from '../api'
+import { healthApi, serversApi, silentPoll } from '../api'
 import { formatBytes, formatTime, formatUptime, formatDuration } from '../utils'
 
 const { t } = useI18n()
@@ -326,7 +326,7 @@ async function reconcileOne(serverId) {
 function toggleFull() { fullMode.value = !fullMode.value; loadAll() }
 
 let pollTimer = null
-onMounted(() => { loadAll(); pollTimer = setInterval(loadAll, 60000) })
+onMounted(() => { loadAll(); pollTimer = setInterval(() => silentPoll(loadAll), 60000) })
 onUnmounted(() => clearInterval(pollTimer))
 </script>
 

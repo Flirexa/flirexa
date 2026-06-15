@@ -173,6 +173,41 @@
               </div>
             </div>
 
+            <!-- GROUP 2b: Custom duration ladder (optional) -->
+            <div class="sub-form-group">
+              <div class="sub-form-group__title">
+                {{ $t('subscriptions.customDurations') || 'Custom durations (optional)' }}
+              </div>
+              <div class="small text-muted mb-2">
+                {{ $t('subscriptions.customDurationsHint') || 'Leave empty to use the monthly / quarterly / yearly buttons above. Add rows to offer any duration (2 months, 6 months, 2 years, trial periods). Customers see exactly the labels and prices you set here.' }}
+              </div>
+              <div v-for="(row, i) in form.pricing_tiers" :key="i" class="row g-2 align-items-center mb-2">
+                <div class="col-3">
+                  <div class="input-group input-group-sm">
+                    <input v-model.number="row.days" type="number" min="1" max="3650" class="form-control" placeholder="days" />
+                    <span class="input-group-text">d</span>
+                  </div>
+                </div>
+                <div class="col-3">
+                  <div class="input-group input-group-sm">
+                    <span class="input-group-text">$</span>
+                    <input v-model.number="row.price_usd" type="number" step="0.01" min="0" class="form-control" placeholder="price" />
+                  </div>
+                </div>
+                <div class="col-5">
+                  <input v-model="row.label" type="text" maxlength="40" class="form-control form-control-sm" placeholder="label e.g. 2 months" />
+                </div>
+                <div class="col-1 text-end">
+                  <button type="button" class="btn btn-sm btn-outline-danger" @click="form.pricing_tiers.splice(i, 1)" title="Remove">×</button>
+                </div>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-secondary"
+                @click="form.pricing_tiers.push({ days: 60, price_usd: 0, label: '' })"
+                :disabled="(form.pricing_tiers || []).length >= 12">
+                + {{ $t('subscriptions.addDuration') || 'Add duration' }}
+              </button>
+            </div>
+
             <!-- GROUP 3: Limits -->
             <div class="sub-form-group">
               <div class="sub-form-group__title">{{ $t('subscriptions.devices') }} &amp; {{ $t('subscriptions.traffic') }}</div>
@@ -294,6 +329,7 @@ const defaultForm = {
   price_monthly_usd: 0,
   price_quarterly_usd: null,
   price_yearly_usd: null,
+  pricing_tiers: [],
   is_active: true,
   is_visible: true,
   display_order: 0,
@@ -318,7 +354,10 @@ async function loadTariffs() {
 
 function openCreateModal() {
   editingTariff.value = null
-  form.value = { ...defaultForm, display_order: tariffs.value.length }
+  // Deep-clone the empty pricing_tiers array — without the [...] copy,
+  // every Create modal would share the same array reference and rows
+  // added in one session would persist after Cancel.
+  form.value = { ...defaultForm, pricing_tiers: [], display_order: tariffs.value.length }
   formError.value = null
   showModal.value = true
 }
@@ -335,6 +374,11 @@ function openEditModal(tariff) {
     price_monthly_usd: tariff.price_monthly_usd,
     price_quarterly_usd: tariff.price_quarterly_usd,
     price_yearly_usd: tariff.price_yearly_usd,
+    // Deep-clone the tiers so editing rows in the modal doesn't mutate
+    // the cached list rendered behind it before Save lands.
+    pricing_tiers: Array.isArray(tariff.pricing_tiers)
+      ? tariff.pricing_tiers.map(t => ({ ...t }))
+      : [],
     is_active: tariff.is_active,
     is_visible: tariff.is_visible,
     display_order: tariff.display_order,
@@ -356,6 +400,18 @@ async function saveTariff() {
     if (!payload.bandwidth_limit_mbps) payload.bandwidth_limit_mbps = null
     if (!payload.price_quarterly_usd) payload.price_quarterly_usd = null
     if (!payload.price_yearly_usd) payload.price_yearly_usd = null
+    // Filter pricing_tiers — drop empty rows the operator may have left
+    // in the editor and refuse to submit obviously broken entries.
+    if (Array.isArray(payload.pricing_tiers)) {
+      payload.pricing_tiers = payload.pricing_tiers
+        .filter(t => t && Number(t.days) > 0)
+        .map(t => ({
+          days: Number(t.days),
+          price_usd: Number(t.price_usd || 0),
+          label: (t.label || '').trim() || null,
+        }))
+      if (payload.pricing_tiers.length === 0) payload.pricing_tiers = null
+    }
 
     if (editingTariff.value) {
       // Update

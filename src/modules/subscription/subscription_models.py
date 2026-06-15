@@ -373,10 +373,22 @@ class SubscriptionPlan(Base):
     traffic_limit_gb = Column(Integer, nullable=True)  # None = unlimited
     bandwidth_limit_mbps = Column(Integer, nullable=True)  # None = unlimited
 
-    # Pricing
+    # Pricing — legacy fixed tiers. Kept for backwards compatibility:
+    # the customer-side checkout falls back to these when `pricing_tiers`
+    # below is NULL or empty.
     price_monthly_usd = Column(Float, nullable=False)
     price_quarterly_usd = Column(Float, nullable=True)
     price_yearly_usd = Column(Float, nullable=True)
+
+    # Operator-defined duration ladder. Each entry is
+    # `{"days": int, "price_usd": float, "label": str}` — e.g.
+    # `[{"days": 30, "price_usd": 5, "label": "1 month"},
+    #   {"days": 60, "price_usd": 9, "label": "2 months"},
+    #   {"days": 730, "price_usd": 89, "label": "2 years"}]`.
+    # When set, the customer checkout shows EXACTLY these options
+    # instead of the hard-coded 30/90/365 buttons. When NULL or empty
+    # the modal falls back to the legacy monthly/quarterly/yearly UI.
+    pricing_tiers = Column(JSON, nullable=True)
 
     # Availability
     is_active = Column(Boolean, default=True)

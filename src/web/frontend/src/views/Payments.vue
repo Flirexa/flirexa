@@ -9,7 +9,7 @@
           class="form-control form-control-sm"
           style="min-width: 180px"
           placeholder="Invoice ID or email..."
-          @input="loadPayments"
+          @input="debouncedLoadPayments"
         />
         <select v-model="statusFilter" class="form-select form-select-sm" style="width: auto; min-width: 120px;" @change="loadPayments">
           <option value="">{{ $t('clients.all') || 'All' }}</option>
@@ -73,7 +73,7 @@
                 <div>{{ p.username || '-' }}</div>
                 <small class="text-muted d-none d-sm-block">{{ p.email }}</small>
               </td>
-              <td class="fw-medium">${{ p.amount_usd }}</td>
+              <td class="fw-medium">${{ Number(p.amount_usd).toFixed(2) }}</td>
               <td class="d-none d-sm-table-cell">
                 <span class="badge" :class="tierBadge(p.subscription_tier)">{{ p.subscription_tier || '-' }}</span>
               </td>
@@ -84,10 +84,10 @@
               <td class="d-none d-md-table-cell">{{ formatDate(p.created_at) }}</td>
               <td>
                 <div class="btn-group btn-group-sm mobile-table-actions" v-if="p.status === 'pending'">
-                  <button class="btn btn-outline-success btn-sm" @click="confirmPayment(p)" title="Confirm">&#x2714;</button>
-                  <button class="btn btn-outline-danger btn-sm" @click="rejectPayment(p)" title="Reject">&#x2716;</button>
+                  <button class="btn btn-outline-success btn-sm" :disabled="busyIds.has(p.id)" @click="confirmPayment(p)" title="Confirm">&#x2714;</button>
+                  <button class="btn btn-outline-danger btn-sm" :disabled="busyIds.has(p.id)" @click="rejectPayment(p)" title="Reject">&#x2716;</button>
                 </div>
-                <button v-if="p.status !== 'pending'" class="btn btn-outline-danger btn-sm" @click="deletePayment(p)" title="Delete">&#x1F5D1;</button>
+                <button v-if="p.status !== 'pending'" class="btn btn-outline-danger btn-sm" :disabled="busyIds.has(p.id)" @click="deletePayment(p)" title="Delete">&#x1F5D1;</button>
               </td>
             </tr>
             <tr v-if="payments.length === 0">
@@ -101,7 +101,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { portalUsersApi } from '../api'
 
 const payments = ref([])
@@ -109,6 +109,15 @@ const total = ref(0)
 const statusFilter = ref('')
 const searchQuery = ref('')
 const loading = ref(false)
+// Per-id in-flight guard so a row's confirm/reject/delete can't be double-submitted.
+const busyIds = reactive(new Set())
+
+// Debounce search input so typing doesn't fire a request per keystroke.
+let _searchTimer = null
+function debouncedLoadPayments() {
+  if (_searchTimer) clearTimeout(_searchTimer)
+  _searchTimer = setTimeout(loadPayments, 300)
+}
 
 const completedCount = computed(() => payments.value.filter((p) => p.status === 'completed').length)
 const pendingCount = computed(() => payments.value.filter((p) => p.status === 'pending').length)
@@ -152,32 +161,44 @@ async function loadPayments() {
 }
 
 async function confirmPayment(p) {
-  if (!confirm(`Confirm payment ${p.invoice_id} ($${p.amount_usd})?`)) return
+  if (busyIds.has(p.id)) return
+  if (!confirm(`Confirm payment ${p.invoice_id} ($${Number(p.amount_usd).toFixed(2)})?`)) return
+  busyIds.add(p.id)
   try {
     await portalUsersApi.confirmPayment(p.id)
     await loadPayments()
   } catch (err) {
     alert('Error: ' + (err.response?.data?.detail || err.message))
+  } finally {
+    busyIds.delete(p.id)
   }
 }
 
 async function rejectPayment(p) {
+  if (busyIds.has(p.id)) return
   if (!confirm(`Reject payment ${p.invoice_id}?`)) return
+  busyIds.add(p.id)
   try {
     await portalUsersApi.rejectPayment(p.id)
     await loadPayments()
   } catch (err) {
     alert('Error: ' + (err.response?.data?.detail || err.message))
+  } finally {
+    busyIds.delete(p.id)
   }
 }
 
 async function deletePayment(p) {
+  if (busyIds.has(p.id)) return
   if (!confirm(`Delete payment ${p.invoice_id}?`)) return
+  busyIds.add(p.id)
   try {
     await portalUsersApi.deletePayment(p.id)
     await loadPayments()
   } catch (err) {
     alert('Error: ' + (err.response?.data?.detail || err.message))
+  } finally {
+    busyIds.delete(p.id)
   }
 }
 

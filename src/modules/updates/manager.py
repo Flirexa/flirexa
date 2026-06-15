@@ -996,7 +996,9 @@ async def _apply_update_task(update_id: int, manifest: dict, started_by: str):
         extract_dir = staging_dir / "extracted"
         extract_dir.mkdir(parents=True, exist_ok=True)
         with tarfile.open(package_path, "r:gz") as tar:
-            tar.extractall(extract_dir)
+            # filter="data" blocks path-traversal / absolute-path members (matches
+            # backup_manager.py). The package is SHA-256-verified, but defense-in-depth.
+            tar.extractall(extract_dir, filter="data")
         extract_root = extract_dir
         subdirs = list(extract_dir.iterdir())
         if len(subdirs) == 1 and subdirs[0].is_dir():

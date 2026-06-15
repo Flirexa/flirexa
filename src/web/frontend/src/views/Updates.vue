@@ -11,7 +11,7 @@
         </button>
         <button class="btn btn-outline-warning btn-sm updates-page__action-btn"
                 @click="restartServices"
-                :disabled="restarting || updateInProgress">
+                :disabled="restarting || waitingRestart || updateInProgress">
           <span v-if="restarting" class="spinner-border spinner-border-sm me-1"></span>
           <i v-if="!restarting" class="mdi mdi-restart me-1"></i>{{ restarting ? $t('updates.restarting') : $t('updates.restartServices') }}
         </button>
@@ -178,7 +178,7 @@
         </div>
         <button class="btn btn-warning"
                 @click="restartServices"
-                :disabled="restarting">
+                :disabled="restarting || waitingRestart">
           <span v-if="restarting" class="spinner-border spinner-border-sm me-1"></span>
           {{ restarting ? $t('updates.restarting') : $t('updates.restartServices') }}
         </button>
@@ -197,6 +197,16 @@
           <span v-if="restartCountdown > 0" class="ms-1">
             {{ $t('updates.restartEta', { sec: restartCountdown }) }}
           </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Restart health-poll gave up (API never came back within the cap) -->
+    <div v-if="restartTimedOut" class="card mb-4 border-danger">
+      <div class="card-body d-flex align-items-center gap-3">
+        <i class="mdi mdi-alert-circle text-danger flex-shrink-0"></i>
+        <div class="text-muted small">
+          {{ $t('updates.restartTimedOut') || 'Services did not respond after restarting. Refresh the page to check status.' }}
         </div>
       </div>
     </div>
@@ -421,7 +431,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import api from '../api'
+import api, { silentPoll } from '../api'
 
 const { t } = useI18n()
 
@@ -441,10 +451,15 @@ const logContainer   = ref(null)
 const restarting        = ref(false)
 const waitingRestart    = ref(false)
 const restartCountdown  = ref(0)
+const restartTimedOut   = ref(false)
 
 let pollTimer       = null
 let restartTimer    = null
 let countdownTimer  = null
+// Wall-clock cap for the post-restart health poll so it can't spin forever
+// if the API never comes back. Mirrors POLL_MAX_MS / startPolling.
+const RESTART_POLL_MAX_MS = 2 * 60 * 1000
+let restartPollStartedAt = 0
 
 // ── Terminal states ────────────────────────────────────────────────────────────
 
@@ -783,8 +798,9 @@ async function viewLog(id) {
 }
 
 async function restartServices() {
-  if (restarting.value) return
+  if (restarting.value || waitingRestart.value) return
   restarting.value = true
+  restartTimedOut.value = false
   try {
     await api.post('/updates/restart')
   } catch { /* API may already be restarting */ }
@@ -799,6 +815,7 @@ async function restartServices() {
   }, 1000)
   // Poll until API comes back up
   if (restartTimer) clearInterval(restartTimer)
+  restartPollStartedAt = Date.now()
   restartTimer = setInterval(async () => {
     try {
       await api.get('/updates/status', { timeout: 3000 })
@@ -809,7 +826,19 @@ async function restartServices() {
       restartCountdown.value = 0
       waitingRestart.value = false
       await Promise.all([loadStatus(), loadHistory(), loadAutoApply()])
-    } catch { /* still restarting */ }
+    } catch {
+      // Still restarting — but give up after the wall-clock cap so we don't
+      // poll forever if the API never returns.
+      if (Date.now() - restartPollStartedAt > RESTART_POLL_MAX_MS) {
+        clearInterval(restartTimer)
+        restartTimer = null
+        if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+        restartCountdown.value = 0
+        waitingRestart.value = false
+        restartTimedOut.value = true
+        console.warn(`Restart health poll exceeded ${RESTART_POLL_MAX_MS / 60000}m; giving up.`)
+      }
+    }
   }, 2000)
 }
 
@@ -897,7 +926,7 @@ onMounted(async () => {
     startPolling(status.value.active_update_id)
   }
   // Self-healing background refresh, lighter cadence than progress poll.
-  refreshTimer = setInterval(_periodicRefresh, 60_000)
+  refreshTimer = setInterval(() => silentPoll(_periodicRefresh), 60_000)
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', _onVisibility)
   }
@@ -907,6 +936,10 @@ onUnmounted(() => {
   stopPolling()
   if (restartTimer) clearInterval(restartTimer)
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+  // countdownTimer (started in restartServices) was the one timer not torn
+  // down here — navigating away mid-countdown left it firing against a
+  // destroyed component until it self-cleared (fixed 2026-06-13).
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', _onVisibility)
   }

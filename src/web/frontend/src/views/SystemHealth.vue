@@ -193,7 +193,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { healthApi } from '../api'
+import { healthApi, silentPoll } from '../api'
 import { formatTime, formatDuration } from '../utils'
 
 const { t } = useI18n()
@@ -339,7 +339,7 @@ function toggleFull() { fullMode.value = !fullMode.value; load(false) }
 
 onMounted(() => {
   load()
-  pollTimer = setInterval(() => load(), 60000)
+  pollTimer = setInterval(() => silentPoll(load), 60000)
 })
 onUnmounted(() => clearInterval(pollTimer))
 </script>

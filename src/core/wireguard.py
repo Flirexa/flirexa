@@ -502,12 +502,26 @@ class WireGuardManager:
         server_public_key: str,
         server_endpoint: str,
         preshared_key: Optional[str] = None,
-        dns: str = "1.1.1.1,1.0.0.1",
+        dns: str = "1.1.1.1, 1.0.0.1",
         mtu: int = 1420,
         allowed_ips: str = "0.0.0.0/0,::/0",
         persistent_keepalive: int = 25,
     ) -> str:
         """Generate a client configuration file content"""
+        # Sanitize DNS — operator can leave the server.dns column empty in
+        # the admin panel; without a fallback the generated client config
+        # carried a bare 'DNS =' line which WireGuard for Windows reads as
+        # "no DNS configured on this tunnel" and the adapter ends up
+        # bypassing the tunnel for name resolution (Herb on Windows
+        # 2026-06-08: "no DNS set on vpn adapter"). Also normalise the
+        # comma-without-space form ('1.1.1.1,1.0.0.1') — Android tolerates
+        # it but some Windows builds parse it as a single hostname and
+        # again set nothing on the adapter.
+        if not (dns and dns.strip()):
+            dns = "1.1.1.1, 1.0.0.1"
+        else:
+            dns = ", ".join(s.strip() for s in dns.split(",") if s.strip())
+
         address = client_ipv4
         if client_ipv6:
             address = f"{client_ipv4},{client_ipv6}"

@@ -27,7 +27,17 @@
           </div>
           <div class="mt-3">
             <label class="form-label fw-bold small">{{ $t('pay.duration') }}</label>
-            <div class="duration-grid">
+            <!-- Custom ladder from the plan, when the operator defined one -->
+            <div v-if="customTiers" class="duration-grid">
+              <label v-for="t in customTiers" :key="t.days" class="duration-option"
+                     :class="{ selected: duration === String(t.days) }">
+                <input type="radio" name="dur" :value="String(t.days)" v-model="duration" class="d-none" />
+                <span class="fw-bold">{{ t.label || (t.days + ' ' + $t('pay.daysShort')) }}</span>
+                <small class="d-block text-muted">${{ Number(t.price_usd || 0).toFixed(2) }}</small>
+              </label>
+            </div>
+            <!-- Legacy monthly/quarterly/yearly buttons when no custom ladder set -->
+            <div v-else class="duration-grid">
               <label class="duration-option" :class="{ selected: duration === '30' }">
                 <input type="radio" name="dur" value="30" v-model="duration" class="d-none" />
                 <span class="fw-bold">{{ $t('pay.month1') }}</span>
@@ -111,6 +121,7 @@
               </div>
             </div>
             <div class="alert alert-warning small py-2">{{ $t('pay.expiresIn', { min: expiryMinutes }) }}</div>
+            <div v-if="invoice.amount_crypto" class="small text-muted mb-2">{{ $t('pay.cryptoRateDisclaimer') }}</div>
             <a v-if="invoice.payment_url" :href="invoice.payment_url" target="_blank" class="btn btn-primary w-100 mb-2">{{ $t('pay.openPaymentPage') }}</a>
             <button class="btn btn-outline-primary btn-sm w-100" @click="checkPayment" :disabled="checkingPayment">
               <span v-if="checkingPayment" class="spinner-border spinner-border-sm me-1"></span>
@@ -139,7 +150,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 
@@ -180,15 +191,50 @@ const stepTitle = computed(() => {
   return t('pay.invoice')
 })
 
+// Operator-defined duration ladder takes precedence over the legacy
+// monthly/quarterly/yearly trio. When the plan ships `pricing_tiers`
+// (non-empty list), we render those buttons EXACTLY as defined and
+// price each one from the ladder entry — no proration, no
+// monthly-equivalent math.
+const customTiers = computed(() => {
+  const t = selectedPlan.value?.pricing_tiers
+  return Array.isArray(t) && t.length ? t : null
+})
+
+// When the user picks a plan that ships a custom ladder, snap
+// `duration` to the first tier's days so the price card and Pay
+// button reflect a valid selection instead of staying on stale '30'
+// (which may not exist in the ladder at all).
+watch(selectedPlan, (plan) => {
+  if (!plan) return
+  const tiers = Array.isArray(plan.pricing_tiers) ? plan.pricing_tiers : null
+  if (tiers && tiers.length) {
+    if (!tiers.some(t => String(t.days) === duration.value)) {
+      duration.value = String(tiers[0].days)
+    }
+  } else {
+    // Reverting from a custom-ladder plan to a legacy plan — make
+    // sure duration is one of the legacy options.
+    if (!['30', '90', '365'].includes(duration.value)) {
+      duration.value = '30'
+    }
+  }
+})
+
 const totalPrice = computed(() => {
   if (!selectedPlan.value) return 0
-  const monthly = selectedPlan.value.price_monthly_usd
   const days = parseInt(duration.value)
   let price
-  if (days >= 365) price = selectedPlan.value.price_yearly_usd || (monthly * 12)
-  else if (days >= 90) price = selectedPlan.value.price_quarterly_usd || (monthly * 3)
-  else price = (monthly * days / 30).toFixed(2)
-  if (promoDiscount.value > 0) price = (price * (1 - promoDiscount.value / 100)).toFixed(2)
+  if (customTiers.value) {
+    const hit = customTiers.value.find(t => Number(t.days) === days)
+    price = hit ? Number(hit.price_usd || 0) : 0
+  } else {
+    const monthly = selectedPlan.value.price_monthly_usd
+    if (days >= 365) price = selectedPlan.value.price_yearly_usd || (monthly * 12)
+    else if (days >= 90) price = selectedPlan.value.price_quarterly_usd || (monthly * 3)
+    else price = (monthly * days / 30).toFixed(2)
+  }
+  if (promoDiscount.value > 0) price = (Number(price) * (1 - promoDiscount.value / 100)).toFixed(2)
   return price
 })
 
@@ -267,7 +313,19 @@ const createInvoice = async () => {
     step.value = 3
     startPaymentCheck()
   } catch (err) {
-    error.value = err.response?.data?.detail || 'Failed to create invoice'
+    const detail = err.response?.data?.detail || ''
+    // If the promo was reserved at validate-time but is no longer valid
+    // here (admin disabled / max_uses just hit / expired between
+    // validate and submit), drop the local promo state so the user
+    // sees the full price again and can retry without the modal stuck
+    // on a stale discount.
+    if (promoApplied.value && /promo/i.test(detail)) {
+      promoApplied.value = false
+      promoCode.value = ''
+      promoError.value = t('pay.promoNoLongerValid') || detail
+    } else {
+      error.value = detail || t('pay.createInvoiceFailed') || 'Failed to create invoice'
+    }
   } finally { loading.value = false }
 }
 

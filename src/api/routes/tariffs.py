@@ -24,6 +24,18 @@ router = APIRouter()
 # SCHEMAS
 # ═══════════════════════════════════════════════════════════════════════════
 
+class PricingTier(BaseModel):
+    """One entry in the operator-defined duration ladder.
+
+    Server validates that `days >= 1` and `price_usd >= 0`. Labels are
+    free-form (e.g. "2 months", "1 year", "Trial 14d") and shown to the
+    customer verbatim in the checkout modal.
+    """
+    days: int = Field(..., ge=1, le=3650)         # cap at 10 years
+    price_usd: float = Field(..., ge=0)
+    label: Optional[str] = Field(None, max_length=40)
+
+
 class TariffCreate(BaseModel):
     tier: str = Field(..., min_length=2, max_length=50)
     name: str = Field(..., min_length=1, max_length=100)
@@ -34,6 +46,15 @@ class TariffCreate(BaseModel):
     price_monthly_usd: float = Field(..., ge=0)
     price_quarterly_usd: Optional[float] = Field(None, ge=0)
     price_yearly_usd: Optional[float] = Field(None, ge=0)
+    pricing_tiers: Optional[List[PricingTier]] = Field(
+        None, max_length=12,
+        description=(
+            "Operator-defined duration ladder. When set, the customer "
+            "checkout shows EXACTLY these (days, price, label) options "
+            "instead of the legacy month/quarter/year buttons. "
+            "Backwards-compatible: leave NULL to keep the old UI."
+        ),
+    )
     is_active: bool = True
     is_visible: bool = True
     display_order: int = 0
@@ -51,6 +72,7 @@ class TariffUpdate(BaseModel):
     price_monthly_usd: Optional[float] = Field(None, ge=0)
     price_quarterly_usd: Optional[float] = Field(None, ge=0)
     price_yearly_usd: Optional[float] = Field(None, ge=0)
+    pricing_tiers: Optional[List[PricingTier]] = Field(None, max_length=12)
     is_active: Optional[bool] = None
     is_visible: Optional[bool] = None
     display_order: Optional[int] = None
@@ -69,6 +91,7 @@ class TariffResponse(BaseModel):
     price_monthly_usd: float
     price_quarterly_usd: Optional[float] = None
     price_yearly_usd: Optional[float] = None
+    pricing_tiers: Optional[List[PricingTier]] = None
     is_active: bool
     is_visible: bool
     display_order: int
@@ -81,6 +104,21 @@ class TariffResponse(BaseModel):
     @classmethod
     def from_orm_with_features(cls, obj):
         """Build response extracting corp_networks from the features JSON dict."""
+        raw_tiers = obj.pricing_tiers or None
+        # Normalise to list-of-dicts (PostgreSQL JSONB → already dict;
+        # SQLite TEXT JSON → already parsed by SQLAlchemy's JSON type).
+        tiers = None
+        if isinstance(raw_tiers, list) and raw_tiers:
+            tiers = [
+                PricingTier(
+                    days=int(t.get("days", 0)),
+                    price_usd=float(t.get("price_usd", 0)),
+                    label=t.get("label") or None,
+                )
+                for t in raw_tiers if isinstance(t, dict) and t.get("days")
+            ]
+            if not tiers:
+                tiers = None
         d = {
             "id": obj.id, "tier": obj.tier, "name": obj.name,
             "description": obj.description, "max_devices": obj.max_devices,
@@ -89,6 +127,7 @@ class TariffResponse(BaseModel):
             "price_monthly_usd": obj.price_monthly_usd,
             "price_quarterly_usd": obj.price_quarterly_usd,
             "price_yearly_usd": obj.price_yearly_usd,
+            "pricing_tiers": tiers,
             "is_active": obj.is_active, "is_visible": obj.is_visible,
             "display_order": obj.display_order,
             "corp_networks": int((obj.features or {}).get("corp_networks", 0)),
@@ -169,6 +208,10 @@ def create_tariff(data: TariffCreate, db: Session = Depends(get_db)):
         price_monthly_usd=data.price_monthly_usd,
         price_quarterly_usd=data.price_quarterly_usd,
         price_yearly_usd=data.price_yearly_usd,
+        pricing_tiers=(
+            [t.model_dump() for t in data.pricing_tiers]
+            if data.pricing_tiers else None
+        ),
         is_active=data.is_active,
         is_visible=data.is_visible,
         display_order=data.display_order,
@@ -194,6 +237,13 @@ def update_tariff(tariff_id: int, data: TariffUpdate, db: Session = Depends(get_
     # Handle corp_networks separately — stored in features JSON, not a direct column
     corp_networks = update_data.pop("corp_networks", None)
     corp_sites = update_data.pop("corp_sites", None)
+    # pricing_tiers comes through as a list of dicts already; coerce
+    # empty list to None so we keep the legacy UI when the operator
+    # clears all rows in the admin editor.
+    if "pricing_tiers" in update_data:
+        pt = update_data["pricing_tiers"]
+        if not pt:
+            update_data["pricing_tiers"] = None
     for field, value in update_data.items():
         setattr(tariff, field, value)
     if corp_networks is not None or corp_sites is not None:

@@ -48,19 +48,32 @@ if is_sqlite:
     )
 else:
     # Pool sizing tuned for FastAPI's default 40-thread threadpool.
-    # Earlier (5 + 10 overflow = 15 max) was fine when most route handlers
-    # were `async def` and only a few threads touched the DB; now nearly
-    # every request runs in the threadpool and wants its own connection.
-    # 20 + 30 = 50 max stays well under Postgres default max_connections=100.
-    # pool_pre_ping catches dead connections after Postgres restarts so the
-    # first request after a DB blip doesn't 500.
+    # Each uvicorn worker process keeps its own pool of size
+    # DB_POOL_SIZE + DB_MAX_OVERFLOW, so total connections =
+    # API_WORKERS * (pool_size + max_overflow). Defaults (20 + 30 = 50)
+    # leave headroom under Postgres default max_connections=100 when
+    # API_WORKERS=1; operators bumping workers must raise both
+    # max_connections AND reduce per-worker pool or set the env vars
+    # explicitly (e.g. DB_POOL_SIZE=10 DB_MAX_OVERFLOW=15 for 4 workers
+    # against a 100-connection Postgres).
+    _pool_size     = int(os.getenv("DB_POOL_SIZE")     or 20)
+    _max_overflow  = int(os.getenv("DB_MAX_OVERFLOW")  or 30)
+    # pool_pre_ping=True does a SELECT 1 round-trip on every checkout
+    # to catch connections killed by a Postgres restart. Cheap when one
+    # request acquires one connection. Painful under thread-pool fan-out:
+    # py-spy on 2026-06-11 caught the api worker parked inside
+    # _do_ping_w_event with multiple AnyIO threads queued for the lock.
+    # Set DB_POOL_PRE_PING=false on perf-tuned deploys and rely on
+    # pool_recycle to refresh stale connections; cost is one 500 on
+    # the first request after a Postgres restart, then back to normal.
+    _pre_ping      = (os.getenv("DB_POOL_PRE_PING", "true") or "true").lower() != "false"
     engine = create_engine(
         DATABASE_URL,
-        pool_size=20,
-        max_overflow=30,
+        pool_size=_pool_size,
+        max_overflow=_max_overflow,
         pool_timeout=10,
         pool_recycle=1800,
-        pool_pre_ping=True,
+        pool_pre_ping=_pre_ping,
         echo=os.getenv("SQL_ECHO", "false").lower() == "true",
     )
 
@@ -82,11 +95,11 @@ try:
         # and websocket handlers, which can be just as concurrent as HTTP.
         async_engine = create_async_engine(
             ASYNC_DATABASE_URL,
-            pool_size=20,
-            max_overflow=30,
+            pool_size=_pool_size,
+            max_overflow=_max_overflow,
             pool_timeout=10,
             pool_recycle=1800,
-            pool_pre_ping=True,
+            pool_pre_ping=_pre_ping,
             echo=os.getenv("SQL_ECHO", "false").lower() == "true",
         )
 

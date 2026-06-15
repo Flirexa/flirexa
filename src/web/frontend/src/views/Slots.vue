@@ -61,6 +61,17 @@
                   </td>
                   <td>
                     <strong>{{ slot.label }}</strong>
+                    <span v-if="slot.device_id"
+                          class="badge bg-warning-subtle text-warning ms-2"
+                          :title="$t('slots.deviceBoundTitle') || `Bound to device ${slot.device_id}` ">
+                      <i class="mdi mdi-lock" style="font-size:11px"></i>
+                      {{ $t('slots.deviceBound') || 'Bound' }}
+                    </span>
+                    <span v-else class="badge bg-light text-muted ms-2"
+                          :title="$t('slots.deviceUnboundTitle') || 'Free — next device to connect will claim it'">
+                      <i class="mdi mdi-lock-open-variant" style="font-size:11px"></i>
+                      {{ $t('slots.deviceUnbound') || 'Free' }}
+                    </span>
                     <i class="mdi ms-1" :class="expanded[slot.id] ? 'mdi-chevron-down' : 'mdi-chevron-right'"></i>
                   </td>
                   <td>
@@ -94,6 +105,12 @@
                   <td class="text-end" @click.stop>
                     <button class="btn btn-sm btn-link p-0 me-2" @click="toggleExpand(slot.id)">
                       {{ expanded[slot.id] ? ($t('common.collapse')) : ($t('common.expand')) }}
+                    </button>
+                    <button v-if="slot.device_id"
+                            class="btn btn-sm btn-outline-warning me-1" @click="releaseDevice(slot)"
+                            :disabled="actionBusy"
+                            :title="$t('slots.releaseDeviceTitle') || 'Release device bind — customer can re-bind on next connect'">
+                      <i class="mdi mdi-lock-open-variant" style="font-size:14px"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-danger" @click="deleteOne(slot)"
                             :disabled="actionBusy"
@@ -225,7 +242,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { clientsApi, portalUsersApi } from '../api'
 
@@ -306,6 +323,21 @@ async function deleteOne(slot) {
   }
 }
 
+async function releaseDevice(slot) {
+  const tpl = t('slots.releaseDeviceConfirm')
+    || 'Release device bind on "{label}"? The customer\'s next connect will re-claim the slot.'
+  if (!confirm(tpl.replace('{label}', slot.label))) return
+  actionBusy.value = true
+  try {
+    await clientsApi.releaseSlotDevice(slot.id)
+    await loadSlots()
+  } catch (e) {
+    alert((t('common.error') || 'Error') + ': ' + (e.response?.data?.detail || e.message))
+  } finally {
+    actionBusy.value = false
+  }
+}
+
 async function deleteSelected() {
   if (!selectedIds.value.length) return
   const tpl = t('slots.deleteManyConfirm') || 'Delete {count} slot(s)? Peers on all servers will be removed. This cannot be undone.'
@@ -316,6 +348,10 @@ async function deleteSelected() {
     try { await clientsApi.deleteSlot(id) }
     catch { failed++ }
   }
+  // The sequential loop can outlive the component (user navigates away mid
+  // bulk-delete). Skip the trailing reload/alert if we've already unmounted
+  // so we don't write to a torn-down view.
+  if (!mounted.value) return
   await loadSlots()
   actionBusy.value = false
   if (failed) {
@@ -441,6 +477,11 @@ function relativeTime(iso) {
     return `${Math.floor(diff / 86400)}d ago`
   } catch { return iso }
 }
+
+// Tracks whether the component is still alive, so async loops (bulk delete)
+// can bail out of their trailing work after teardown.
+const mounted = ref(true)
+onUnmounted(() => { mounted.value = false })
 
 onMounted(loadSlots)
 </script>

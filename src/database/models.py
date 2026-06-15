@@ -283,6 +283,21 @@ class Server(Base):
         Boolean, default=False, nullable=False, server_default="false"
     )
 
+    # Per-platform visibility (2026-06-08): operator wants to
+    # hide bandwidth-heavy servers from desktop clients (where users
+    # tend to consume orders of magnitude more traffic) while keeping
+    # them visible on mobile, or vice versa. Both default True so
+    # existing rows behave unchanged; admin flips the per-platform
+    # toggle in the Servers card menu. Detection of which platform the
+    # request belongs to lives in client_portal._is_windows_app /
+    # _is_mobile_app — UA + X-Client-App header are the inputs.
+    customer_visible_mobile: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="true"
+    )
+    customer_visible_windows: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False, server_default="true"
+    )
+
     # Auto-hide tracking (migration 042). Updated by the server health
     # checker on every successful poll. NULL = never polled yet (treat
     # as healthy until proven otherwise so freshly-added servers don't

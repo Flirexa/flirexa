@@ -7,6 +7,12 @@
 #                           admin panel on the public IP (self-signed HTTPS).
 #   portal_admin_domain   → both portal and admin on real domains, both with
 #                           Let's Encrypt certs.
+#   auto_selfsigned_ip    → no domain needed. Self-signed cert on this
+#                           server's public IP for BOTH the portal (port 443)
+#                           and the admin panel (port 10086). HTTP :80
+#                           redirects to https. Useful for fresh installs run
+#                           without a tty (curl | bash) — operator wires up a
+#                           real domain via this same script later.
 #
 # Highlights:
 #   • DNS pre-check vs server's public IP — fails fast with a clear message
@@ -47,7 +53,7 @@ die()  { echo "[WEB][ERROR] $1" >&2; exit 1; }
 usage() {
     cat <<EOF
 Usage: bash scripts/configure-web-access.sh \\
-  --mode none|portal_admin_ip|portal_admin_domain \\
+  --mode none|portal_admin_ip|portal_admin_domain|auto_selfsigned_ip \\
   [--portal-domain portal.example.com] \\
   [--admin-domain admin.example.com] \\
   [--email admin@example.com] \\
@@ -441,12 +447,170 @@ ensure_renewal_timer() {
 generate_self_signed_admin() {
     local cn
     cn="$(detect_public_ip)"
+    [[ -n "$cn" ]] || die "Could not detect public IP for self-signed cert"
     mkdir -p /etc/ssl/private /etc/ssl/certs
-    openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+    # SAN=IP:<addr> is required by Chrome/Edge — they reject certs that
+    # only put the IP in the CN. 1825 days because the 825-day cap is a
+    # Safari rule for PUBLICLY trusted certs; self-signed is already
+    # warning-on-every-load, no point making operators regenerate yearly.
+    openssl req -x509 -nodes -newkey rsa:2048 -days 1825 \
         -subj "/CN=${cn}" \
+        -addext "subjectAltName=IP:${cn}" \
         -keyout "$SELF_KEY" \
         -out "$SELF_CERT" >/dev/null 2>&1 || die "Failed to generate self-signed cert"
     chmod 600 "$SELF_KEY"
+}
+
+
+apply_selfsigned_ip_mode() {
+    # No domain, no Let's Encrypt — self-signed cert bound to this server's
+    # public IP, used for BOTH the portal (port 443) and the admin panel
+    # (port 10086). Lets a fresh `curl | bash` install end with the panel
+    # immediately reachable over HTTPS so the operator can log in and
+    # configure their real domain via this same script later.
+    local ip
+    install_packages
+    port_conflict_check 80
+    port_conflict_check 443
+    ip="$(detect_public_ip)"
+    [[ -n "$ip" ]] || die "Could not determine this server's public IP"
+    log "Self-signed mode — binding both panels to ${ip}"
+
+    configure_firewall
+    generate_self_signed_admin
+
+    # Make sure backends are loopback-only. nginx in front of them is the
+    # only public listener; if the python services still answered on the
+    # public interface the panel would have both an :10086 nginx HTTPS and
+    # a :10087 plain-HTTP backdoor, which is exactly what operators don't
+    # want when they're operating customer data.
+    update_env_value() {
+        local key="$1" value="$2"
+        if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+            sed -i "s|^${key}=.*|${key}=${value}|" "$ENV_FILE"
+        else
+            echo "${key}=${value}" >> "$ENV_FILE"
+        fi
+    }
+    update_env_value "API_HOST"           "127.0.0.1"
+    # Move api to 10087 so nginx can take 10086. The api-port value also
+    # propagates to ADMIN_API_URL below.
+    update_env_value "API_PORT"           "10087"
+    update_env_value "CLIENT_PORTAL_HOST" "127.0.0.1"
+    update_env_value "CLIENT_PORTAL_PORT" "10090"
+
+    # Refresh local vars so the nginx config below renders the new port.
+    API_PORT="10087"
+    CLIENT_PORTAL_PORT="10090"
+
+    # Drop the stock /etc/nginx/sites-enabled/default — it owns :80 with
+    # default_server and conflicts with the :80 redirect server we write
+    # below. Idempotent.
+    rm -f /etc/nginx/sites-enabled/default
+
+    # Generate the DH params the TLS server blocks reference via ssl_dhparam.
+    # Without this the nginx config written below fails `nginx -t` and :443
+    # never binds — the panel is then reachable on :80 only (or not at all),
+    # which looks like "HTTPS down while services are up". Only apply_domain_mode
+    # used to call this; the self-signed path (the default for non-interactive
+    # installs) skipped it. See the dhparam install-bug fix.
+    ensure_dhparam
+
+    write_tls_params
+
+    cat > "$NGINX_CONF" <<EOF
+# Managed by configure-web-access.sh (auto_selfsigned_ip mode). Do not edit
+# by hand — re-run the script to refresh. Self-signed cert at:
+#   ${SELF_CERT}
+#   ${SELF_KEY}
+
+# ── HTTP → HTTPS redirect (catches operators who paste the IP without https) ──
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 301 https://\$host\$request_uri;
+}
+
+# ── Client portal: HTTPS on the public IP ─────────────────────────────────────
+server {
+    listen 443 ssl http2 default_server;
+    listen [::]:443 ssl http2 default_server;
+    server_name _;
+
+    ssl_certificate     ${SELF_CERT};
+    ssl_certificate_key ${SELF_KEY};
+
+$(tls_directives_block)
+$(gzip_overrides_block)
+
+    client_max_body_size 20m;
+
+$(security_headers_block)
+$(maintenance_error_pages)
+
+    access_log /var/log/nginx/portal-access.log;
+    error_log  /var/log/nginx/portal-error.log;
+
+    location / {
+$(maintenance_check_block)
+$(proxy_headers_block "${CLIENT_PORTAL_PORT}")
+    }
+}
+
+# ── Admin panel: HTTPS on the public IP (port 10086) ──────────────────────────
+server {
+    listen 10086 ssl http2;
+    listen [::]:10086 ssl http2;
+    server_name _;
+
+    ssl_certificate     ${SELF_CERT};
+    ssl_certificate_key ${SELF_KEY};
+
+$(tls_directives_block)
+$(gzip_overrides_block)
+
+    client_max_body_size 20m;
+
+$(security_headers_block)
+$(maintenance_error_pages)
+
+    access_log /var/log/nginx/admin-access.log;
+    error_log  /var/log/nginx/admin-error.log;
+
+    location / {
+$(maintenance_check_block)
+$(proxy_headers_block "${API_PORT}")
+    }
+}
+EOF
+
+    nginx -t >/dev/null 2>&1 || die "nginx config test failed (auto_selfsigned_ip)"
+    systemctl enable nginx >/dev/null 2>&1 || true
+    systemctl reload nginx 2>/dev/null || systemctl restart nginx
+
+    # The python services were bound to 0.0.0.0:10086 / 0.0.0.0:10090 by
+    # whatever ran before us. Bounce them so they pick up the new env.
+    if systemctl is-enabled vpnmanager-api >/dev/null 2>&1; then
+        systemctl restart vpnmanager-api          2>/dev/null || true
+    fi
+    if systemctl is-enabled vpnmanager-client-portal >/dev/null 2>&1; then
+        systemctl restart vpnmanager-client-portal 2>/dev/null || true
+    fi
+
+    update_env_value "WEB_SETUP_MODE"      "auto_selfsigned_ip"
+    update_env_value "CLIENT_PORTAL_DOMAIN" ""
+    update_env_value "ADMIN_PANEL_DOMAIN"   ""
+    update_env_value "CERTBOT_EMAIL"        ""
+    update_env_value "CLIENT_PORTAL_URL"   "https://${ip}"
+    update_env_value "ADMIN_PANEL_URL"     "https://${ip}:10086"
+    # Internal URL the portal process uses to call the admin process.
+    # Loopback HTTP — never https://, never the public IP, because TLS
+    # to ourselves through nginx adds latency and the self-signed cert
+    # would fail verification inside python httpx without verify=False.
+    update_env_value "ADMIN_API_URL"       "http://127.0.0.1:${API_PORT}"
+    update_env_value "ADMIN_ACCESS_MODE"   "selfsigned_ip"
+    log "Web access configured (self-signed cert on ${ip})"
 }
 
 write_final_config() {
@@ -690,6 +854,7 @@ main() {
     case "$MODE" in
         none) apply_mode_none ;;
         portal_admin_ip|portal_admin_domain) apply_domain_mode ;;
+        auto_selfsigned_ip) apply_selfsigned_ip_mode ;;
         *) die "Unsupported mode: $MODE" ;;
     esac
 

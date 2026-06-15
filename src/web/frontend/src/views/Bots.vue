@@ -253,17 +253,25 @@ const logEntries = ref([])
 const logsLoading = ref(false)
 const logsError = ref('')
 
+// Latest-wins guard: switching component/errors-only fires loadLogs again
+// while a previous request may still be in flight. We only let the newest
+// request mutate state so a slow earlier response can't clobber the fresher
+// selection.
+let logsSeq = 0
 async function loadLogs() {
+  const seq = ++logsSeq
   logsLoading.value = true
   logsError.value = ''
   try {
     const { data } = await systemApi.getAppLogs({ component: logComponent.value, errors_only: logErrorsOnly.value, lines: 100 })
+    if (seq !== logsSeq) return
     logEntries.value = data.entries || data || []
   } catch (err) {
+    if (seq !== logsSeq) return
     logsError.value = 'Failed to load logs: ' + (err.response?.data?.detail || err.message)
     logEntries.value = []
   } finally {
-    logsLoading.value = false
+    if (seq === logsSeq) logsLoading.value = false
   }
 }
 

@@ -262,7 +262,7 @@ parse_args() {
                 echo "  SB_CLIENT_TOKEN     Client bot token (optional)"
                 echo "  SB_ENDPOINT         WireGuard endpoint ip:port (auto-detected if empty)"
                 echo "  SB_DB_PASSWORD      PostgreSQL password (auto-generated if empty)"
-                echo "  SB_WEB_SETUP_MODE   none|portal_admin_ip|portal_admin_domain"
+                echo "  SB_WEB_SETUP_MODE   none|portal_admin_ip|portal_admin_domain|auto_selfsigned_ip"
                 echo "  SB_CLIENT_PORTAL_DOMAIN  portal.example.com"
                 echo "  SB_ADMIN_PANEL_DOMAIN    admin.example.com (when using portal_admin_domain)"
                 echo "  SB_CERTBOT_EMAIL    Email for Let's Encrypt notices"
@@ -1302,6 +1302,22 @@ configure_web_access_preferences() {
         if [[ "$WEB_SETUP_MODE" == "portal_admin_ip" ]] && [[ -z "$WEB_PORTAL_DOMAIN" || -z "$WEB_CERTBOT_EMAIL" ]]; then
             die "SB_WEB_SETUP_MODE=portal_admin_ip requires SB_CLIENT_PORTAL_DOMAIN and SB_CERTBOT_EMAIL"
         fi
+        # `auto_selfsigned_ip` needs nothing — falls through.
+    elif [[ ! -t 0 ]]; then
+        # Piped installer (curl … | bash) has no controlling tty, so the
+        # read prompts below would silently default to "n" and the operator
+        # would end up with services running but no nginx in front. That's
+        # exactly the support ticket we saw on 2026-06-12 — install
+        # "stuck" from the customer's perspective because the panel was
+        # only on port 10086 plain HTTP. Default to `auto_selfsigned_ip`:
+        # nginx + self-signed cert bound to the public IP, so the panel
+        # works the moment the install finishes. Operators with a real
+        # domain can re-run scripts/configure-web-access.sh later.
+        log_info "Non-interactive install detected (no tty) — defaulting web access to auto_selfsigned_ip"
+        WEB_SETUP_MODE="auto_selfsigned_ip"
+        WEB_PORTAL_DOMAIN=""
+        WEB_ADMIN_DOMAIN=""
+        WEB_CERTBOT_EMAIL=""
     else
         echo ""
         echo -e "${BOLD}Web Access / HTTPS${NC}"
@@ -1309,39 +1325,50 @@ configure_web_access_preferences() {
         echo "  Recommended production setup:"
         echo "    - Client portal on its own domain with Let's Encrypt"
         echo "    - Admin panel either on a separate domain or via server IP + self-signed TLS"
+        echo "    - Or: no domain yet — quick self-signed TLS on this server's IP"
         echo ""
         read -r -p "  Configure nginx + HTTPS now? (y/n) [n]: " web_reply || web_reply=""
         if [[ "$web_reply" =~ ^[Yy]$ ]]; then
             while true; do
                 echo ""
-                echo "  1) Client portal domain + admin by server IP (self-signed TLS)"
-                echo "  2) Client portal domain + admin domain (Let's Encrypt)"
-                read -r -p "  Choose web mode [1-2]: " web_mode_choice || web_mode_choice=""
+                echo "  1) Client portal domain + admin by server IP (self-signed TLS for admin)"
+                echo "  2) Client portal domain + admin domain (Let's Encrypt for both)"
+                echo "  3) No domain yet — self-signed TLS on this server's IP for both"
+                read -r -p "  Choose web mode [1-3]: " web_mode_choice || web_mode_choice=""
                 case "$web_mode_choice" in
                     1) WEB_SETUP_MODE="portal_admin_ip"; break ;;
                     2) WEB_SETUP_MODE="portal_admin_domain"; break ;;
-                    *) log_warn "  Choose 1 or 2" ;;
+                    3) WEB_SETUP_MODE="auto_selfsigned_ip"; break ;;
+                    *) log_warn "  Choose 1, 2 or 3" ;;
                 esac
             done
 
-            while [[ -z "$WEB_PORTAL_DOMAIN" ]]; do
-                read -r -p "  Client portal domain: " WEB_PORTAL_DOMAIN || WEB_PORTAL_DOMAIN=""
-                [[ -n "$WEB_PORTAL_DOMAIN" ]] || log_warn "  Client portal domain is required"
-            done
+            if [[ "$WEB_SETUP_MODE" != "auto_selfsigned_ip" ]]; then
+                while [[ -z "$WEB_PORTAL_DOMAIN" ]]; do
+                    read -r -p "  Client portal domain: " WEB_PORTAL_DOMAIN || WEB_PORTAL_DOMAIN=""
+                    [[ -n "$WEB_PORTAL_DOMAIN" ]] || log_warn "  Client portal domain is required"
+                done
 
-            if [[ "$WEB_SETUP_MODE" == "portal_admin_domain" ]]; then
-                while [[ -z "$WEB_ADMIN_DOMAIN" ]]; do
-                    read -r -p "  Admin panel domain: " WEB_ADMIN_DOMAIN || WEB_ADMIN_DOMAIN=""
-                    [[ -n "$WEB_ADMIN_DOMAIN" ]] || log_warn "  Admin panel domain is required"
+                if [[ "$WEB_SETUP_MODE" == "portal_admin_domain" ]]; then
+                    while [[ -z "$WEB_ADMIN_DOMAIN" ]]; do
+                        read -r -p "  Admin panel domain: " WEB_ADMIN_DOMAIN || WEB_ADMIN_DOMAIN=""
+                        [[ -n "$WEB_ADMIN_DOMAIN" ]] || log_warn "  Admin panel domain is required"
+                    done
+                else
+                    WEB_ADMIN_DOMAIN=""
+                fi
+
+                while [[ -z "$WEB_CERTBOT_EMAIL" ]]; do
+                    read -r -p "  Email for Let's Encrypt notices: " WEB_CERTBOT_EMAIL || WEB_CERTBOT_EMAIL=""
+                    [[ -n "$WEB_CERTBOT_EMAIL" ]] || log_warn "  Email is required for certificate issuance"
                 done
             else
+                # auto_selfsigned_ip needs no extra input — IP is discovered
+                # at apply time, cert is generated then.
+                WEB_PORTAL_DOMAIN=""
                 WEB_ADMIN_DOMAIN=""
+                WEB_CERTBOT_EMAIL=""
             fi
-
-            while [[ -z "$WEB_CERTBOT_EMAIL" ]]; do
-                read -r -p "  Email for Let's Encrypt notices: " WEB_CERTBOT_EMAIL || WEB_CERTBOT_EMAIL=""
-                [[ -n "$WEB_CERTBOT_EMAIL" ]] || log_warn "  Email is required for certificate issuance"
-            done
         else
             WEB_SETUP_MODE="none"
             WEB_PORTAL_DOMAIN=""
@@ -1852,18 +1879,31 @@ verify() {
 
     local errors=0
 
-    # API health
+    # Resolve where api actually lives. apply_web_access_setup may have
+    # moved it off :10086 (the public TLS port nginx is now on) onto
+    # 127.0.0.1:10087. Read API_PORT from .env if it's there so verify
+    # checks the right backend even after the migration.
+    local API_PORT_LIVE=10086
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        local env_port
+        env_port=$(grep '^API_PORT=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2-)
+        [[ -n "$env_port" ]] && API_PORT_LIVE="$env_port"
+    fi
+
+    # API health (always hit the backend over plain HTTP on localhost — the
+    # api process is loopback-bound when nginx is in front of it, so this
+    # works for all WEB_SETUP_MODE values).
     local http_code
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:10086/health 2>/dev/null || echo "000")
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT_LIVE}/health" 2>/dev/null || echo "000")
     if [[ "$http_code" == "200" ]]; then
         log_success "  API: healthy (HTTP 200)"
     else
-        log_warn "  API: not responding (HTTP $http_code)"
+        log_warn "  API: not responding (HTTP $http_code on port ${API_PORT_LIVE})"
         errors=$((errors + 1))
     fi
 
     # Admin panel
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:10086/ 2>/dev/null || echo "000")
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT_LIVE}/" 2>/dev/null || echo "000")
     if [[ "$http_code" == "200" ]]; then
         log_success "  Admin panel: OK"
     else
@@ -1891,7 +1931,7 @@ verify() {
     fi
 
     # API authentication (401 = no token, 403 = activation mode / no license yet — both are correct)
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:10086/api/v1/clients 2>/dev/null || echo "000")
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT_LIVE}/api/v1/clients" 2>/dev/null || echo "000")
     if [[ "$http_code" == "401" ]]; then
         log_success "  API auth: protected (401 without token)"
     elif [[ "$http_code" == "403" ]]; then
@@ -1955,7 +1995,7 @@ verify() {
         log_info "  vpnmanager-client-bot: skipped (not configured)"
     fi
 
-    if grep -q "^WEB_SETUP_MODE=portal_" "$INSTALL_DIR/.env" 2>/dev/null; then
+    if grep -qE "^WEB_SETUP_MODE=(portal_|auto_selfsigned_ip)" "$INSTALL_DIR/.env" 2>/dev/null; then
         if systemctl is-active --quiet nginx 2>/dev/null; then
             log_success "  nginx: running"
         else

@@ -8,6 +8,25 @@
       </div>
     </div>
 
+    <!-- ── Stale-cache banner ───────────────────────────────────
+         When /api/v1/servers fails on first load we fall back to the last
+         successful list cached in localStorage so operators can still see
+         (and importantly: delete) dead boxes. This banner makes it explicit
+         the list isn't live. Clicking Retry re-runs fetchServers. -->
+    <div v-if="store.usingCache" class="srv-stale-banner">
+      <div class="srv-stale-banner__icon"><i class="mdi mdi-cloud-off-outline"></i></div>
+      <div class="srv-stale-banner__body">
+        <div class="srv-stale-banner__title">{{ $t('servers.cacheBannerTitle') }}</div>
+        <div class="srv-stale-banner__text">
+          {{ $t('servers.cacheBannerBody') }}
+          <span v-if="store.cacheSavedAt" class="srv-stale-banner__since">· {{ cacheAgeText }}</span>
+        </div>
+      </div>
+      <button class="btn btn-sm btn-outline-primary" @click="store.fetchServers()">
+        <i class="mdi mdi-refresh me-1"></i>{{ $t('common.retry') }}
+      </button>
+    </div>
+
     <!-- ── Unreachable-agent banner ─────────────────────────────
          Surfaces servers whose agent circuit-breaker is open. The breaker
          opens after 3 consecutive ConnectTimeouts, and while it's open the
@@ -19,7 +38,7 @@
       <div class="agent-breaker-banner__icon"><i class="mdi mdi-alert-circle-outline"></i></div>
       <div class="agent-breaker-banner__body">
         <div class="agent-breaker-banner__title">
-          {{ $tc('servers.agentBannerTitle', brokenAgents.length, { count: brokenAgents.length }) }}
+          {{ $t('servers.agentBannerTitle', brokenAgents.length, { count: brokenAgents.length }) }}
         </div>
         <div class="agent-breaker-banner__text">
           {{ $t('servers.agentBannerBody', { names: brokenAgents.map(s => s.name).join(', ') }) }}
@@ -180,6 +199,26 @@
                       ? ($t('servers.unmarkAppOnly') || 'Also show on web portal')
                       : ($t('servers.markAppOnly') || 'Mark as app-only') }}
                 </button>
+                <!-- Per-platform server visibility — only surfaces when
+                     the operator's license carries the `app_integration`
+                     feature. Operators without their own customer-app
+                     don't see these toggles (and don't need them — the
+                     DB columns default TRUE so the customer-portal
+                     filter is a no-op for them). -->
+                <template v-if="license.has('app_integration')">
+                  <button class="srv-menu__item" @click="menuAction(() => toggleCustomerVisibleMobile(server))">
+                    <i class="mdi me-1" :class="(server.customer_visible_mobile !== false) ? 'mdi-cellphone-off' : 'mdi-cellphone'"></i>
+                    {{ (server.customer_visible_mobile !== false)
+                        ? ($t('servers.hideFromMobile') || 'Hide from mobile app')
+                        : ($t('servers.showOnMobile') || 'Show on mobile app') }}
+                  </button>
+                  <button class="srv-menu__item" @click="menuAction(() => toggleCustomerVisibleWindows(server))">
+                    <i class="mdi me-1" :class="(server.customer_visible_windows !== false) ? 'mdi-monitor-off' : 'mdi-monitor'"></i>
+                    {{ (server.customer_visible_windows !== false)
+                        ? ($t('servers.hideFromWindows') || 'Hide from Windows app')
+                        : ($t('servers.showOnWindows') || 'Show on Windows app') }}
+                  </button>
+                </template>
                 <button class="srv-menu__item" @click="menuAction(() => toggleForceVisible(server))">
                   <i class="mdi me-1" :class="server.force_visible ? 'mdi-shield-off-outline' : 'mdi-shield-check-outline'"></i>
                   {{ server.force_visible
@@ -301,7 +340,7 @@
         </div>
 
         <!-- Hidden restore file input -->
-        <input type="file" :ref="el => { if (el) restoreInputs[server.id] = el }"
+        <input type="file" :ref="el => { if (el) restoreInputs[server.id] = el; else delete restoreInputs[server.id] }"
           accept=".json" style="display:none" @change="restoreServer(server, $event)" />
       </div>
     </div>
@@ -1756,7 +1795,7 @@ import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from
 import { useI18n } from 'vue-i18n'
 import { useServersStore } from '../stores/servers'
 import { useLicenseStore } from '../stores/license'
-import { serversApi, systemApi } from '../api'
+import { serversApi, systemApi, silentPoll } from '../api'
 
 const { t } = useI18n()
 const store = useServersStore()
@@ -1817,6 +1856,16 @@ const missingDisplayNameServers = computed(() =>
     s => s.customer_visible !== false && !s.display_name
   )
 )
+// Human-friendly age label for the cached-list banner ("2m ago", "1h ago").
+const cacheAgeText = computed(() => {
+  const ts = store.cacheSavedAt
+  if (!ts) return ''
+  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+  if (sec < 60) return `${sec}s ago`
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
+  return `${Math.floor(sec / 3600)}h ago`
+})
+
 const breakerActing = reactive({})
 
 function formatBreakerSince(seconds) {
@@ -1875,6 +1924,57 @@ const isFormValid = computed(() => {
       newServer.value.proxy_tls_mode === 'acme' &&
       !newServer.value.proxy_domain?.trim()) return false
   return true
+})
+
+// `newServer` MUST be declared before the watchers below. Vue calls each
+// `watch(source, …)` source-fn ONCE during setup to register reactive
+// dependencies; if `newServer` is in the TDZ at that moment, every
+// watcher throws `Cannot access 'newServer' before initialization` and
+// the entire setup fails the first reactive read. Used to live ~100
+// lines further down — moved up so the watchers see a real ref.
+const newServer = ref({
+  name: '',
+  endpoint: '',
+  interface: 'wg1',
+  listen_port: 51821,
+  address_pool_ipv4: '10.0.1.0/24',
+  dns: '1.1.1.1,8.8.8.8',
+  max_clients: 250,
+  location: '',
+  ssh_host: '',
+  ssh_port: 22,
+  ssh_user: 'root',
+  ssh_password: '',
+  server_type: 'wireguard',
+  server_category: 'vpn',
+  split_tunnel_support: false,
+  ipv4_only: false,
+  // Connection mode: 'ssh' (default, install agent over SSH) or 'mikrotik'
+  // (manage an existing RouterOS device via its REST API — no SSH, no
+  // agent install).
+  agent_mode: 'ssh',
+  mikrotik_url: '',
+  mikrotik_username: 'admin',
+  mikrotik_password: '',
+  // Proxy fields
+  proxy_domain: '',
+  proxy_tls_mode: 'self_signed',
+  proxy_cert_path: '',
+  proxy_key_path: '',
+  proxy_obfs_password: '',
+  private_key: '',
+  // AmneziaWG obfuscation params — empty means "auto-generate on the backend".
+  // Filled when the operator is migrating from another AWG box and needs the
+  // new server to use the old box's headers so existing client configs work.
+  awg_jc: null,
+  awg_jmin: null,
+  awg_jmax: null,
+  awg_s1: null,
+  awg_s2: null,
+  awg_h1: null,
+  awg_h2: null,
+  awg_h3: null,
+  awg_h4: null,
 })
 
 watch(() => newServer.value.endpoint, (val) => {
@@ -1942,7 +2042,18 @@ const checkingStatus = ref({})
 
 // Agent menu modal
 const showAgentModal = ref(false)
-const agentServer = ref(null)
+// Track the server by id so the modal reflects live store data (the 8s poll
+// replaces the server objects in store.servers, orphaning any raw snapshot).
+// agentServerId is the source of truth; agentServerLastKnown is a fallback
+// snapshot kept so the modal still renders if the server vanishes from the
+// store while open (e.g. deleted/filtered mid-session).
+const agentServerId = ref(null)
+const agentServerLastKnown = ref(null)
+const agentServer = computed(() => {
+  const live = (store.servers || []).find((s) => s.id === agentServerId.value)
+  if (live) return live
+  return agentServerLastKnown.value
+})
 const uninstallingAgent = ref(false)
 const installProgress = ref('')
 const bootstrapLogs = ref([])
@@ -1980,51 +2091,6 @@ async function pollBootstrapLogs(taskId) {
     } catch (_e) { /* ignore transient poll errors */ }
   }, 1200)
 }
-
-const newServer = ref({
-  name: '',
-  endpoint: '',
-  interface: 'wg1',
-  listen_port: 51821,
-  address_pool_ipv4: '10.0.1.0/24',
-  dns: '1.1.1.1,8.8.8.8',
-  max_clients: 250,
-  location: '',
-  ssh_host: '',
-  ssh_port: 22,
-  ssh_user: 'root',
-  ssh_password: '',
-  server_type: 'wireguard',
-  server_category: 'vpn',
-  split_tunnel_support: false,
-  ipv4_only: false,
-  // Connection mode: 'ssh' (default, install agent over SSH) or 'mikrotik'
-  // (manage an existing RouterOS device via its REST API — no SSH, no
-  // agent install).
-  agent_mode: 'ssh',
-  mikrotik_url: '',
-  mikrotik_username: 'admin',
-  mikrotik_password: '',
-  // Proxy fields
-  proxy_domain: '',
-  proxy_tls_mode: 'self_signed',
-  proxy_cert_path: '',
-  proxy_key_path: '',
-  proxy_obfs_password: '',
-  private_key: '',
-  // AmneziaWG obfuscation params — empty means "auto-generate on the backend".
-  // Filled when the operator is migrating from another AWG box and needs the
-  // new server to use the old box's headers so existing client configs work.
-  awg_jc: null,
-  awg_jmin: null,
-  awg_jmax: null,
-  awg_s1: null,
-  awg_s2: null,
-  awg_h1: null,
-  awg_h2: null,
-  awg_h3: null,
-  awg_h4: null,
-})
 
 const reuseKeyOpen = ref(false)
 const reuseObfuscationOpen = ref(false)
@@ -2279,7 +2345,26 @@ async function confirmDeleteServer(server) {
     await serversApi.delete(server.id, true)
     await store.fetchServers()
   } catch (err) {
-    alert('Error: ' + (err.response?.data?.detail || err.message))
+    // The UI already passes force=true, so a 4xx/5xx here means even the
+    // DB-only fallback path inside server_manager.delete_server blew up.
+    // Offer the operator a second-chance "Purge from panel only" that hits
+    // a dedicated route which truly skips remote and only touches DB rows.
+    const detail = err.response?.data?.detail || err.message || 'Unknown error'
+    const purgeMsg = (
+      `Server "${server.name}" couldn't be deleted normally.\n\n` +
+      `Reason: ${detail}\n\n` +
+      `Click OK to PURGE the server record from the panel database only ` +
+      `(skips remote cleanup entirely — peers/interface on the remote box, ` +
+      `if it ever comes back, will need manual cleanup).\n\n` +
+      `Click Cancel to abort and check the API logs first.`
+    )
+    if (!confirm(purgeMsg)) return
+    try {
+      await serversApi.purge(server.id)
+      await store.fetchServers()
+    } catch (purgeErr) {
+      alert('Purge also failed: ' + (purgeErr.response?.data?.detail || purgeErr.message))
+    }
   }
 }
 
@@ -2595,7 +2680,8 @@ async function installAgent(serverId, port = 8001) {
 }
 
 function openAgentMenu(server) {
-  agentServer.value = server
+  agentServerId.value = server.id
+  agentServerLastKnown.value = server
   showAgentModal.value = true
   // Auto-check status when opening
   if (!agentStatuses.value[server.id]) {
@@ -2989,6 +3075,31 @@ async function toggleCustomerVisible(server) {
   const next = !(server.customer_visible !== false)
   try {
     await store.updateServer(server.id, { customer_visible: next })
+    await store.fetchServers()
+  } catch (err) {
+    alert('Error: ' + (err.response?.data?.detail || err.message))
+  }
+}
+
+// Per-platform visibility toggles (migration 046). Both default
+// True — flipping to False hides the server only on the matching
+// platform without touching the other. Sub-URL / web portal
+// sessions remain unaffected because _is_windows_app and
+// _is_mobile_app both return False for those.
+async function toggleCustomerVisibleMobile(server) {
+  const next = !(server.customer_visible_mobile !== false)
+  try {
+    await store.updateServer(server.id, { customer_visible_mobile: next })
+    await store.fetchServers()
+  } catch (err) {
+    alert('Error: ' + (err.response?.data?.detail || err.message))
+  }
+}
+
+async function toggleCustomerVisibleWindows(server) {
+  const next = !(server.customer_visible_windows !== false)
+  try {
+    await store.updateServer(server.id, { customer_visible_windows: next })
     await store.fetchServers()
   } catch (err) {
     alert('Error: ' + (err.response?.data?.detail || err.message))
@@ -3507,9 +3618,18 @@ async function restoreServer(server, event) {
 onMounted(async () => {
   await store.fetchServers()
   checkAllAgentStatuses()
-  // Start bandwidth monitoring (every 5 seconds)
-  fetchAllBandwidth()
-  bwInterval = setInterval(fetchAllBandwidth, 5000)
+  // Start bandwidth monitoring (every 5 seconds). silentPoll marks each
+  // tick as a background poll so a slow agent's per-server probe
+  // doesn't fire the global "Request timed out" toast every cycle —
+  // especially loud when multiple operators are in the panel together
+  // and the toast pops on everyone's screen simultaneously.
+  silentPoll(fetchAllBandwidth)
+  // 8s poll matches the backend handshake-cache refresh interval. Polling
+  // faster than the source data refreshes just thrashes the bandwidth
+  // endpoint without surfacing new numbers. Combined with the 3s response
+  // memoization on the api side, the panel never pulls a fresh dataset
+  // faster than the data can possibly change.
+  bwInterval = setInterval(() => silentPoll(fetchAllBandwidth), 8000)
 })
 
 onUnmounted(() => {
@@ -3826,6 +3946,37 @@ onUnmounted(() => {
 [data-theme="dark"] .agent-breaker-banner {
   background: rgba(255, 159, 67, 0.12);
   border-color: rgba(255, 159, 67, 0.30);
+}
+
+/* Stale-cache banner — fired when API was unreachable and we're showing
+   the localStorage fallback. Visual weight is intentionally low (neutral
+   grey-blue, not warning yellow) since the data IS still usable, just
+   stale. Action button is on the right. */
+.srv-stale-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 0 0 18px;
+  background: rgba(100, 116, 139, 0.08);
+  border: 1px solid rgba(100, 116, 139, 0.25);
+  border-left: 4px solid #64748b;
+  border-radius: 6px;
+  color: var(--bs-body-color);
+}
+.srv-stale-banner__icon {
+  font-size: 1.4rem;
+  color: #64748b;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.srv-stale-banner__body { flex: 1; min-width: 0; }
+.srv-stale-banner__title { font-weight: 600; margin-bottom: 2px; }
+.srv-stale-banner__text  { font-size: .9em; opacity: 0.85; }
+.srv-stale-banner__since { opacity: 0.7; margin-left: 4px; }
+[data-theme="dark"] .srv-stale-banner {
+  background: rgba(100, 116, 139, 0.15);
+  border-color: rgba(100, 116, 139, 0.32);
 }
 
 /* ── Status badge ─────────────────────────────────────── */

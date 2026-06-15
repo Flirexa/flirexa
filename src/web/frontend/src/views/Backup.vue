@@ -182,19 +182,19 @@
                     <button v-if="b.format === 'tar.gz'"
                             class="btn btn-outline-warning"
                             @click="confirmRestore(b, 'full')"
-                            :disabled="operating === b.backup_id"
+                            :disabled="!!operating"
                             :title="$t('backup.restoreFullTitle')">
                       <i class="mdi mdi-backup-restore"></i>
                     </button>
                     <button class="btn btn-outline-info"
                             @click="confirmRestore(b, 'database')"
-                            :disabled="operating === b.backup_id"
+                            :disabled="!!operating"
                             :title="$t('backup.restoreDbTitle')">
                       <i class="mdi mdi-database-import"></i>
                     </button>
                     <button class="btn btn-outline-danger"
                             @click="confirmDelete(b)"
-                            :disabled="operating === b.backup_id"
+                            :disabled="!!operating"
                             :title="$t('backup.deleteTitle')">
                       <i class="mdi mdi-delete-outline"></i>
                     </button>
@@ -219,13 +219,13 @@
                 <i class="mdi mdi-shield-check"></i>
               </button>
               <button v-if="b.format === 'tar.gz'"
-                      class="btn btn-outline-warning" @click="confirmRestore(b, 'full')" :disabled="operating === b.backup_id">
+                      class="btn btn-outline-warning" @click="confirmRestore(b, 'full')" :disabled="!!operating">
                 <i class="mdi mdi-backup-restore"></i>
               </button>
-              <button class="btn btn-outline-info" @click="confirmRestore(b, 'database')" :disabled="operating === b.backup_id">
+              <button class="btn btn-outline-info" @click="confirmRestore(b, 'database')" :disabled="!!operating">
                 <i class="mdi mdi-database-import"></i>
               </button>
-              <button class="btn btn-outline-danger" @click="confirmDelete(b)" :disabled="operating === b.backup_id">
+              <button class="btn btn-outline-danger" @click="confirmDelete(b)" :disabled="!!operating">
                 <i class="mdi mdi-delete-outline"></i>
               </button>
             </div>

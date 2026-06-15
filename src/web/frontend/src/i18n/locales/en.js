@@ -24,6 +24,7 @@ export default {
     portalUsers: 'Portal Users',
     promoCodes: 'Promo Codes',
     supportMessages: 'Support',
+    notifications: 'Push Notifications',
     applications: 'Accounts',
     systemHealth: 'System Health',
     serverMonitoring: 'Server Monitoring',
@@ -372,9 +373,16 @@ export default {
     actions: 'Actions',
     save: 'Save',
     cancel: 'Cancel',
+    retry: 'Retry',
     close: 'Close',
+    clear: 'Clear',
     create: 'Create',
     delete: 'Delete',
+    search: 'Search…',
+    active: 'Active',
+    inactive: 'Inactive',
+    optional: 'optional',
+    payments: 'payments',
     edit: 'Edit',
     install: 'Install',
     loading: 'Loading...',
@@ -465,6 +473,21 @@ export default {
     es: 'Spanish',
   },
 
+  // Backend status labels
+  puStatus: {
+    completed: 'Completed',
+    pending: 'Pending',
+    expired: 'Expired',
+    cancelled: 'Cancelled',
+    failed: 'Failed',
+    rejected: 'Rejected',
+    active: 'Active',
+    suspended: 'Suspended',
+    processing: 'Processing',
+    paid: 'Paid',
+    refunded: 'Refunded',
+  },
+
   // Portal Users
   portalUsers: {
     title: 'Portal Users',
@@ -482,6 +505,9 @@ export default {
     devices: 'Devices',
     lastLogin: 'Last Login',
     never: 'Never',
+    deviceOn: 'ON',
+    deviceOff: 'OFF',
+    daysLeft: '{n}d left',
     details: 'Details',
     fullName: 'Full Name',
     registered: 'Registered',
@@ -602,6 +628,17 @@ export default {
   // Clients
   clients: {
     shareLinkTitle: 'Get a 10-minute share link',
+    bulkSelected: '{n} selected',
+    bulkEnable: 'Enable',
+    bulkDisable: 'Disable',
+    peerVisibilityLabel: "Peer visibility — allow this user's devices to see each other's VPN IPs",
+    tipDisable: 'Disable',
+    tipEnable: 'Enable',
+    tipConfig: 'Config',
+    tipEdit: 'Edit',
+    tipDelete: 'Delete',
+    tipMore: 'More',
+    tipShare: 'Share',
     shareModal: {
       copyFallback: 'Browser blocked clipboard access (panel served over HTTP). The link is selected — press Ctrl+C / ⌘C to copy it.',
       downloadConfig: 'Download config',
@@ -650,6 +687,8 @@ export default {
     qrHint: 'Scan with Hiddify / NekoBox / v2rayN',
     proxyConnectHint: 'Import URI or scan QR in your proxy client app',
     editTitle: 'Edit',
+    nameLabel: 'Name',
+    namePlaceholder: 'Client name',
     bandwidthLabel: 'Bandwidth (Mbps, 0 = unlimited)',
     trafficLimitLabel: 'Traffic Limit (MB, 0 = unlimited)',
     expiryLabel: 'Expiry (days from now, 0 = remove expiry)',
@@ -672,6 +711,11 @@ export default {
   // Device Slots — admin view of multi-region customer devices
   slots: {
     title: 'Device Slots',
+    deviceBound: 'Bound',
+    deviceBoundTitle: 'Bound to a specific device',
+    deviceUnbound: 'Free',
+    deviceUnboundTitle: 'Free — next device to connect will claim it',
+    releaseDeviceTitle: 'Release device bind — customer can re-bind on next connect',
     subtitle: "One row per customer device. Each device spans every customer-visible region — the active region is the one currently accepting handshakes. Region switching happens from the customer's portal.",
     empty: 'No device slots yet',
     emptyHint: 'Slots are created when a portal customer adds a device from the Devices page. Legacy single-server peers (from the old Quick Action flow) still appear in the Clients tab.',
@@ -707,6 +751,12 @@ export default {
 
   // Servers
   servers: {
+    hideFromMobile: 'Hide from mobile app',
+    showOnMobile: 'Show on mobile app',
+    hideFromWindows: 'Hide from Windows app',
+    showOnWindows: 'Show on Windows app',
+    cacheBannerTitle: 'Showing cached list (API unreachable)',
+    cacheBannerBody: "Couldn't refresh from the server, this list is from the last successful load. Actions still work; delete will reach the API when it comes back.",
     expandPool: 'Expand address pool',
     expandPool_current: 'Current pool',
     expandPool_existingClients: 'Existing clients',
@@ -990,6 +1040,9 @@ export default {
   // Subscriptions (admin)
   subscriptions: {
     title: 'Subscriptions',
+    customDurations: 'Custom durations (optional)',
+    customDurationsHint: 'Leave empty to use the monthly / quarterly / yearly buttons above. Add rows to offer any duration (2 months, 6 months, 2 years, trial periods). Customers see exactly the labels and prices you set here.',
+    addDuration: 'Add duration',
     availablePlans: 'Available Plans',
     newPlan: '+ New Plan',
     price: 'Price',
@@ -1276,6 +1329,24 @@ export default {
     favicon: 'Favicon',
     remove: 'Remove',
     saveBranding: 'Save Branding',
+    // Customer Apps integration
+    appsTitle: 'Customer Apps',
+    appsHint: 'Enable if you have a branded mobile / desktop app for your customers (each operator has their own — your panel pushes only to your customers via your own Firebase project). Off if you sell raw VPN configs.',
+    appsToggle: 'Enable Customer Apps',
+    appsName: 'App name (shown in pushes)',
+    appsNameHint: 'Free text — appears in the Push Notifications page subtitle and any operator-visible UI that mentions the app.',
+    // Device limits
+    deviceLimitsTitle: 'Device limits',
+    deviceLimitsHint: 'When you tag a peer with a Customer field, this cap controls how many active peers a single customer can have at once. Leave at 0 to disable enforcement (no cap). Peers without a Customer tag are not counted.',
+    maxDevicesPerCustomer: 'Max devices per customer',
+    // Update channel
+    updateChannelTitle: 'Update Channel',
+    updateChannelHint: 'Which release channel this panel pulls updates from.',
+    channelStable: 'Stable',
+    channelStableHint: 'Tested, production-ready releases. Recommended for live operators.',
+    channelTest: 'Test',
+    channelTestHint: 'Early / beta builds before they are promoted to stable. Best on a staging box, not production.',
+    channelSwitched: 'Update channel switched to',
     // SMTP labels
     smtpServer: 'SMTP Server',
     unchanged: '(unchanged)',
@@ -1488,6 +1559,7 @@ export default {
   // Promo Codes
   promo: {
     title: 'Promo Codes',
+    activeRatio: 'Active / Total',
     totalCodes: 'Total Codes',
     activeCodes: 'Active Codes',
     totalUses: 'Total Uses',
@@ -1522,6 +1594,8 @@ export default {
     notifyExpiryWarning: 'Expiry warning (3 days before)',
     notifyTrafficWarning: 'Traffic warning (80%+)',
     notifyPaymentConfirmed: 'Payment confirmed (to user)',
+    fcmServerKey: 'FCM Server Key',
+    fcmKeyHint: 'Firebase Console → Project Settings → Cloud Messaging → Legacy server key. Each operator uses their own Firebase project so pushes never cross-tenant.',
     enabled: 'Enabled',
     saved: 'Notification settings saved',
   },

@@ -41,11 +41,11 @@
 
     <!-- Bulk actions bar -->
     <div v-if="selectedIds.size > 0" class="d-flex align-items-center gap-2 mb-3 p-2 rounded border bulk-bar">
-      <span class="text-muted small">{{ selectedIds.size }} selected</span>
-      <button class="btn btn-outline-success btn-sm" @click="bulkEnable" :disabled="bulkLoading">Enable</button>
-      <button class="btn btn-outline-secondary btn-sm" @click="bulkDisable" :disabled="bulkLoading">Disable</button>
-      <button class="btn btn-outline-danger btn-sm" @click="bulkDelete" :disabled="bulkLoading">Delete</button>
-      <button class="btn btn-link btn-sm text-muted" @click="selectedIds = new Set()">Clear</button>
+      <span class="text-muted small">{{ $t('clients.bulkSelected', { n: selectedIds.size }) }}</span>
+      <button class="btn btn-outline-success btn-sm" @click="bulkEnable" :disabled="bulkLoading">{{ $t('clients.bulkEnable') }}</button>
+      <button class="btn btn-outline-secondary btn-sm" @click="bulkDisable" :disabled="bulkLoading">{{ $t('clients.bulkDisable') }}</button>
+      <button class="btn btn-outline-danger btn-sm" @click="bulkDelete" :disabled="bulkLoading">{{ $t('common.delete') }}</button>
+      <button class="btn btn-link btn-sm text-muted" @click="selectedIds = new Set()">{{ $t('common.clear') }}</button>
     </div>
 
     <!-- Clients Table -->
@@ -139,24 +139,24 @@
               <td>
                 <!-- Desktop (sm+): connected btn-group -->
                 <div class="btn-group btn-group-sm d-none d-sm-inline-flex">
-                  <button class="btn btn-outline-secondary" @click="toggleClient(client)" :title="client.enabled ? 'Disable' : 'Enable'">
+                  <button class="btn btn-outline-secondary" @click="toggleClient(client)" :title="client.enabled ? $t('clients.tipDisable') : $t('clients.tipEnable')">
                     <i :class="client.enabled ? 'mdi mdi-pause' : 'mdi mdi-play'"></i>
                   </button>
-                  <button class="btn btn-outline-secondary" @click="showConfig(client)" title="Config"><i class="mdi mdi-tray-arrow-down"></i></button>
+                  <button class="btn btn-outline-secondary" @click="showConfig(client)" :title="$t('clients.tipConfig')"><i class="mdi mdi-tray-arrow-down"></i></button>
                   <button class="btn btn-outline-info" @click="generateShareLink(client)" :title="$t('clients.shareLinkTitle') || 'Get a 10-minute share link'">
                     <i class="mdi mdi-link-variant"></i>
                   </button>
-                  <button class="btn btn-outline-secondary" @click="editClient(client)" title="Edit"><i class="mdi mdi-pencil-outline"></i></button>
-                  <button class="btn btn-outline-danger" @click="confirmDelete(client)" title="Delete"><i class="mdi mdi-trash-can-outline"></i></button>
+                  <button class="btn btn-outline-secondary" @click="editClient(client)" :title="$t('clients.tipEdit')"><i class="mdi mdi-pencil-outline"></i></button>
+                  <button class="btn btn-outline-danger" @click="confirmDelete(client)" :title="$t('clients.tipDelete')"><i class="mdi mdi-trash-can-outline"></i></button>
                 </div>
                 <!-- Mobile (xs): compact buttons + detail sheet -->
                 <div class="d-flex gap-1 d-sm-none client-actions-mobile">
-                  <button class="btn btn-sm btn-outline-secondary" @click="toggleClient(client)" :title="client.enabled ? 'Disable' : 'Enable'">
+                  <button class="btn btn-sm btn-outline-secondary" @click="toggleClient(client)" :title="client.enabled ? $t('clients.tipDisable') : $t('clients.tipEnable')">
                     <i :class="client.enabled ? 'mdi mdi-pause' : 'mdi mdi-play'"></i>
                   </button>
-                  <button class="btn btn-sm btn-outline-secondary" @click="showConfig(client)" title="Config"><i class="mdi mdi-tray-arrow-down"></i></button>
-                  <button class="btn btn-sm btn-outline-info" @click="generateShareLink(client)" title="Share"><i class="mdi mdi-link-variant"></i></button>
-                  <button class="btn btn-sm btn-outline-secondary" @click="openDetail(client)" title="More"><i class="mdi mdi-dots-horizontal"></i></button>
+                  <button class="btn btn-sm btn-outline-secondary" @click="showConfig(client)" :title="$t('clients.tipConfig')"><i class="mdi mdi-tray-arrow-down"></i></button>
+                  <button class="btn btn-sm btn-outline-info" @click="generateShareLink(client)" :title="$t('clients.tipShare')"><i class="mdi mdi-link-variant"></i></button>
+                  <button class="btn btn-sm btn-outline-secondary" @click="openDetail(client)" :title="$t('clients.tipMore')"><i class="mdi mdi-dots-horizontal"></i></button>
                 </div>
               </td>
             </tr>
@@ -185,7 +185,7 @@
 
     <!-- Create Client Modal -->
     <div class="modal fade" :class="{ show: showCreateModal }" :style="{ display: showCreateModal ? 'block' : 'none' }" tabindex="-1">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-fullscreen-sm-down">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">{{ $t('clients.createTitle') }}</h5>
@@ -239,7 +239,7 @@
             <div class="mb-3 form-check d-flex align-items-center gap-1">
               <input class="form-check-input" type="checkbox" v-model="newClient.peer_visibility" id="peerVisibility" />
               <label class="form-check-label" for="peerVisibility">
-                Peer visibility — allow user's devices to see each other's VPN IPs
+                {{ $t('clients.peerVisibilityLabel') }}
               </label>
               <HelpTooltip :text="$t('help.peerVisibility')" />
             </div>
@@ -258,14 +258,14 @@
 
     <!-- Config Modal -->
     <div class="modal fade" :class="{ show: showConfigModal }" :style="{ display: showConfigModal ? 'block' : 'none' }" tabindex="-1">
-      <div class="modal-dialog modal-lg">
+      <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable modal-fullscreen-sm-down">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">
               {{ $t('clients.configTitle') }}: {{ configClient?.name }}
               <span v-if="isProxyConfig" class="badge bg-warning text-dark ms-2 fw-normal">{{ proxyConfig?.protocol?.toUpperCase() }}</span>
             </h5>
-            <button type="button" class="btn-close" @click="showConfigModal = false"></button>
+            <button type="button" class="btn-close" @click="closeConfigModal"></button>
           </div>
           <div class="modal-body">
 
@@ -327,7 +327,7 @@
 
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="showConfigModal = false">{{ $t('common.close') }}</button>
+            <button type="button" class="btn btn-secondary" @click="closeConfigModal">{{ $t('common.close') }}</button>
             <button type="button" class="btn btn-primary" @click="downloadConfig">
               {{ isProxyConfig ? $t('clients.downloadProxyConf') + ' (.' + (proxyConfig?.protocol === 'hysteria2' ? 'yaml' : 'json') + ')' : $t('clients.downloadConf') }}
             </button>
@@ -339,13 +339,24 @@
 
     <!-- Edit Modal -->
     <div class="modal fade" :class="{ show: showEditModal }" :style="{ display: showEditModal ? 'block' : 'none' }" tabindex="-1">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-fullscreen-sm-down">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">{{ $t('clients.editTitle') }}: {{ editingClient?.name }}</h5>
             <button type="button" class="btn-close" @click="showEditModal = false"></button>
           </div>
           <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">{{ $t('clients.nameLabel') }}</label>
+              <input
+                v-model="editForm.name"
+                type="text"
+                class="form-control form-control-sm"
+                maxlength="100"
+                :placeholder="$t('clients.namePlaceholder')"
+                @keydown.enter.prevent="saveEdit"
+              />
+            </div>
             <template v-if="!isProxyClient(editingClient)">
             <div class="mb-3">
               <label class="form-label">{{ $t('clients.bandwidthLabel') }}</label>
@@ -504,6 +515,27 @@
             </span>
             <span v-else class="text-muted">∞</span>
           </span>
+        </div>
+
+        <!-- Status / last seen -->
+        <div class="vxy-detail-row">
+          <span class="vxy-detail-label">{{ $t('common.status') }}</span>
+          <span class="vxy-detail-value d-inline-flex align-items-center gap-1 justify-content-end">
+            <span class="client-online-dot" :class="isClientOnline(detailClient) ? 'online' : 'offline'"></span>
+            {{ isClientOnline(detailClient) ? ($t('clients.online') || 'Online') : lastSeenText(detailClient) }}
+          </span>
+        </div>
+
+        <!-- Created -->
+        <div class="vxy-detail-row">
+          <span class="vxy-detail-label">{{ $t('clients.created') }}</span>
+          <span class="vxy-detail-value">{{ formatDateShort(detailClient.created_at) }}</span>
+        </div>
+
+        <!-- Customer (only when set) -->
+        <div v-if="detailClient.customer_email" class="vxy-detail-row">
+          <span class="vxy-detail-label">{{ customerEmailLabel }}</span>
+          <span class="vxy-detail-value">{{ detailClient.customer_email }}</span>
         </div>
       </template>
 
@@ -699,10 +731,14 @@ const qrAmneziaVpnUrl = ref(null)
 const proxyConfig = ref(null)   // full proxy API response {protocol, uri, config_text, ...}
 const isProxyConfig = ref(false)
 
-// Detail sheet (mobile)
+// Detail sheet (mobile). Track the client by ID and resolve the live row from
+// the store so the sheet reflects fresh traffic / last_handshake / expiry as the
+// 15s live-poll refreshes store.clients — holding a snapshot ref showed stale
+// data the whole time the sheet stayed open.
 const showDetailSheet = ref(false)
-const detailClient = ref(null)
-function openDetail(client) { detailClient.value = client; showDetailSheet.value = true }
+const detailClientId = ref(null)
+const detailClient = computed(() => store.clients.find(c => c.id === detailClientId.value) || null)
+function openDetail(client) { detailClientId.value = client.id; showDetailSheet.value = true }
 
 // ── Share-link / post-create modal ──────────────────────────────────────────
 // Single modal serves two flows:
@@ -742,7 +778,9 @@ const shareModalTimeLeft = computed(() => {
 })
 const shareModalIsExpired = computed(() => {
   if (!shareModal.value.expiresAt) return false
-  return Date.now() > new Date(shareModal.value.expiresAt).getTime()
+  // Depend on the 1-Hz tick (not bare Date.now()) so the "Expired" badge flips
+  // the instant the countdown hits zero instead of lagging until the next render.
+  return _shareModalNow.value > new Date(shareModal.value.expiresAt).getTime()
 })
 
 async function openShareModal(client, mode = 'share') {
@@ -797,11 +835,9 @@ async function toggleShareQR() {
   shareModal.value.qrLoading = true
   shareModal.value.qrError = ''
   try {
+    // Proxy clients (Hysteria2 / TUIC) are handled by the same /qrcode endpoint,
+    // which returns a PNG of the connection URI — no special-casing needed.
     const c = shareModal.value.client
-    if (isProxyClient(c)) {
-      // Proxy clients (Hysteria2 / TUIC) — the existing /qrcode endpoint
-      // also handles them and returns a PNG of the connection URI.
-    }
     const { data } = await clientsApi.getQR(c.id)
     shareModal.value.qrSrc = URL.createObjectURL(data)
   } catch (e) {
@@ -1006,18 +1042,28 @@ const allPageSelected = computed(() =>
 // Reset page when filters or sort change
 watch([search, filterStatus, filterServer, sortKey, sortDir], () => { currentPage.value = 1 })
 
+// Build the params object the store should hit `/clients` with right
+// now. Every code path that refetches must go through this so the
+// active search filter doesn't get wiped by a parallel poll or a bulk-
+// action follow-up call — operator report: typed "test1", saw it for
+// 2 seconds, then the 15s live-poll fired `fetchClients()` with no
+// args and the search results vanished under the full list.
+function _currentParams() {
+  const params = {}
+  const q = (search.value || '').trim()
+  if (q) params.q = q
+  return params
+}
+
 // Debounced server-side search. The `/clients` endpoint accepts `?q=` and
 // filters by name/ipv4 substring server-side, so search now actually
 // reaches rows past the 500-row pagination ceiling. 250ms gives a
 // snappy-feeling keystroke without spamming the backend.
 let _searchDebounce = null
-watch(search, (val) => {
+watch(search, () => {
   if (_searchDebounce) clearTimeout(_searchDebounce)
   _searchDebounce = setTimeout(() => {
-    const params = {}
-    const q = (val || '').trim()
-    if (q) params.q = q
-    store.fetchClients(params)
+    store.fetchClients(_currentParams())
   }, 250)
 })
 
@@ -1044,7 +1090,7 @@ async function bulkEnable() {
   const ids = [...selectedIds.value]
   try {
     await Promise.all(ids.map((id) => store.toggleClient(id, true)))
-    await store.fetchClients()
+    await store.fetchClients(_currentParams())
     selectedIds.value = new Set()
     showSuccess(`Enabled ${ids.length} client(s)`)
   } catch (err) {
@@ -1059,7 +1105,7 @@ async function bulkDisable() {
   const ids = [...selectedIds.value]
   try {
     await Promise.all(ids.map((id) => store.toggleClient(id, false)))
-    await store.fetchClients()
+    await store.fetchClients(_currentParams())
     selectedIds.value = new Set()
     showSuccess(`Disabled ${ids.length} client(s)`)
   } catch (err) {
@@ -1075,7 +1121,7 @@ async function bulkDelete() {
   const ids = [...selectedIds.value]
   try {
     await Promise.all(ids.map((id) => store.deleteClient(id)))
-    await store.fetchClients()
+    await store.fetchClients(_currentParams())
     selectedIds.value = new Set()
     showSuccess(`${ids.length} client(s) deleted`)
   } catch (err) {
@@ -1171,7 +1217,7 @@ async function createClient() {
     const created = await store.createClient(newClient.value)
     showCreateModal.value = false
     newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' }
-    await store.fetchClients()
+    await store.fetchClients(_currentParams())
     // Mark the new client as highlighted in the table for ~60 s, and
     // pop the post-create modal with a fresh share link + quick actions.
     if (created && created.id != null) {
@@ -1222,12 +1268,29 @@ function isProxyClient(client) {
   return srv?.server_category === 'proxy' || srv?.server_type === 'hysteria2' || srv?.server_type === 'tuic'
 }
 
+// Free any QR object URLs from a previous config view and reset them. Mirrors
+// how the share modal revokes its lazily-loaded QR blob.
+function revokeConfigQrs() {
+  if (qrUrl.value) {
+    try { URL.revokeObjectURL(qrUrl.value) } catch (_) {}
+    qrUrl.value = null
+  }
+  if (qrAmneziaVpnUrl.value) {
+    try { URL.revokeObjectURL(qrAmneziaVpnUrl.value) } catch (_) {}
+    qrAmneziaVpnUrl.value = null
+  }
+}
+
+function closeConfigModal() {
+  showConfigModal.value = false
+  revokeConfigQrs()
+}
+
 async function showConfig(client) {
   configClient.value = client
   proxyConfig.value = null
   isProxyConfig.value = false
-  qrUrl.value = null
-  qrAmneziaVpnUrl.value = null
+  revokeConfigQrs()
   try {
     const { data } = await clientsApi.getConfig(client.id)
 
@@ -1264,6 +1327,9 @@ async function showConfig(client) {
 }
 
 function downloadConfig() {
+  // Sanitize the filename — a client name with '/', spaces or other path-unsafe
+  // chars otherwise produces a broken/odd download (matches downloadConfigFromShare).
+  const safeName = (configClient.value?.name || 'client').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48) || 'client'
   if (isProxyConfig.value) {
     const text = proxyConfig.value?.config_text || ''
     const ext = proxyConfig.value?.protocol === 'hysteria2' ? 'yaml' : 'json'
@@ -1271,7 +1337,7 @@ function downloadConfig() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${configClient.value.name}.${ext}`
+    a.download = `${safeName}.${ext}`
     a.click()
     URL.revokeObjectURL(url)
   } else {
@@ -1279,7 +1345,7 @@ function downloadConfig() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${configClient.value.name}.conf`
+    a.download = `${safeName}.conf`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -1301,11 +1367,13 @@ async function copyUri() {
 function editClient(client) {
   editingClient.value = client
   editForm.value = {
+    name: client.name || '',
     bandwidth: client.bandwidth_limit || 0,
     trafficLimit: client.traffic_limit_mb || 0,
     expiryDays: null,
   }
   editInitial.value = {
+    name: client.name || '',
     bandwidth: client.bandwidth_limit || 0,
     trafficLimit: client.traffic_limit_mb || 0,
   }
@@ -1316,6 +1384,12 @@ async function saveEdit() {
   const client = editingClient.value
   try {
     const _isProxy = isProxyClient(client)
+    // Rename first so the success toast below + subsequent PUT requests
+    // refer to the new label.
+    const newName = (editForm.value.name || '').trim()
+    if (newName && newName !== editInitial.value.name) {
+      await store.renameClient(client.id, newName)
+    }
     // Only send changed values; bandwidth/traffic not supported for proxy clients
     if (!_isProxy && editForm.value.bandwidth !== editInitial.value.bandwidth) {
       await store.setBandwidth(client.id, editForm.value.bandwidth)
@@ -1328,8 +1402,8 @@ async function saveEdit() {
       await store.setExpiry(client.id, editForm.value.expiryDays)
     }
     showEditModal.value = false
-    await store.fetchClients()
-    showSuccess(t('clients.changesSaved') || `Changes saved for "${client.name}"`)
+    await store.fetchClients(_currentParams())
+    showSuccess(t('clients.changesSaved') || `Changes saved for "${newName || client.name}"`)
   } catch (err) {
     showError('Error: ' + (err.response?.data?.detail || err.message))
   }
@@ -1357,7 +1431,7 @@ async function confirmDelete(client) {
 
 onMounted(async () => {
   await Promise.all([
-    store.fetchClients(),
+    store.fetchClients(_currentParams()),
     serversApi.getAll().then((res) => {
       const sData = res.data
       const list = (sData && sData.items) ? sData.items : (Array.isArray(sData) ? sData : [])
@@ -1373,13 +1447,35 @@ onMounted(async () => {
 // from each agent) on a user-picked interval. Persisted per page so the
 // operator's "show me online users without F5" preference sticks.
 const livePollInterval = usePersistedInterval('vmm.live.clients', 15_000)
-const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(), livePollInterval)
+const { isLive: isLivePoll } = useLivePoll(() => store.fetchClients(_currentParams()), livePollInterval)
 </script>
 
 <style scoped>
 .filter-input { min-width: 160px; }
 .filter-select { min-width: 110px; }
 .filter-select-wide { min-width: 140px; }
+
+/* Config / proxy-config code block. The class was previously undefined, so a
+   WireGuard config rendered as a bare <pre> (white-space: pre, no wrap) and the
+   long key / Endpoint lines overflowed the modal horizontally — worst on mobile.
+   Wrap long tokens, cap the height with an internal scroll, and give it a card
+   surface that matches the panel theme (light + dark). */
+.code-block {
+  display: block;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow: auto;
+  max-height: 320px;
+  padding: 0.75rem 0.9rem;
+  font-family: var(--bs-font-monospace, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  background: var(--vxy-code-bg, #f6f8fa);
+  border: 1px solid var(--vxy-border, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  color: var(--vxy-body, inherit);
+}
 
 .client-qr-img {
   max-width: 220px;

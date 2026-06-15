@@ -131,5 +131,14 @@ export const useClientsStore = defineStore('clients', {
         throw err
       }
     },
+
+    async renameClient(id, newName) {
+      try {
+        await clientsApi.update(id, { name: newName })
+      } catch (err) {
+        this.error = err.response?.data?.detail || err.message
+        throw err
+      }
+    },
   },
 })

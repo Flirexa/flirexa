@@ -136,7 +136,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { clientsApi, serversApi } from '../api'
 // rateMap is keyed by client.public_key → { rx, tx } in Mbps
@@ -175,7 +175,8 @@ function formatRate(mbps) {
 // Tick every second so "X seconds ago" updates between polls without extra
 // network calls. Keeps the screen feeling alive between 5s/15s/30s polls.
 const _now = ref(Date.now())
-setInterval(() => { _now.value = Date.now() }, 1000)
+const _nowTicker = setInterval(() => { _now.value = Date.now() }, 1000)
+onUnmounted(() => { clearInterval(_nowTicker) })
 
 const ONLINE_WINDOW_MS = 3 * 60 * 1000  // 3 minutes — same threshold as Clients page
 
@@ -246,8 +247,12 @@ function relativeTime(iso) {
 }
 
 function formatTraffic(c) {
-  const rx = c.traffic_rx || 0
-  const tx = c.traffic_tx || 0
+  // Client rows come from GET /clients which returns raw Client ORM
+  // objects — the columns are traffic_used_rx / traffic_used_tx. The old
+  // traffic_rx / traffic_tx names never existed, so the Traffic column was
+  // always blank for every online user (fixed 2026-06-13).
+  const rx = c.traffic_used_rx || 0
+  const tx = c.traffic_used_tx || 0
   if (!rx && !tx) return ''
   return `↓ ${formatBytes(rx)} · ↑ ${formatBytes(tx)}`
 }
@@ -255,7 +260,10 @@ function formatTraffic(c) {
 // Live polling: monitoring page deserves a tighter default cadence (5 s)
 const livePollInterval = usePersistedInterval('vmm.live.online-users', 5_000)
 
+let inflight = false
 async function refresh() {
+  if (inflight) return
+  inflight = true
   try {
     const [cRes, sRes] = await Promise.all([
       clientsApi.getAll(),
@@ -292,6 +300,7 @@ async function refresh() {
     console.warn('OnlineUsers refresh failed:', e)
   } finally {
     loading.value = false
+    inflight = false
   }
 }
 

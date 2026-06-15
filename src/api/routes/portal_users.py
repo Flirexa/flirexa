@@ -1185,23 +1185,18 @@ def grant_subscription(user_id: int, data: GrantSubscriptionRequest, db: Session
         sub = mgr.create_subscription(user_id, data.tier, data.duration_days)
         action = "created"
 
-    # Apply WG limits
+    # Apply WG limits to any peers the customer already had — does NOT
+    # create one. Auto-creating a single device on grant collided with
+    # the portal's Add Device flow on multi-region setups: the
+    # customer hit the device cap with the auto-created peer before
+    # they could pick a region themselves, and had to delete it to
+    # enroll properly. complete_payment dropped the same auto-create
+    # step earlier (2026-05-26) per operator request — bringing grant
+    # in line restores parity.
     mgr.apply_subscription_limits(user_id)
 
-    # Auto-create WG client if user has none
-    auto_created = False
-    existing_clients = mgr.get_user_wireguard_clients(user_id)
-    if not existing_clients and data.tier != "free":
-        try:
-            wg_client = mgr.auto_create_wireguard_client(user_id)
-            if wg_client:
-                auto_created = True
-                logger.info(f"Auto-created WG client for user {user.username} on grant")
-        except Exception as e:
-            logger.error(f"Failed to auto-create WG client for user {user.username}: {e}")
-
     logger.info(f"Admin {action} subscription for user {user.username}: {data.tier} for {data.duration_days} days")
-    return {"message": f"Subscription {action}" + (" (device auto-created)" if auto_created else ""), "subscription": _serialize_subscription(sub)}
+    return {"message": f"Subscription {action}", "subscription": _serialize_subscription(sub)}
 
 
 @router.post("/{user_id}/extend-subscription")
@@ -1385,6 +1380,17 @@ def admin_create_device_slot(user_id: int, data: AdminAddSlotRequest,
     sub = sub_mgr.get_subscription(user_id)
     if not sub or not sub.is_active:
         raise HTTPException(status_code=400, detail="User has no active subscription")
+
+    # Serialize the count-then-create against concurrent device adds for the
+    # same user (TOCTOU over-allocation). Per-user xact lock held until
+    # commit; namespaced under 2_000_000 to match the self-serve endpoint
+    # and avoid colliding with the license lock (1000001).
+    try:
+        from sqlalchemy import text as _sql_text
+        db.execute(_sql_text("SELECT pg_advisory_xact_lock(:k)"),
+                   {"k": 2_000_000 + int(user_id)})
+    except Exception:
+        pass  # SQLite in tests / non-PG engines — skip advisory lock
 
     max_devices = getattr(sub, "max_devices", None)
     if max_devices is not None:

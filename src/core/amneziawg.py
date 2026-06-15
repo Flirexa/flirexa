@@ -219,7 +219,7 @@ class AmneziaWGManager(WireGuardManager):
 
     def save_config(self) -> bool:
         try:
-            self._run_cmd(["awg-quick", "save", self.interface])
+            self._run_cmd(["awg-quick", "save", self._awgquick_target()])
             return True
         except subprocess.CalledProcessError as e:
             logger.error(f"[AWG] Failed to save config: {e.stderr}")
@@ -250,7 +250,8 @@ class AmneziaWGManager(WireGuardManager):
                 self._run_cmd(cmd, input=preshared_key)
             else:
                 self._run_cmd(cmd)
-            self.save_config()
+            if not self.save_config():
+                logger.warning(f"[AWG] Added peer {public_key[:16]}... but save_config failed — change may not persist across restart")
             logger.info(f"[AWG] Added peer {public_key[:16]}... IPs={allowed_ips}")
             return True
         except subprocess.CalledProcessError as e:
@@ -260,7 +261,8 @@ class AmneziaWGManager(WireGuardManager):
     def remove_peer(self, public_key: str) -> bool:
         try:
             self._run_cmd(["awg", "set", self.interface, "peer", public_key, "remove"])
-            self.save_config()
+            if not self.save_config():
+                logger.warning(f"[AWG] Removed peer {public_key[:16]}... but save_config failed — change may not persist across restart")
             logger.info(f"[AWG] Removed peer {public_key[:16]}...")
             return True
         except subprocess.CalledProcessError as e:
@@ -392,6 +394,14 @@ class AmneziaWGManager(WireGuardManager):
         h4: Optional[int] = None,
     ) -> str:
         """Generate AmneziaWG client config (.conf for AmneziaVPN app)."""
+        # Sanitize DNS — see wireguard.py generate_client_config for the
+        # operator report this guards against (Windows adapter shows
+        # "no DNS" when server.dns is empty or uses comma-without-space).
+        if not (dns and dns.strip()):
+            dns = "1.1.1.1, 1.0.0.1"
+        else:
+            dns = ", ".join(s.strip() for s in dns.split(",") if s.strip())
+
         address = client_ipv4
         if client_ipv6:
             address = f"{client_ipv4},{client_ipv6}"

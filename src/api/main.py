@@ -257,6 +257,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Could not start handshake cache refresher: {}", e)
 
+    # Operator health watchdog: alerts on CPU / fd / memory / PG zombie
+    # sessions to the admin Telegram chat configured under system_config.
+    # Heads the operator off before the panel actually breaks rather than
+    # after the customer complaint shows up (the 2026-06-11 outage shape).
+    try:
+        from ..modules.watchdog import start_watchdog
+        start_watchdog()
+    except Exception as e:
+        logger.warning("Could not start watchdog: {}", e)
+
     # Sync server fleet to current license tier on every startup. Catches the
     # case where a paid subscription expired while the box was off — without
     # this the excess servers would silently come back online next reboot.
@@ -515,6 +525,26 @@ def create_app(
 
         return await call_next(request)
 
+    # TTL cache for resolve_operational_mode_from_db. Without this cache
+    # every /api/v1/* request opened a Postgres connection, queried
+    # SystemConfig + update_history, and held the asyncio event loop on
+    # sync sqlalchemy calls. Under a polling-heavy panel that was
+    # measurable contention on top of the actual work — py-spy on
+    # 2026-06-11 showed the main thread parked inside
+    # _connection_for_bind from this middleware. 3-second TTL means
+    # maintenance toggles propagate within a few seconds at worst;
+    # set_maintenance_mode also wipes the cache explicitly so admin
+    # toggles take effect immediately for everyone.
+    _OP_MODE_TTL_SECONDS = 3.0
+    _op_mode_lock = asyncio.Lock()
+    app.state.op_mode_cache = {"resolved": None, "expires_at": 0.0}
+
+    def _invalidate_op_mode_cache() -> None:
+        app.state.op_mode_cache["expires_at"] = 0.0
+
+    # Expose so set_maintenance_mode / update apply paths can clear it.
+    app.state.invalidate_op_mode_cache = _invalidate_op_mode_cache
+
     @app.middleware("http")
     async def operational_mode_middleware(request: Request, call_next):
         path = request.url.path
@@ -523,15 +553,33 @@ def create_app(
         if not path.startswith("/api/"):
             return await call_next(request)
 
-        try:
-            session_factory = getattr(app.state, "operational_mode_session_factory", SessionLocal)
-            db = session_factory()
-            try:
-                resolved = resolve_operational_mode_from_db(db, degraded=False)
-            finally:
-                db.close()
-        except Exception:
-            return await call_next(request)
+        loop_time = asyncio.get_running_loop().time()
+        cache = app.state.op_mode_cache
+        resolved = cache.get("resolved")
+        if resolved is None or loop_time >= cache.get("expires_at", 0.0):
+            async with _op_mode_lock:
+                # Re-check after acquiring the lock — another coroutine
+                # may have just filled the cache while we waited.
+                loop_time = asyncio.get_running_loop().time()
+                resolved = cache.get("resolved")
+                if resolved is None or loop_time >= cache.get("expires_at", 0.0):
+                    try:
+                        session_factory = getattr(
+                            app.state, "operational_mode_session_factory", SessionLocal,
+                        )
+                        db = session_factory()
+                        try:
+                            resolved = resolve_operational_mode_from_db(db, degraded=False)
+                        finally:
+                            db.close()
+                        cache["resolved"] = resolved
+                        cache["expires_at"] = loop_time + _OP_MODE_TTL_SECONDS
+                    except Exception:
+                        # DB hiccup — let the request through using the
+                        # last-known state if we have one, otherwise skip
+                        # the gate entirely.
+                        if resolved is None:
+                            return await call_next(request)
 
         request.state.operational_mode = resolved.mode
         request.state.maintenance_reason = resolved.maintenance_reason
@@ -875,11 +923,37 @@ def create_app(
 app = create_app()
 
 
+def _resolve_worker_count(explicit: int | None = None) -> int:
+    """Pick uvicorn worker count.
+
+    Precedence: explicit arg → API_WORKERS env (literal or "auto") → 1.
+    "auto" → min(4, max(1, cpu_count // 2)).
+    Capped at 16 to avoid runaway fanout against the Postgres
+    connection pool (each worker keeps its own pool of size
+    DB_POOL_SIZE + DB_MAX_OVERFLOW).
+    """
+    import multiprocessing as _mp
+    if explicit and explicit > 0:
+        n = explicit
+    else:
+        raw = (os.getenv("API_WORKERS") or "").strip().lower()
+        if raw == "auto":
+            try:
+                n = max(1, min(4, _mp.cpu_count() // 2))
+            except Exception:
+                n = 1
+        elif raw.isdigit() and int(raw) > 0:
+            n = int(raw)
+        else:
+            n = 1
+    return max(1, min(16, n))
+
+
 def run_server(
     host: str = "0.0.0.0",
     port: int = 10086,
     reload: bool = False,
-    workers: int = 1,
+    workers: int | None = None,
 ):
     """
     Run the API server using uvicorn
@@ -888,7 +962,7 @@ def run_server(
         host: Host to bind to
         port: Port to listen on
         reload: Enable auto-reload (development)
-        workers: Number of worker processes
+        workers: Number of worker processes (None → API_WORKERS env)
     """
     import uvicorn
 
@@ -900,14 +974,27 @@ def run_server(
         level="INFO",
     )
 
-    logger.info(f"Starting server on {host}:{port}")
+    worker_count = _resolve_worker_count(workers)
+    logger.info(
+        "Starting server on {}:{} with {} worker(s)", host, port, worker_count,
+    )
 
     uvicorn.run(
         "src.api.main:app",
         host=host,
         port=port,
         reload=reload,
-        workers=workers,
+        workers=worker_count,
+        # Limit per-worker accept queue so a stuck worker can't hoard
+        # the kernel backlog while others have capacity. The actual
+        # concurrency cap that matters for backpressure is below.
+        limit_concurrency=int(os.getenv("API_LIMIT_CONCURRENCY", "0") or 0) or None,
+        # Worker recycle: bounded request lifetime guards against the
+        # slow leak shapes (fds, memory, dangling sockets to dead
+        # agents) we observed during the 2026-06-11 incident — no
+        # single worker stays alive long enough for an unbounded leak
+        # to take the panel down.
+        limit_max_requests=int(os.getenv("API_MAX_REQUESTS", "50000")) or None,
     )
 
 

@@ -640,25 +640,52 @@
       </div>
     </div>
 
-    <!-- Firebase Cloud Messaging (mobile push) -->
-    <h4 class="mb-4 settings-page__section-title">{{ $t('notifications.fcmTitle') || 'Mobile push (FCM)' }}</h4>
+    <!-- Customer Apps integration. Turning this on reveals the Push
+         Notifications entry in the sidebar and lets the operator paste
+         their own FCM Server Key + brand the push subtitle. Off by
+         default for every install so panels without a real customer
+         app don't show a notifications UI they can't actually use. -->
+    <h4 class="mb-4 settings-page__section-title" id="apps">{{ $t('settings.appsTitle') || 'Customer Apps' }}</h4>
     <div class="card mb-4">
       <div class="card-body">
         <p class="text-muted small mb-3">
-          {{ $t('notifications.fcmHint') || 'Paste the Server Key from your Firebase project. When set, in-app notifications (subscription, billing, broadcasts) also fire as system pushes on Android / iOS. Empty disables FCM — the in-app inbox still works.' }}
+          {{ $t('settings.appsHint') || 'Enable if you have a branded mobile / desktop app for your customers (each operator has their own — your panel pushes only to your customers via your own Firebase project). Off if you sell raw VPN configs.' }}
         </p>
-        <div class="mb-3">
-          <label class="form-label">{{ $t('notifications.fcmServerKey') || 'FCM Server Key' }}</label>
-          <input type="password" class="form-control" v-model="fcm.server_key"
-                 :placeholder="fcm.server_key_set ? '••••••••••• (configured)' : 'AAAA...'" autocomplete="off" />
-          <div class="form-text">{{ $t('notifications.fcmKeyHint') || 'Firebase Console → Project Settings → Cloud Messaging → Legacy server key.' }}</div>
+        <div class="form-check form-switch mb-3">
+          <input class="form-check-input" type="checkbox" id="enableAppsIntegration"
+                 v-model="apps.enabled" />
+          <label class="form-check-label" for="enableAppsIntegration">
+            <b>{{ $t('settings.appsToggle') || 'Enable Customer Apps' }}</b>
+          </label>
         </div>
-        <button class="btn btn-primary btn-sm" @click="saveFcm" :disabled="savingFcm">
-          {{ savingFcm ? ($t('settings.saving') || 'Saving…') : ($t('common.save') || 'Save') }}
-        </button>
-        <button v-if="fcm.server_key_set" class="btn btn-outline-danger btn-sm ms-2" @click="clearFcm" :disabled="savingFcm">
-          {{ $t('common.clear') || 'Clear' }}
-        </button>
+
+        <div v-if="apps.enabled">
+          <div class="mb-3">
+            <label class="form-label">{{ $t('settings.appsName') || 'App name (shown in pushes)' }}</label>
+            <input type="text" class="form-control" v-model="apps.name"
+                   maxlength="64" placeholder="e.g. MyVPN Mobile" autocomplete="off" />
+            <div class="form-text">{{ $t('settings.appsNameHint') || 'Free text — appears in the Push Notifications page subtitle and any operator-visible UI that mentions the app.' }}</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">{{ $t('notifications.fcmServerKey') || 'FCM Server Key' }}</label>
+            <input type="password" class="form-control" v-model="fcm.server_key"
+                   :placeholder="fcm.server_key_set ? '••••••••••• (configured)' : 'AAAA...'" autocomplete="off" />
+            <div class="form-text">{{ $t('notifications.fcmKeyHint') || 'Firebase Console → Project Settings → Cloud Messaging → Legacy server key. Each operator uses their own Firebase project so pushes never cross-tenant.' }}</div>
+          </div>
+
+          <button class="btn btn-primary btn-sm" @click="saveAppsConfig" :disabled="savingFcm">
+            {{ savingFcm ? ($t('settings.saving') || 'Saving…') : ($t('common.save') || 'Save') }}
+          </button>
+          <button v-if="fcm.server_key_set" class="btn btn-outline-danger btn-sm ms-2" @click="clearFcm" :disabled="savingFcm">
+            {{ $t('common.clear') || 'Clear FCM key' }}
+          </button>
+        </div>
+        <div v-else>
+          <button class="btn btn-primary btn-sm" @click="saveAppsConfig" :disabled="savingFcm">
+            {{ savingFcm ? ($t('settings.saving') || 'Saving…') : ($t('common.save') || 'Save') }}
+          </button>
+        </div>
         <div v-if="fcm.alert" class="alert alert-success mt-3 py-2 small">{{ fcm.alert }}</div>
       </div>
     </div>
@@ -688,18 +715,15 @@
     </div>
 
     <!-- Per-customer device cap -->
-    <h4 class="mb-4 settings-page__section-title">Device limits</h4>
+    <h4 class="mb-4 settings-page__section-title">{{ $t('settings.deviceLimitsTitle') }}</h4>
     <div class="card mb-4">
       <div class="card-body">
         <p class="text-muted small mb-3">
-          When you tag a peer with a <strong>Customer</strong> field, this cap
-          controls how many active peers a single customer can have at once.
-          Leave at <code>0</code> to disable enforcement (no cap). Peers
-          without a <strong>Customer</strong> tag are not counted.
+          {{ $t('settings.deviceLimitsHint') }}
         </p>
         <div class="row g-2 align-items-center">
           <div class="col-12 col-sm-4">
-            <label class="form-label small">Max devices per customer</label>
+            <label class="form-label small">{{ $t('settings.maxDevicesPerCustomer') }}</label>
             <input v-model.number="deviceLimits.max_devices_per_customer"
                    type="number" min="0" max="1000" class="form-control" />
           </div>
@@ -985,6 +1009,45 @@
       </div>
     </div>
 
+    <!-- Update Channel -->
+    <h4 class="mb-4 settings-page__section-title">{{ $t('settings.updateChannelTitle') }}</h4>
+    <div class="card mb-4">
+      <div class="card-body">
+        <p class="text-muted small mb-3">{{ $t('settings.updateChannelHint') }}</p>
+        <div class="row g-2">
+          <div class="col-12 col-md-6">
+            <div class="card h-100" role="button"
+                 :class="updateChannel === 'stable' ? 'settings-mode-active border-primary' : ''"
+                 @click="setUpdateChannel('stable')">
+              <div class="card-body py-3">
+                <div class="d-flex align-items-center gap-2">
+                  <input type="radio" class="form-check-input mt-0" :checked="updateChannel === 'stable'" />
+                  <strong>{{ $t('settings.channelStable') }}</strong>
+                  <span class="badge settings-status-badge ms-auto">{{ $t('common.recommended') }}</span>
+                </div>
+                <p class="text-muted small mb-0 mt-2">{{ $t('settings.channelStableHint') }}</p>
+              </div>
+            </div>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="card h-100" role="button"
+                 :class="updateChannel === 'test' ? 'settings-mode-active border-primary' : ''"
+                 @click="setUpdateChannel('test')">
+              <div class="card-body py-3">
+                <div class="d-flex align-items-center gap-2">
+                  <input type="radio" class="form-check-input mt-0" :checked="updateChannel === 'test'" />
+                  <strong>{{ $t('settings.channelTest') }}</strong>
+                  <span class="badge bg-warning text-dark ms-auto">beta</span>
+                </div>
+                <p class="text-muted small mb-0 mt-2">{{ $t('settings.channelTestHint') }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="channelMsg" class="alert alert-success mt-3 py-2 small mb-0">{{ channelMsg }}</div>
+      </div>
+    </div>
+
     <!-- Feedback -->
     <div class="card mb-4" style="border-color:rgba(99,102,241,.2);background:linear-gradient(135deg,rgba(99,102,241,.05),rgba(168,85,247,.03))">
       <div class="card-body d-flex justify-content-between align-items-center">
@@ -1141,6 +1204,14 @@ export default {
         alert: '',
       },
       savingFcm: false,
+      // Customer Apps integration master switch + app name. Each operator
+      // ships their own branded app (one brand per operator, e.g. another for
+      // someone else) and the push subtitle on Notifications.vue reads
+      // `apps.name` so nothing leaks one operator's brand into other panels.
+      apps: {
+        enabled: false,
+        name: '',
+      },
       // Per-customer device cap (admin-side customer_email grouping). 0 = no cap.
       deviceLimits: {
         max_devices_per_customer: 0,
@@ -1201,6 +1272,10 @@ export default {
       themes: [
         { key: 'light' }, { key: 'dark' }
       ],
+      // Update channel switcher. Defaults to stable; loaded from
+      // /updates/channel on mount.
+      updateChannel: 'stable',
+      channelMsg: '',
     }
   },
   computed: {
@@ -1248,10 +1323,32 @@ export default {
     },
   },
   async mounted() {
-    await Promise.all([this.loadLicense(), this.loadPaymentSettings(), this.loadSmtpSettings(), this.loadNotifications(), this.loadDeviceLimits(), this.loadSubscriptionSettings(), this.loadBranding(), this.loadWebAccessSettings()])
+    await Promise.all([this.loadLicense(), this.loadPaymentSettings(), this.loadSmtpSettings(), this.loadNotifications(), this.loadDeviceLimits(), this.loadSubscriptionSettings(), this.loadBranding(), this.loadWebAccessSettings(), this.loadUpdateChannel()])
   },
   methods: {
     setTheme(k) { useSystemStore().setTheme(k) },
+
+    // ── Update channel ──────────────────────────────────────────────
+    async loadUpdateChannel() {
+      try {
+        const r = await systemApi.getUpdateChannel()
+        this.updateChannel = r.data?.channel || 'stable'
+      } catch (e) { /* default stays 'stable' */ }
+    },
+    async setUpdateChannel(ch) {
+      if (ch === this.updateChannel) return
+      const prev = this.updateChannel
+      this.updateChannel = ch   // optimistic
+      try {
+        const r = await systemApi.setUpdateChannel(ch)
+        this.updateChannel = r.data?.channel || ch
+        this.channelMsg = (this.$t('settings.channelSwitched') || 'Update channel switched to') + ' ' + this.updateChannel
+        setTimeout(() => { this.channelMsg = '' }, 3000)
+      } catch (e) {
+        this.updateChannel = prev   // revert on failure
+        alert('Error: ' + (e.response?.data?.detail || e.message))
+      }
+    },
 
     copyToClipboard(text) {
       if (!text) return
@@ -1678,12 +1775,49 @@ export default {
       try {
         var r = await systemApi.getNotificationSettings()
         Object.assign(this.notif, r.data)
-        // FCM lives on the same notifications-settings endpoint so we
-        // don't have to spawn a second admin GET just for one field.
+        // FCM + Apps integration both live on the same endpoint so we
+        // hydrate them in the same call.
         if (r.data && Object.prototype.hasOwnProperty.call(r.data, 'fcm_server_key_set')) {
           this.fcm.server_key_set = !!r.data.fcm_server_key_set
         }
+        if (r.data && Object.prototype.hasOwnProperty.call(r.data, 'app_integration_enabled')) {
+          this.apps.enabled = String(r.data.app_integration_enabled).toLowerCase() === 'true'
+        }
+        if (r.data && Object.prototype.hasOwnProperty.call(r.data, 'app_name')) {
+          this.apps.name = r.data.app_name || ''
+        }
       } catch(e) {}
+    },
+
+    // Apps + (optional) FCM save in one shot — the operator toggled the
+    // master switch or typed a new app_name / FCM key, persist whatever
+    // is on screen. Same endpoint as the notifications block; we just
+    // send a subset of fields.
+    async saveAppsConfig() {
+      this.savingFcm = true
+      try {
+        const payload = {
+          app_integration_enabled: this.apps.enabled ? 'true' : 'false',
+          app_name: (this.apps.name || '').trim(),
+        }
+        if (this.fcm.server_key) {
+          payload.fcm_server_key = this.fcm.server_key
+        }
+        await systemApi.updateNotificationSettings(payload)
+        if (this.fcm.server_key) {
+          this.fcm.server_key = ''
+          this.fcm.server_key_set = true
+        }
+        this.fcm.alert = 'Saved!'
+        setTimeout(() => { this.fcm.alert = '' }, 3000)
+        // Nudge the sidebar's apps store so the Push Notifications
+        // entry appears/disappears immediately without a page reload.
+        try {
+          const { useAppsStore } = await import('../stores/apps')
+          useAppsStore().refresh()
+        } catch(_) { /* sidebar will rehydrate on next nav */ }
+      } catch(e) { alert('Error: ' + (e.response?.data?.detail || e.message)) }
+      finally { this.savingFcm = false }
     },
     async saveNotifications() {
       this.saving = true

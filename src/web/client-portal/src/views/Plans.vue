@@ -71,7 +71,7 @@
                 class="fx-btn fx-btn-block fx-btn-lg"
                 :class="plan.tier.toLowerCase() === 'standard' ? 'fx-btn-primary' : 'fx-btn-secondary'"
                 @click="selectPlan(plan)">
-          {{ plan.price_monthly_usd === 0 ? $t('plans.freePlan') : $t('plans.subscribe') }}
+          {{ $t('plans.subscribe') }}
         </button>
       </div>
     </div>

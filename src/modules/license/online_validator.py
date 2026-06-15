@@ -494,6 +494,14 @@ async def _try_server(url: str, payload: dict) -> Optional[bool]:
                 _save_cache(verified, data["payload"], data["signature"])
                 logger.info("Online license check via {}: status={} tier={}",
                             url, verified.get("status"), verified.get("tier"))
+                # In-band rotation: if the server's signed response told us
+                # the current key is revoked/suspended AND offered a
+                # successor JWT (verified active for the same hardware+
+                # owner), swap it in and restart so we re-load with the new
+                # key. Run AFTER cache save so a botched rotation can be
+                # retried on the next tick without losing the latest
+                # legitimate server response.
+                _maybe_rotate_license(verified)
                 return True
             else:
                 logger.error("License server {} returned INVALID signature — possible MITM", url)
@@ -622,16 +630,26 @@ async def run_validator_loop():
         logger.info("LICENSE_SERVER_URL not set — online validation disabled")
         return
 
-    # license_type=lifetime → pure offline, never poll. license_type=lifetime_protected
-    # also opts out of the validator loop (it's a blocker; heartbeat handles
-    # telemetry on its own slower cadence).
+    # license_type=lifetime → pure offline, never poll.
+    # license_type=lifetime_protected → no blocking validator loop, but DO
+    # run a slow once-a-day rotation-only check so re-issues at higher
+    # tier still propagate. The check is non-enforcing: a failure (server
+    # down, signature mismatch) never blocks the panel — it just leaves
+    # the existing license in place until the next tick.
     lic_type = _local_license_type()
-    if lic_type in ("lifetime", "lifetime_protected"):
-        logger.info(
-            "License type {} — online validator disabled (offline-tolerant by design)",
-            lic_type,
-        )
+    if lic_type == "lifetime":
+        logger.info("License type lifetime — online validator disabled (offline-tolerant by design)")
         return
+    if lic_type == "lifetime_protected":
+        logger.info("License type lifetime_protected — running daily rotation-only check")
+        await asyncio.sleep(5)
+        while True:
+            try:
+                await _do_check()
+            except Exception as e:
+                logger.warning("Rotation-only check raised: {}", e)
+            # Server can answer fast; rotation rarely happens; once-a-day is plenty.
+            await asyncio.sleep(int(os.getenv("LICENSE_ROTATION_CHECK_INTERVAL", "86400")))
 
     _warmup_from_cache()
 
@@ -644,3 +662,201 @@ async def run_validator_loop():
             await asyncio.sleep(_CHECK_INTERVAL)
         else:
             await asyncio.sleep(_RETRY_INTERVAL)
+
+
+# ── In-band license rotation ──────────────────────────────────────────────────
+#
+# When the lic-server tells us the current key is revoked AND points us at a
+# newly-issued successor (same hardware_id, same owner_email), the panel can
+# verify the offered JWT locally, swap .env, and restart — no operator SSH
+# round-trip required. This is the path that closes the 2026-06-12 incident
+# (operator re-issued, customer's panel kept running on the old tier).
+#
+# Safety:
+#   1. The offered JWT is signature-verified with license_public.pem before
+#      anything else happens. A compromised lic-server cannot forge a key.
+#   2. The hardware_id in the new JWT must match the local hardware_id.
+#      Even if the server hands us a key for someone else's hwid we refuse
+#      it and emit a tamper report.
+#   3. owner_email in the new JWT must match the current key's owner_email
+#      (when present). Another belt to keep cross-customer accidents off.
+#   4. .env is updated atomically (tempfile + os.replace). Mode is preserved.
+#   5. systemctl restart is detached so we don't block waiting for our own
+#      SIGTERM. systemd's graceful shutdown lets in-flight requests finish.
+#
+# Disable via env: LICENSE_ROTATION_DISABLED=1 (defensive switch for ops).
+
+_ROTATION_TRIGGERED = False   # process-local guard so we restart once per
+                              # successful rotation, not once per /api/validate
+                              # tick while the restart is still in flight.
+_ROTATION_LOCK = threading.Lock()
+
+
+def _maybe_rotate_license(payload: dict) -> None:
+    """Called from _try_server with the freshly-verified server response.
+    Idempotent: a no-op when the server didn't offer a successor, or when
+    we've already triggered a restart this process lifetime."""
+    if os.getenv("LICENSE_ROTATION_DISABLED", "").lower() in ("1", "true", "yes", "on"):
+        return
+    new_key = (payload.get("new_license_key") or "").strip()
+    if not new_key:
+        return
+    # Only act when the server explicitly told us the current key is
+    # gone. The "ok" path with new_license_key set would be weird (and
+    # we'd risk swapping in the middle of a healthy session); be strict.
+    if payload.get("status") not in ("revoked", "suspended"):
+        return
+    if new_key == os.getenv("LICENSE_KEY", "").strip():
+        return  # already on this key locally — restart will happen / has happened
+    with _ROTATION_LOCK:
+        global _ROTATION_TRIGGERED
+        if _ROTATION_TRIGGERED:
+            return
+        ok = _rotate_license_key(new_key)
+        if ok:
+            _ROTATION_TRIGGERED = True
+
+
+def _rotate_license_key(new_key: str) -> bool:
+    """Verify, persist atomically, and detach a systemctl restart.
+    Returns True iff every step succeeded. Never raises."""
+    try:
+        parts = new_key.split(".")
+        if len(parts) != 2:
+            logger.error("License rotation: offered key is not in expected payload.signature format")
+            return False
+        try:
+            payload_bytes = base64.urlsafe_b64decode(parts[0] + "=" * (-len(parts[0]) % 4))
+            new_payload = json.loads(payload_bytes)
+            signature_bytes = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+        except Exception as e:
+            logger.error("License rotation: failed to decode offered key: {}", e)
+            return False
+
+        # Local signature verification with the embedded RSA public key.
+        from .manager import _find_public_key
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+        pub_path = _find_public_key()
+        if not pub_path:
+            logger.warning("License rotation: license_public.pem not present, skipping")
+            return False
+        try:
+            with open(pub_path, "rb") as f:
+                pub_key = load_pem_public_key(f.read())
+            pub_key.verify(
+                signature_bytes,
+                payload_bytes,
+                padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
+                            salt_length=padding.PSS.MAX_LENGTH),
+                hashes.SHA256(),
+            )
+        except Exception:
+            logger.error("License rotation: SIGNATURE INVALID on offered new_license_key — possible MITM")
+            _send_tamper_report_sync("rotation_signature_invalid", {
+                "offered_hwid": new_payload.get("hardware_id"),
+            })
+            return False
+
+        # Hardware-id binding: the new key must be for THIS machine.
+        local_hwid = _get_hardware_id()
+        offered_hwid = (new_payload.get("hardware_id") or "")
+        if offered_hwid != local_hwid:
+            logger.error(
+                "License rotation: hardware_id mismatch (local={} offered={})",
+                local_hwid[:12] + "…", offered_hwid[:12] + "…",
+            )
+            _send_tamper_report_sync("rotation_hwid_mismatch", {
+                "local_hwid":   local_hwid,
+                "offered_hwid": offered_hwid,
+            })
+            return False
+
+        # Belt: owner_email continuity. Only enforced when BOTH old and new
+        # have one, so legacy keys without email still rotate.
+        try:
+            cur_raw = os.getenv("LICENSE_KEY", "").strip()
+            if cur_raw and "." in cur_raw:
+                cur_p64 = cur_raw.split(".", 1)[0]
+                cur_p64 += "=" * (-len(cur_p64) % 4)
+                cur_payload = json.loads(base64.urlsafe_b64decode(cur_p64).decode())
+                cur_email = cur_payload.get("owner_email")
+                new_email = new_payload.get("owner_email")
+                if cur_email and new_email and cur_email != new_email:
+                    logger.error(
+                        "License rotation: owner_email mismatch (cur={} new={})",
+                        cur_email, new_email,
+                    )
+                    return False
+        except Exception:
+            # Current key unparseable — not fatal; the lic-server confirmed
+            # the rotation is for our hwid, that's what we really care about.
+            pass
+
+        # Atomic .env update.
+        env_path = os.getenv("VPNMANAGER_ENV_PATH", "/opt/vpnmanager/.env")
+        if not _atomic_env_update(env_path, "LICENSE_KEY", new_key):
+            logger.error("License rotation: .env update failed at {}", env_path)
+            return False
+
+        logger.warning(
+            "License rotated to plan={} tier={} hwid={} — restarting vpnmanager-api",
+            new_payload.get("plan"), new_payload.get("tier"), local_hwid[:12] + "…",
+        )
+
+        # Detached restart: Popen lets us return cleanly; systemd then
+        # SIGTERMs us, which uvicorn graceful-handles (drains in-flight
+        # requests, exits with 0), then systemd starts a fresh instance
+        # that reads the new .env. Don't wait — we are about to die.
+        import subprocess
+        try:
+            subprocess.Popen(
+                ["systemctl", "restart", "vpnmanager-api"],
+                stdin  = subprocess.DEVNULL,
+                stdout = subprocess.DEVNULL,
+                stderr = subprocess.DEVNULL,
+                start_new_session = True,
+            )
+        except Exception as e:
+            logger.error("License rotation: systemctl restart failed: {}", e)
+            # .env is already written; next manual restart will pick it up.
+        return True
+    except Exception as e:
+        logger.error("License rotation: unhandled error: {}", e)
+        return False
+
+
+def _atomic_env_update(env_path: str, key: str, value: str) -> bool:
+    """Replace KEY=… line in .env atomically (tempfile + os.replace).
+    Preserves mode 0600. Returns True on success."""
+    try:
+        try:
+            with open(env_path, "r") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        prefix = f"{key}="
+        found = False
+        new_lines = []
+        for line in lines:
+            if line.startswith(prefix) or line.startswith(f"# {prefix}"):
+                if not found:
+                    new_lines.append(f"{key}={value}\n")
+                    found = True
+                # drop any subsequent duplicates
+            else:
+                new_lines.append(line)
+        if not found:
+            if new_lines and not new_lines[-1].endswith("\n"):
+                new_lines.append("\n")
+            new_lines.append(f"{key}={value}\n")
+
+        tmp_path = env_path + ".rotation.tmp"
+        with open(tmp_path, "w") as f:
+            f.writelines(new_lines)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, env_path)
+        return True
+    except Exception as e:
+        logger.error("Atomic .env update failed: {}", e)
+        return False

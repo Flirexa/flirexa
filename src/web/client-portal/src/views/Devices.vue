@@ -267,7 +267,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { portalApi } from '../api/index.js'
@@ -489,7 +489,18 @@ const switchServer = async (slot, serverId) => {
   }
 }
 
+// Per-slot interval handles so a second startCooldown for the same
+// slot replaces the old timer instead of stacking, and onUnmounted
+// can clear everything. Without it, fast region-switching on the
+// same device left N parallel 1s tickers running, and a route change
+// before any of them expired leaked them all.
+const _cooldownIntervals = new Map()  // slotId -> interval handle
+
 function startCooldown(slotId, seconds) {
+  // Replace any existing timer for this slot first.
+  const prev = _cooldownIntervals.get(slotId)
+  if (prev) clearInterval(prev)
+
   let remaining = seconds
   cooldownText.value = {
     ...cooldownText.value,
@@ -499,6 +510,7 @@ function startCooldown(slotId, seconds) {
     remaining -= 1
     if (remaining <= 0) {
       clearInterval(id)
+      _cooldownIntervals.delete(slotId)
       const next = { ...cooldownText.value }
       delete next[slotId]
       cooldownText.value = next
@@ -509,6 +521,7 @@ function startCooldown(slotId, seconds) {
       [slotId]: t('devices.cooldown', { seconds: remaining }),
     }
   }, 1000)
+  _cooldownIntervals.set(slotId, id)
 }
 
 const downloadConfig = async (slot, srv) => {
@@ -621,6 +634,10 @@ const confirmDeleteWithPassword = async () => {
 }
 
 onMounted(loadSlots)
+onUnmounted(() => {
+  for (const id of _cooldownIntervals.values()) clearInterval(id)
+  _cooldownIntervals.clear()
+})
 </script>
 
 <style scoped>

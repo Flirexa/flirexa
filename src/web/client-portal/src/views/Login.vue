@@ -109,9 +109,12 @@
             <div class="fx-field-input" :class="{ error: emailError }">
               <FxIcon name="user" :size="16" />
               <input id="identifier" v-model="form.identifier" type="text" autocomplete="username"
-                     :placeholder="$t('auth.identifierPlaceholder')" required @input="emailError = false" />
+                     :placeholder="$t('auth.identifierPlaceholder')" required
+                     :aria-invalid="emailError || null"
+                     :aria-describedby="emailError ? 'identifier-error' : null"
+                     @input="emailError = false" />
             </div>
-            <span v-if="emailError" class="fx-field-error">{{ $t('auth.identifierRequired') }}</span>
+            <span v-if="emailError" id="identifier-error" class="fx-field-error">{{ $t('auth.identifierRequired') }}</span>
           </div>
 
           <div class="fx-field">
@@ -120,13 +123,15 @@
               <FxIcon name="lock" :size="16" />
               <input id="password" v-model="form.password" :type="showPw ? 'text' : 'password'"
                      autocomplete="current-password" placeholder="••••••••" minlength="6" required
+                     :aria-invalid="passwordError || null"
+                     :aria-describedby="passwordError ? 'password-error' : null"
                      @input="passwordError = false" />
               <button type="button" class="fx-pw-toggle" :aria-label="$t('auth.toggleVisibility')"
                       @click="showPw = !showPw">
                 <FxIcon name="eye" :size="16" />
               </button>
             </div>
-            <span v-if="passwordError" class="fx-field-error">{{ $t('auth.passwordTooShort') }}</span>
+            <span v-if="passwordError" id="password-error" class="fx-field-error">{{ $t('auth.passwordTooShort') }}</span>
           </div>
 
           <div class="fx-login-row">
