@@ -140,7 +140,7 @@
       </div>
 
       <!-- Config download row -->
-      <div class="fx-slot-section">
+      <div class="fx-slot-section" v-if="features.config_download">
         <div class="fx-slot-section-title">
           {{ $t('devices.configs') }}
           <FxHelp :text="$t('devices.configsManualHelp')" />
@@ -284,6 +284,8 @@ const switching = ref(null)  // slot_id currently being switched
 const releasing = ref(null)  // slot_id currently being released from its device-bind
 const slots = ref([])
 const subscription = ref({})
+// Per-operator portal gates; default ON (fail open). Backend 403 is the real gate.
+const features = ref({ config_download: true, qr: true })
 const servers = ref([])
 
 const showCreate = ref(false)
@@ -633,7 +635,13 @@ const confirmDeleteWithPassword = async () => {
   }
 }
 
-onMounted(loadSlots)
+async function loadFeatures() {
+  try {
+    const { data } = await portalApi.getFeatures()
+    if (data && data.features) features.value = { ...features.value, ...data.features }
+  } catch { /* fail open: keep defaults */ }
+}
+onMounted(() => { loadSlots(); loadFeatures() })
 onUnmounted(() => {
   for (const id of _cooldownIntervals.values()) clearInterval(id)
   _cooldownIntervals.clear()

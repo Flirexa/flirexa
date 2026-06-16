@@ -368,3 +368,58 @@ class TestSlotProvisioning:
         # Even an explicit backfill request on the hidden server is a no-op.
         added = mgr.backfill_all_slots_on_server(hidden)
         assert added == 0
+
+
+class TestSlotKeyRotation:
+    def test_rotate_changes_keys_and_rekeys_active_peer(
+        self, db_session, two_visible_servers, client_user, patched_wg,
+    ):
+        from src.modules.subscription.slot_manager import SlotManager
+        from src.modules.subscription.subscription_models import ClientUserClients
+        from src.database.models import Client
+
+        mgr = SlotManager(db_session)
+        slot = mgr.create_slot(user=client_user, label="Phone")
+        old_pub = slot.public_key
+        old_priv = slot.private_key
+
+        # Forget create_slot's own add_peer call so we assert only rotation's.
+        patched_wg.reset_mock()
+
+        mgr.rotate_slot_keys(slot)
+        db_session.refresh(slot)
+
+        # Keypair actually changed.
+        assert slot.public_key != old_pub
+        assert slot.private_key != old_priv
+
+        # Every peer row shares the NEW keypair (slots are one-key-many-peers).
+        peers = (
+            db_session.query(Client)
+            .join(ClientUserClients, ClientUserClients.client_id == Client.id)
+            .filter(ClientUserClients.slot_id == slot.id)
+            .all()
+        )
+        assert peers, "rotation test needs at least one peer"
+        assert all(p.public_key == slot.public_key for p in peers)
+        assert all(p.private_key == slot.private_key for p in peers)
+
+        # The live (active) interface was re-keyed: old pubkey removed, new added.
+        patched_wg.remove_peer.assert_called_once_with(old_pub)
+        assert patched_wg.add_peer.call_count == 1
+        _, kw = patched_wg.add_peer.call_args
+        assert kw["public_key"] == slot.public_key
+
+    def test_rotate_is_idempotent(
+        self, db_session, two_visible_servers, client_user, patched_wg,
+    ):
+        from src.modules.subscription.slot_manager import SlotManager
+        mgr = SlotManager(db_session)
+        slot = mgr.create_slot(user=client_user, label="Phone")
+        p1 = slot.public_key
+        mgr.rotate_slot_keys(slot); db_session.refresh(slot)
+        p2 = slot.public_key
+        mgr.rotate_slot_keys(slot); db_session.refresh(slot)
+        p3 = slot.public_key
+        # Each rotation yields a distinct keypair; no error on repeat.
+        assert len({p1, p2, p3}) == 3

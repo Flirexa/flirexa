@@ -4,6 +4,34 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.95 — 2026-06-16
+
+### Added
+
+- **Per-install client-portal feature gates.** An install can now hide the
+  manual **config download** and/or **QR code** in its client portal via license
+  feature flags (`portal_no_config_download`, `portal_no_qr`) — useful when you
+  want to funnel customers to the apps and keep wg-quick configs off arbitrary
+  devices. Default is everything ON, so installs without the flags are unchanged.
+  Enforcement is two-layer: the portal hides the buttons (it reads the new
+  `/client-portal/features` capabilities) **and** the legacy config/QR endpoints
+  return `403` when gated, so the API can't be hit directly. The per-device slot
+  config endpoint is intentionally left open — it's the path the apps use to
+  fetch a tunnel on connect, and device-bind already stops a slot config from
+  being shared across devices.
+
+### Changed
+
+- **License enforcement now debounces fleet suspend behind a grace window.** A
+  single transient FREE-tier read (a license re-issue, a network blip, a parse
+  hiccup) no longer tears down the live server fleet. Suspend only fires once
+  FREE has persisted past `LICENSE_SUSPEND_GRACE_HOURS` (default 72h); any paid
+  read in between clears the timer. The window is persisted, so a restart loop
+  can't reset the clock. Set the hours to `0` for the previous
+  suspend-immediately behaviour.
+
+---
+
 ## v1.9.94 — 2026-06-15
 
 ### Added

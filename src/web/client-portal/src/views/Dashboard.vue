@@ -349,10 +349,10 @@
                 </div>
               </div>
               <div class="fx-device-actions">
-                <button class="fx-icon-btn-sm" :title="$t('dash.downloadConfig')" @click="downloadDeviceConfig(device)">
+                <button v-if="features.config_download" class="fx-icon-btn-sm" :title="$t('dash.downloadConfig')" @click="downloadDeviceConfig(device)">
                   <FxIcon name="download" :size="14" />
                 </button>
-                <button class="fx-icon-btn-sm" title="QR" @click="showDeviceConfig(device)">
+                <button v-if="features.qr" class="fx-icon-btn-sm" title="QR" @click="showDeviceConfig(device)">
                   <FxIcon name="qr" :size="14" />
                 </button>
                 <button class="fx-icon-btn-sm danger" :title="$t('dash.deleteDevice')" @click="askDeleteDevice(device)">
@@ -443,8 +443,8 @@
           </div>
           <div class="fx-modal-footer">
             <button class="fx-btn fx-btn-ghost" @click="showConfigModal = false">{{ $t('common.close') }}</button>
-            <button v-if="qrUrl" class="fx-btn fx-btn-secondary" @click="downloadQRImage">{{ $t('dash.downloadQR') }}</button>
-            <button class="fx-btn fx-btn-primary" @click="downloadCurrentConfig">{{ downloadConfigButtonText }}</button>
+            <button v-if="qrUrl && features.qr" class="fx-btn fx-btn-secondary" @click="downloadQRImage">{{ $t('dash.downloadQR') }}</button>
+            <button v-if="features.config_download" class="fx-btn fx-btn-primary" @click="downloadCurrentConfig">{{ downloadConfigButtonText }}</button>
           </div>
         </div>
       </div>
@@ -655,6 +655,9 @@ const { t } = useI18n()
 
 const subscription = ref({})
 const devices = ref([])
+// Per-operator portal gates (from /client-portal/features). Default everything
+// ON so a fetch hiccup never hides a capability — backend 403 is the real gate.
+const features = ref({ config_download: true, qr: true })
 const showUpgradeModal = ref(false)
 const showConfigModal = ref(false)
 const configText = ref('')
@@ -1324,6 +1327,13 @@ const onPaymentSuccess = () => {
 const loadServers = async () => {
   try { const { data } = await portalApi.getServers(); servers.value = data || [] } catch { /* ignore */ }
 }
+const loadFeatures = async () => {
+  // Fail open: on any error keep the ON-by-default `features` ref untouched.
+  try {
+    const { data } = await portalApi.getFeatures()
+    if (data && data.features) features.value = { ...features.value, ...data.features }
+  } catch { /* ignore */ }
+}
 const loadSubLink = async () => {
   try { const { data } = await portalApi.getSubscriptionLink(); subLinkToken.value = data.token }
   catch { /* ignore */ }
@@ -1350,6 +1360,7 @@ onMounted(() => {
   loadData()
   loadReferral()
   loadServers()
+  loadFeatures()
   loadSubLink()
   loadTrafficSeries()
 })

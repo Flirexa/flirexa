@@ -799,6 +799,68 @@ class SlotManager:
         self.db.delete(slot)
         self.db.commit()
 
+    def rotate_slot_keys(self, slot: DeviceSlot) -> DeviceSlot:
+        """Rotate the slot's WG/AWG keypair so any device still holding the
+        OLD config is cryptographically locked out on its next handshake.
+
+        Used on release / stale-rebind to actually displace the previously
+        bound device — clearing ``device_id`` alone leaves a live tunnel
+        because WireGuard handshakes never re-check the panel. DB is the source
+        of truth: new keys are committed first, then the ACTIVE peer's
+        interface is re-keyed best-effort (remove old pubkey, add new). Dormant
+        peers (other regions, not installed) only get the DB key update and go
+        live with the new key on the next switch. PSK rotation alone defeats
+        the old device even if an agent is down and the stale peer entry
+        lingers. Mirrors ``create_slot``'s push style (DB authoritative,
+        ``wg set`` best-effort).
+        """
+        peers = self.get_slot_peers(slot.id)
+        servers = [p.server for p in peers if p.server]
+        new_priv, new_pub, new_psk = _generate_keypair_for(servers)
+        old_pub = slot.public_key
+        active_peer = next(
+            (p for p in peers if p.server_id == slot.active_server_id), None
+        )
+
+        # 1. DB first — slot + every peer row share the new keypair.
+        slot.public_key = new_pub
+        slot.private_key = new_priv
+        slot.preshared_key = new_psk
+        for p in peers:
+            p.public_key = new_pub
+            p.private_key = new_priv
+            p.preshared_key = new_psk
+            self.db.add(p)
+        self.db.add(slot)
+        self.db.commit()
+        self.db.refresh(slot)
+
+        # 2. Re-key the live interface (best-effort, like create_slot).
+        if active_peer and active_peer.server:
+            server = active_peer.server
+            try:
+                wg = self.core.clients._get_wg(server)
+                try:
+                    allowed_ips = [f"{active_peer.ipv4}/32"]
+                    if active_peer.ipv6:
+                        allowed_ips.append(f"{active_peer.ipv6}/128")
+                    if old_pub:
+                        wg.remove_peer(old_pub)        # kill the ghost
+                    wg.add_peer(
+                        public_key=new_pub,
+                        allowed_ips=allowed_ips,
+                        preshared_key=new_psk,
+                    )
+                finally:
+                    try: wg.close()
+                    except Exception: pass
+            except Exception as exc:
+                logger.warning(
+                    "rotate_slot_keys: live re-key failed on %s (slot=%s): %s",
+                    getattr(server, "name", "?"), slot.id, exc,
+                )
+        return slot
+
     def rename_slot(self, slot: DeviceSlot, new_label: str) -> DeviceSlot:
         slot.label = new_label.strip()[:64] or slot.label
         self.db.add(slot)

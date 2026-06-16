@@ -20,6 +20,10 @@ typically the auto-provisioned one from install, which the operator wants kept.
 
 from __future__ import annotations
 
+import json
+import os
+import time
+from pathlib import Path
 from typing import Optional
 
 from loguru import logger
@@ -31,6 +35,47 @@ from ...database.models import Server, ServerLifecycleStatus, ServerStatus
 
 # Server types that count toward the FREE 1-per-protocol quota.
 _FREE_QUOTA_TYPES = {"wireguard", "amneziawg"}
+
+# ── Grace-on-suspend ──────────────────────────────────────────────────────────
+# Don't drop the fleet on a *single* FREE-tier read. A transient FREE
+# (license re-issue, network blip, parse hiccup) must not suspend live servers.
+# We only suspend once FREE has PERSISTED past this window. A paid read at any
+# point clears the timer. 0 = legacy immediate-suspend behaviour.
+_SUSPEND_GRACE_H = int(os.getenv("LICENSE_SUSPEND_GRACE_HOURS", "72"))
+
+# Persisted so a restart loop can't reset the grace clock (same rationale as
+# the persisted first-startup time in online_validator). Lives in data/, which
+# is excluded from the update tarball.
+_STATE_FILE = Path(__file__).resolve().parents[3] / "data" / "license_suspend_state.json"
+
+
+def _load_first_free() -> Optional[float]:
+    """Epoch seconds of the first FREE observation in the current FREE streak,
+    or None if not currently in a streak."""
+    try:
+        with open(_STATE_FILE) as f:
+            v = json.load(f).get("first_free_at")
+        return float(v) if v is not None else None
+    except Exception:
+        return None
+
+
+def _save_first_free(ts: float) -> None:
+    try:
+        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _STATE_FILE.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump({"first_free_at": ts}, f)
+        os.replace(tmp, _STATE_FILE)
+    except Exception as exc:
+        logger.warning("License grace: could not persist first_free_at: {}", exc)
+
+
+def _clear_first_free() -> None:
+    try:
+        _STATE_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
 
 
 def _stop_server_runtime(server: Server) -> None:
@@ -76,6 +121,8 @@ def reconcile(db: Optional[Session] = None) -> dict:
         tier_label = "paid" if has_multi_server else "free"
 
         if has_multi_server:
+            # Paid: end any FREE grace streak so a later blip starts fresh.
+            _clear_first_free()
             # Restore anything previously suspended. Don't auto-start — the
             # operator clicks Start when they're ready.
             rows = (
@@ -95,8 +142,37 @@ def reconcile(db: Optional[Session] = None) -> dict:
                 )
             return {"suspended": 0, "unsuspended": unsuspended, "tier": tier_label}
 
-        # FREE / no-multi-server tier: keep the *oldest* of each
-        # FREE-quota protocol; suspend every other server.
+        # FREE / no-multi-server tier. Debounce the suspend behind a grace
+        # window so a transient FREE read can't drop the live fleet.
+        if _SUSPEND_GRACE_H > 0:
+            now = time.time()
+            first_free = _load_first_free()
+            if first_free is None:
+                _save_first_free(now)
+                logger.warning(
+                    "License enforcement: FREE tier observed — grace started, "
+                    "fleet stays up; will suspend in {}h if not restored.",
+                    _SUSPEND_GRACE_H,
+                )
+                return {"suspended": 0, "unsuspended": 0, "tier": tier_label,
+                        "grace_remaining_h": float(_SUSPEND_GRACE_H)}
+            elapsed_h = (now - first_free) / 3600.0
+            if elapsed_h < _SUSPEND_GRACE_H:
+                remaining = round(_SUSPEND_GRACE_H - elapsed_h, 1)
+                logger.warning(
+                    "License enforcement: FREE tier persists — {}h/{}h grace "
+                    "elapsed, fleet still up (suspend in {}h).",
+                    round(elapsed_h, 1), _SUSPEND_GRACE_H, remaining,
+                )
+                return {"suspended": 0, "unsuspended": 0, "tier": tier_label,
+                        "grace_remaining_h": remaining}
+            logger.warning(
+                "License enforcement: FREE tier grace ({}h) elapsed — "
+                "suspending fleet now.", _SUSPEND_GRACE_H,
+            )
+
+        # Grace elapsed (or disabled): keep the *oldest* of each FREE-quota
+        # protocol; suspend every other server.
         all_servers = db.query(Server).order_by(Server.id.asc()).all()
         kept_per_type: set[str] = set()
         for s in all_servers:
