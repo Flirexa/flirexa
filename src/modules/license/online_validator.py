@@ -799,18 +799,27 @@ def _rotate_license_key(new_key: str) -> bool:
             return False
 
         logger.warning(
-            "License rotated to plan={} tier={} hwid={} — restarting vpnmanager-api",
+            "License rotated to plan={} tier={} hwid={} — restarting all vpnmanager services",
             new_payload.get("plan"), new_payload.get("tier"), local_hwid[:12] + "…",
         )
 
-        # Detached restart: Popen lets us return cleanly; systemd then
-        # SIGTERMs us, which uvicorn graceful-handles (drains in-flight
-        # requests, exits with 0), then systemd starts a fresh instance
-        # that reads the new .env. Don't wait — we are about to die.
+        # Detached restart of EVERY active vpnmanager-* unit, not just the api.
+        # The validator loop runs only in vpnmanager-api, but client-portal
+        # (serves /client-portal/features + the config/QR gates) and worker
+        # (enforcement) each cache the license at startup — an api-only restart
+        # leaves a rotated license (e.g. new portal_no_* flags) half-applied.
+        # Popen lets us return cleanly; systemd then SIGTERMs us, uvicorn drains
+        # and exits 0, and systemd brings every unit back on the new .env.
+        # start_new_session detaches us from the api process group, and the
+        # `systemctl restart` job is handed to PID 1, so it completes even
+        # though we are about to die. Don't wait.
         import subprocess
         try:
             subprocess.Popen(
-                ["systemctl", "restart", "vpnmanager-api"],
+                ["bash", "-c",
+                 "systemctl restart $(systemctl list-units --type=service "
+                 "--state=active --plain --no-legend 'vpnmanager-*' "
+                 "| awk '{print $1}')"],
                 stdin  = subprocess.DEVNULL,
                 stdout = subprocess.DEVNULL,
                 stderr = subprocess.DEVNULL,

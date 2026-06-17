@@ -44,7 +44,7 @@ class TestMultiServerTiers:
         assert "multi_server" not in free["features"]
         # FREE is also limited to 1 server, which prevents the situation
         # entirely at the limit-check layer
-        assert free["max_servers"] == 1
+        assert free["max_servers"] == 2   # FREE = 2 local servers (wireguard + amneziawg)
 
     @pytest.mark.parametrize(
         "tier,has_feature",

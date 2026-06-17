@@ -44,7 +44,10 @@ class TestFreeTierConfiguration:
     def test_free_limits(self):
         free = LICENSE_TIERS[LicenseType.FREE]
         assert free["max_clients"] == 80
-        assert free["max_servers"] == 1
+        # FREE = up to 2 servers: one LOCAL wireguard + one LOCAL amneziawg on
+        # the install box. Remote/agent servers + proxy protocols are paid-only
+        # (enforced at runtime by enforcement.reconcile, not by this count).
+        assert free["max_servers"] == 2
 
     def test_free_no_expiry(self):
         # FREE must not have a duration_days key — it never expires.
@@ -147,7 +150,7 @@ class TestLicenseManagerLimits:
         result = mgr.check_limits(current_clients=10, current_servers=0)
         assert result["within_limits"] is True
         assert result["clients"]["available"] == 70   # 80 - 10
-        assert result["servers"]["available"] == 1    # 1 - 0
+        assert result["servers"]["available"] == 2    # 2 - 0
 
     def test_check_limits_at_client_limit(self):
         mgr = LicenseManager(license_key=None)
@@ -158,7 +161,7 @@ class TestLicenseManagerLimits:
 
     def test_check_limits_at_server_limit(self):
         mgr = LicenseManager(license_key=None)
-        result = mgr.check_limits(current_clients=10, current_servers=1)
+        result = mgr.check_limits(current_clients=10, current_servers=2)  # FREE = 2
         assert result["within_limits"] is False
         assert result["servers"]["at_limit"] is True
         assert result["servers"]["available"] == 0
@@ -172,8 +175,9 @@ class TestLicenseManagerLimits:
     def test_can_add_server_within_limit(self):
         mgr = LicenseManager(license_key=None)
         info = mgr.validate_license()
-        assert info.can_add_server(0) is True
-        assert info.can_add_server(1) is False
+        assert info.can_add_server(0) is True   # FREE allows up to 2
+        assert info.can_add_server(1) is True
+        assert info.can_add_server(2) is False
 
 
 class TestFreeModeDoesNotMakeNetworkCalls:
@@ -207,6 +211,6 @@ class TestStatus:
         assert status["billing_type"] == "free"
         assert status["is_valid"] is True
         assert status["max_clients"] == 80
-        assert status["max_servers"] == 1
+        assert status["max_servers"] == 2
         assert status["expires_at"] is None
         assert status["days_remaining"] is None

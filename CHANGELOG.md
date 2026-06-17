@@ -4,6 +4,31 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.97 — 2026-06-17
+
+### Added
+
+- **FREE tier now runs up to two local servers.** A FREE install can serve one
+  WireGuard + one AmneziaWG server on the install box itself (max 2). Remote /
+  agent servers and proxy protocols (Hysteria2 / TUIC) remain paid — the runtime
+  enforcement keeps only the local free-quota servers and parks everything else
+  with its data intact, restored on the next paid activation.
+
+### Fixed
+
+- **Self-service migration is hardened.** The migration records on disk are now
+  written atomically and `0600` (they carry the license id + hardware ids). A
+  machine refuses a second, different migration code for the same license (replay
+  guard), and applying a migration fires an immediate heartbeat so the license
+  server learns of the move in seconds instead of up to a day.
+- **A re-issued license now fully applies in one step.** In-band license rotation
+  restarts every `vpnmanager-*` service, not just the API — previously the client
+  portal and worker kept the old feature set in memory until they too restarted,
+  so a freshly re-issued license (e.g. one toggling a portal capability) appeared
+  to "not change anything".
+
+---
+
 ## v1.9.95 — 2026-06-16
 
 ### Added

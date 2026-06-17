@@ -4,10 +4,14 @@ Runs on a periodic worker tick (and on every license activation/refresh):
 
 - If the install just lost the `multi_server` feature (subscription expired,
   was downgraded, or the operator removed their paid key), every server beyond
-  the FREE per-protocol quota (1 of each `server_type`) is stopped and parked
-  with `lifecycle_status = SUSPENDED_NO_LICENSE`. Their data stays — clients,
+  the FREE quota is stopped and parked with
+  `lifecycle_status = SUSPENDED_NO_LICENSE`. Their data stays — clients,
   configs, keys are untouched — so the operator just needs to re-activate to
   bring everything back.
+
+  The FREE quota is: up to **one LOCAL server of each `wireguard` / `amneziawg`**
+  protocol (max 2), running on the install box itself. Remote/agent servers and
+  proxy protocols (hysteria2 / tuic) are paid-only and always suspended on FREE.
 
 - If the install gained `multi_server` again (renewal / new purchase), every
   `SUSPENDED_NO_LICENSE` server is moved back to OFFLINE. Operator can click
@@ -34,7 +38,17 @@ from ...database.models import Server, ServerLifecycleStatus, ServerStatus
 
 
 # Server types that count toward the FREE 1-per-protocol quota.
+# Proxy protocols (hysteria2 / tuic) are intentionally absent — they're paid
+# (extra_protocols), so on FREE they fall through to "suspend".
 _FREE_QUOTA_TYPES = {"wireguard", "amneziawg"}
+
+
+def _is_remote_server(s) -> bool:
+    """True if the server is managed off-box (SSH or agent). The FREE tier only
+    covers servers running on the install box itself; remote/agent servers are
+    subscription-only, so on FREE they are always suspended regardless of the
+    per-protocol quota."""
+    return bool(getattr(s, "ssh_host", None)) or bool(getattr(s, "agent_url", None))
 
 # ── Grace-on-suspend ──────────────────────────────────────────────────────────
 # Don't drop the fleet on a *single* FREE-tier read. A transient FREE
@@ -178,10 +192,19 @@ def reconcile(db: Optional[Session] = None) -> dict:
         for s in all_servers:
             if s.lifecycle_status == ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value:
                 continue  # already suspended, leave alone
-            if s.server_type in _FREE_QUOTA_TYPES and s.server_type not in kept_per_type:
+            # FREE keeps up to one LOCAL server of each free-quota protocol
+            # (wireguard + amneziawg) on the install box. Everything else is
+            # paid-only and gets suspended: remote/agent servers, proxy
+            # protocols (hysteria2/tuic), and any excess beyond one-per-protocol.
+            keep = (
+                not _is_remote_server(s)
+                and s.server_type in _FREE_QUOTA_TYPES
+                and s.server_type not in kept_per_type
+            )
+            if keep:
                 kept_per_type.add(s.server_type)
                 continue
-            # Excess: suspend.
+            # Excess / remote / proxy: suspend.
             _stop_server_runtime(s)
             s.lifecycle_status = ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value
             s.status = ServerStatus.OFFLINE

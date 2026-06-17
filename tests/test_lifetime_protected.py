@@ -302,3 +302,43 @@ def test_license_generator_rejects_unknown_type(tmp_path):
             hardware_id="abc", duration_days=None,
             license_type="never-existed",
         )
+
+
+# ── 2026-06-16 migration-flow hardening ──────────────────────────────────────
+
+def test_migration_initiated_record_is_0600(monkeypatch, tmp_path):
+    monkeypatch.setattr(mc, "_MIGRATION_INITIATED_PATH", str(tmp_path / "mig.json"))
+    monkeypatch.setenv("LICENSE_KEY", _fake_license_key(_make_protected_payload()))
+    assert mc.generate_migration_code() is not None
+    p = tmp_path / "mig.json"
+    assert p.exists()
+    assert (p.stat().st_mode & 0o777) == 0o600  # not world-readable
+
+
+def test_applied_migration_record_is_0600(monkeypatch, tmp_path):
+    monkeypatch.setattr(mc, "_APPLIED_MIGRATION_PATH", str(tmp_path / "applied.json"))
+    monkeypatch.setenv("LICENSE_KEY", _fake_license_key(_make_protected_payload()))
+    assert mc.save_applied_migration("MIGRATE-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA-1700000000", "newhw") is True
+    p = tmp_path / "applied.json"
+    assert (p.stat().st_mode & 0o777) == 0o600
+
+
+def test_applied_migration_replay_guard(monkeypatch, tmp_path):
+    monkeypatch.setattr(mc, "_APPLIED_MIGRATION_PATH", str(tmp_path / "applied.json"))
+    monkeypatch.setenv("LICENSE_KEY", _fake_license_key(_make_protected_payload()))
+    code_a = "MIGRATE-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA-1700000000"
+    code_b = "MIGRATE-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB-1700000001"
+    assert mc.save_applied_migration(code_a, "newhw") is True       # first apply
+    assert mc.save_applied_migration(code_a, "newhw") is True       # same code → idempotent
+    assert mc.save_applied_migration(code_b, "newhw") is False      # different code, same license → refused
+    assert mc._load_applied_migration()["code"] == code_a           # untouched
+
+
+def test_applied_migration_allows_different_license(monkeypatch, tmp_path):
+    monkeypatch.setattr(mc, "_APPLIED_MIGRATION_PATH", str(tmp_path / "applied.json"))
+    monkeypatch.setenv("LICENSE_KEY", _fake_license_key(_make_protected_payload()))
+    assert mc.save_applied_migration("MIGRATE-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA-1700000000", "newhw") is True
+    other = _make_protected_payload()
+    other["issued_at"] = "2030-01-01T00:00:00+00:00"   # different license_id
+    monkeypatch.setenv("LICENSE_KEY", _fake_license_key(other))
+    assert mc.save_applied_migration("MIGRATE-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC-1700000002", "newhw") is True

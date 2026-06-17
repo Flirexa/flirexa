@@ -38,6 +38,7 @@ import hmac
 import json
 import os
 import re
+import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -109,6 +110,31 @@ class MigrationCode:
     expires_at: datetime
 
 
+def _atomic_secure_write(path, data: dict) -> None:
+    """Write `data` as JSON atomically and 0600-only.
+
+    These migration records carry a license_id + hardware ids; they must not be
+    world-readable, and a half-written file must never be observed (the validator
+    reads them on every license check). Tempfile in the same dir + os.replace
+    gives atomicity; fchmod before the rename gives the perms.
+    """
+    from pathlib import Path
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".json")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(data))
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def _record_migration_initiated(license_id: str, code: str) -> None:
     """Persist that THIS server has handed out a migration code.
 
@@ -129,12 +155,12 @@ def _record_migration_initiated(license_id: str, code: str) -> None:
         # doesn't get "extended" by clicking the button twice.
         if p.exists():
             return
-        p.write_text(json.dumps({
+        _atomic_secure_write(p, {
             "initiated_at": datetime.now(timezone.utc).isoformat(),
             "license_id":   license_id,
             "code":         code,
             "deadline_days": OLD_SERVER_DECOMMISSION_DAYS,
-        }))
+        })
         logger.warning(
             "Server migration initiated — this install will self-decommission "
             "in {} days. Move to the new server before then.",
@@ -382,17 +408,29 @@ def save_applied_migration(code: str, current_hw: str) -> bool:
     payload = _read_license_payload()
     if payload is None:
         return False
+    new_code = code.strip().upper()
+    new_lic = _license_id_from_payload(payload)
+    # Replay protection: this machine is the home of at most ONE migration.
+    # Refuse a SECOND, DIFFERENT code for the SAME license — that's the replay
+    # shape (one code re-applied across boxes). Re-applying the same code is a
+    # harmless idempotent no-op. A genuinely different license (re-issued key)
+    # is allowed through.
+    existing = _load_applied_migration()
+    if (existing and existing.get("code") and existing.get("code") != new_code
+            and existing.get("license_id") == new_lic):
+        logger.warning(
+            "Refusing a second distinct migration code for the same license on "
+            "this machine (already home of {}). Ignoring {}.",
+            str(existing.get("code"))[:24], new_code[:24])
+        return False
     try:
-        from pathlib import Path
-        p = Path(_APPLIED_MIGRATION_PATH)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({
-            "code":        code.strip().upper(),
-            "license_id":  _license_id_from_payload(payload),
+        _atomic_secure_write(_APPLIED_MIGRATION_PATH, {
+            "code":        new_code,
+            "license_id":  new_lic,
             "from_hw_id":  payload.get("hardware_id", ""),
             "to_hw_id":    current_hw,
             "applied_at":  datetime.now(timezone.utc).isoformat(),
-        }))
+        })
         logger.info("Applied-migration record written — this machine permanently authorized for the migrated license")
         return True
     except Exception as e:
