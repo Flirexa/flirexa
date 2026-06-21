@@ -4,6 +4,23 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.98 — 2026-06-21
+
+### Fixed
+
+- **Multi-device plans now give every device its own slot.** A device slot is
+  resolved by the client's stable device id rather than its platform label, so a
+  second device of the same kind (e.g. two phones) on a 2-device plan gets its
+  own slot instead of silently sharing the first one — the second seat was
+  effectively unusable before. Creating a slot is idempotent per device id, so
+  repeated sign-ins (which clear the local slot cache) no longer consume extra
+  seats: the same device always resolves to the same slot, an unbound slot is
+  adopted instead of duplicated, and the plan's device cap is still enforced.
+  Requests without the device-id header (e.g. the web portal's manual "Add
+  device") keep the previous always-create behaviour.
+
+---
+
 ## v1.9.97 — 2026-06-17
 
 ### Added
