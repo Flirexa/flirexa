@@ -4,6 +4,21 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.99 — 2026-06-21
+
+### Fixed
+
+- **A new device no longer grabs another device's slot.** Follow-up to v1.9.98:
+  device-slot creation used to adopt any of the account's *unbound* slots, so a
+  freshly signed-in device (e.g. a phone) could latch onto a slot that belonged
+  to a different device that simply hadn't connected yet — the device then showed
+  the wrong label and shared the wrong card until manually re-selected. Each
+  device now resolves only to a slot bound to its own id, otherwise it creates
+  its own (within the plan's device cap). Legacy single-device accounts still
+  reuse their existing slot via the cap fallback, binding it on first connect.
+
+---
+
 ## v1.9.98 — 2026-06-21
 
 ### Fixed

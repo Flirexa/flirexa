@@ -142,23 +142,29 @@ def test_two_different_devices_get_two_slots(ctx):
     db.close()
 
 
-def test_unbound_slot_is_adopted_not_duplicated(ctx):
+def test_unbound_slot_is_not_stolen_by_new_device(ctx):
+    # A pre-existing UNBOUND slot (another device that hasn't connected yet,
+    # or a legacy / web-portal slot) must NOT be adopted by a fresh device —
+    # that was the "phone grabs the Windows card and shows Windows" bug. The
+    # new device gets its OWN slot; the unbound one is left untouched.
     client, Session, server_id = ctx
     db = Session()
     db.add(DeviceSlot(
-        client_user_id=USER_ID, label="Phone",
+        client_user_id=USER_ID, label="Windows",
         public_key="u" * 43 + "=", private_key="k" * 43 + "=",
         active_server_id=server_id,
     ))
     db.commit()
     db.close()
-    # No create_slot patch: if the endpoint tried to CREATE it'd provision
-    # a real peer and fail. It must take the adopt branch instead.
-    r = _post(client, DEV_B)
+    with patch.object(SlotManager, "create_slot", _fake_create_slot):
+        r = _post(client, DEV_B, label="Phone")
     assert r.status_code == 200, r.text
     db = Session()
-    assert db.query(DeviceSlot).count() == 1    # adopted, not created
-    assert db.query(DeviceSlot).first().device_id == DEV_B
+    assert db.query(DeviceSlot).count() == 2            # created its own, didn't adopt
+    win = db.query(DeviceSlot).filter(DeviceSlot.label == "Windows").first()
+    assert win is not None and win.device_id is None    # left untouched / still unbound
+    mine = db.query(DeviceSlot).filter(DeviceSlot.device_id == DEV_B).first()
+    assert mine is not None and mine.label == "Phone"   # bound to the new device
     db.close()
 
 
