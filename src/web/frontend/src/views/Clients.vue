@@ -30,8 +30,15 @@
           <option value="">{{ $t('clients.allServers') }}</option>
           <option v-for="s in servers" :key="s.id" :value="s.id">{{ s.name }}</option>
         </select>
+        <select v-model="filterSegment" class="form-select form-select-sm filter-select-wide">
+          <option value="">{{ $t('clients.segments.allSegments') }}</option>
+          <option v-for="sg in segments" :key="sg.id" :value="sg.id">{{ sg.name }}</option>
+        </select>
       </div>
       <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-outline-secondary btn-sm" @click="showSegmentsManager = true">
+          {{ $t('clients.segments.manage') }}
+        </button>
         <LiveIndicator :live="isLivePoll" v-model:intervalMs="livePollInterval" />
         <button class="btn btn-primary btn-sm" @click="showCreateModal = true">
           {{ $t('clients.newClient') }}
@@ -45,6 +52,11 @@
       <button class="btn btn-outline-success btn-sm" @click="bulkEnable" :disabled="bulkLoading">{{ $t('clients.bulkEnable') }}</button>
       <button class="btn btn-outline-secondary btn-sm" @click="bulkDisable" :disabled="bulkLoading">{{ $t('clients.bulkDisable') }}</button>
       <button class="btn btn-outline-danger btn-sm" @click="bulkDelete" :disabled="bulkLoading">{{ $t('common.delete') }}</button>
+      <select class="form-select form-select-sm" style="width:auto" v-model="bulkSegmentId" @change="bulkAssignSegment" :disabled="bulkLoading">
+        <option value="">{{ $t('clients.segments.assign') }}</option>
+        <option v-for="sg in segments" :key="sg.id" :value="sg.id">{{ sg.name }}</option>
+        <option value="__remove__">{{ $t('clients.segments.removeFrom') }}</option>
+      </select>
       <button class="btn btn-link btn-sm text-muted" @click="selectedIds = new Set()">{{ $t('common.clear') }}</button>
     </div>
 
@@ -65,6 +77,7 @@
               <th class="d-none d-md-table-cell sortable-th" @click="toggleSort('traffic')">{{ $t('dashboard.traffic') }}<span class="sort-arrow">{{ sortIcon('traffic') }}</span></th>
               <th class="d-none d-lg-table-cell sortable-th" @click="toggleSort('bandwidth')">{{ $t('dashboard.bandwidth') }}<span class="sort-arrow">{{ sortIcon('bandwidth') }}</span></th>
               <th class="d-none d-lg-table-cell sortable-th" @click="toggleSort('expiry')">{{ $t('clients.expiry') }}<span class="sort-arrow">{{ sortIcon('expiry') }}</span></th>
+              <th class="d-none d-lg-table-cell">{{ $t('clients.segments.segment') }}</th>
               <th>{{ $t('common.actions') }}</th>
             </tr>
           </thead>
@@ -144,6 +157,11 @@
                 </span>
                 <span v-else class="text-muted">∞</span>
               </td>
+              <td class="d-none d-lg-table-cell">
+                <span v-if="client.segment_id && segMap[client.segment_id]" class="badge" :style="{ background: segMap[client.segment_id]?.color || '#6B7280', color: '#fff' }">
+                  {{ segMap[client.segment_id]?.name }}
+                </span>
+              </td>
               <td>
                 <!-- Desktop (sm+): connected btn-group -->
                 <div class="btn-group btn-group-sm d-none d-sm-inline-flex">
@@ -169,7 +187,7 @@
               </td>
             </tr>
             <tr v-if="pagedClients.length === 0" class="clients-empty-row">
-              <td colspan="10" class="text-center text-muted py-4">
+              <td colspan="11" class="text-center text-muted py-4">
                 {{ store.loading ? $t('common.loading') : $t('dashboard.noClients') }}
               </td>
             </tr>
@@ -657,16 +675,24 @@
       </div>
     </div>
   </div>
+
+  <!-- Segments Manager Modal -->
+  <SegmentsManager
+    :show="showSegmentsManager"
+    @close="showSegmentsManager = false"
+    @refreshed="loadSegments"
+  />
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClientsStore } from '../stores/clients'
-import { clientsApi, serversApi } from '../api'
+import { clientsApi, serversApi, segmentsApi } from '../api'
 import { formatBytes, formatMB, formatDate } from '../utils'
 import MobileDetailSheet from '../components/MobileDetailSheet.vue'
 import LiveIndicator from '../components/LiveIndicator.vue'
+import SegmentsManager from '../components/SegmentsManager.vue'
 import { useLivePoll, usePersistedInterval } from '../composables/useLivePoll'
 
 const { t } = useI18n()
@@ -677,6 +703,16 @@ const search = ref('')
 const filterStatus = ref('')
 const filterServer = ref('')
 const servers = ref([])
+const segments = ref([])
+const filterSegment = ref('')
+const showSegmentsManager = ref(false)
+const bulkSegmentId = ref('')
+
+const segMap = computed(() => {
+  const m = {}
+  segments.value.forEach(s => { m[s.id] = s })
+  return m
+})
 
 // Pagination
 const pageSize = 50
@@ -984,6 +1020,7 @@ const filteredClients = computed(() => {
   if (filterStatus.value === 'online') result = result.filter((c) => isClientOnline(c))
   if (filterStatus.value === 'offline') result = result.filter((c) => !isClientOnline(c))
   if (filterServer.value) result = result.filter((c) => c.server_id === Number(filterServer.value))
+  if (filterSegment.value) result = result.filter((c) => c.segment_id === Number(filterSegment.value))
 
   // Sort
   if (sortKey.value) {
@@ -1051,7 +1088,7 @@ const allPageSelected = computed(() =>
 )
 
 // Reset page when filters or sort change
-watch([search, filterStatus, filterServer, sortKey, sortDir], () => { currentPage.value = 1 })
+watch([search, filterStatus, filterServer, filterSegment, sortKey, sortDir], () => { currentPage.value = 1 })
 
 // Build the params object the store should hit `/clients` with right
 // now. Every code path that refetches must go through this so the
@@ -1450,6 +1487,46 @@ async function confirmDelete(client) {
   }
 }
 
+async function loadSegments() {
+  try {
+    const res = await segmentsApi.list()
+    const data = res.data
+    segments.value = Array.isArray(data) ? data : (data?.items || [])
+  } catch {
+    segments.value = []
+  }
+}
+
+async function bulkAssignSegment() {
+  const val = bulkSegmentId.value
+  if (!val || selectedIds.value.size === 0) { bulkSegmentId.value = ''; return }
+  const ids = [...selectedIds.value]
+  bulkLoading.value = true
+  try {
+    if (val === '__remove__') {
+      // Remove each selected client from their current segment if any
+      const updates = ids.map(id => {
+        const client = store.clients.find(c => c.id === id)
+        if (client?.segment_id) {
+          return segmentsApi.removeMembers(client.segment_id, [id]).catch(() => {})
+        }
+        return Promise.resolve()
+      })
+      await Promise.all(updates)
+    } else {
+      await segmentsApi.addMembers(Number(val), ids)
+    }
+    await Promise.all([store.fetchClients(_currentParams()), loadSegments()])
+    selectedIds.value = new Set()
+    showSuccess(t('clients.segments.assigned') || 'Segment assignment updated')
+  } catch (err) {
+    showError('Error: ' + (err.response?.data?.detail || err.message))
+  } finally {
+    bulkLoading.value = false
+    bulkSegmentId.value = ''
+  }
+}
+
 onMounted(async () => {
   await Promise.all([
     store.fetchClients(_currentParams()),
@@ -1461,6 +1538,7 @@ onMounted(async () => {
         newClient.value.server_id = list[0].id
       }
     }),
+    loadSegments(),
   ])
 })
 

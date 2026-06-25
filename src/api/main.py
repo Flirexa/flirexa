@@ -22,7 +22,7 @@ import psutil
 
 from sqlalchemy.orm import Session
 from ..database.connection import init_db, close_db, SessionLocal, get_db
-from .routes import clients, servers, bots, payments, system, agent, client_portal, tariffs, traffic_rules, internal, admin_auth, portal_users, promo_codes, app_accounts, backup, corporate, health, updates, plugins_admin
+from .routes import clients, servers, bots, payments, system, agent, client_portal, tariffs, traffic_rules, internal, admin_auth, portal_users, promo_codes, app_accounts, backup, corporate, health, updates, plugins_admin, segments
 # Register corporate models so Base.metadata.create_all() includes their tables
 from ..modules.corporate import models as _corporate_models  # noqa: F401
 from .middleware.auth import get_current_admin
@@ -670,6 +670,13 @@ def create_app(
         clients.router,
         prefix="/api/v1/clients",
         tags=["Clients"],
+        dependencies=admin_auth_dep
+    )
+
+    app.include_router(
+        segments.router,
+        prefix="/api/v1/segments",
+        tags=["segments"],
         dependencies=admin_auth_dep
     )
 

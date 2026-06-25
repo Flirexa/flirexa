@@ -17,6 +17,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from src.database.models import Base, Server, Client, ClientStatus
+# FK resolution: client_users table required for fcm_tokens FK
+from src.modules.subscription import subscription_models  # noqa: F401
 
 
 @pytest.fixture

@@ -4,6 +4,22 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.101 — 2026-06-25
+
+### Added
+
+- **Client segmentation.** Group clients in the Clients section into named
+  segments and apply common rules to a whole segment at once: bandwidth limit,
+  traffic limit, expiry, and a shared auto traffic-rule. Assigning a client to a
+  segment (or hitting "Apply") pushes the segment's rules onto each member.
+- Per-segment actions: **Apply to members**, **Enable all**, **Disable all**.
+- **Create a traffic rule inline** from the segment editor and bind it to that
+  segment in one step.
+- Clients table gains a **segment column**, a **filter by segment**, and a bulk
+  **"assign to segment"** action.
+
+---
+
 ## v1.9.99 — 2026-06-21
 
 ### Fixed

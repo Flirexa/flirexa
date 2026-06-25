@@ -454,6 +454,10 @@ class Client(Base):
     # the count-by-email query that runs on every POST /clients.
     customer_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
 
+    # Operator-defined segment grouping with shared rule template.
+    segment_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("client_segments.id", ondelete="SET NULL"), nullable=True, index=True)
+
     # Traffic tracking
     traffic_limit_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     traffic_limit_expiry: Mapped[Optional[datetime]] = mapped_column(
@@ -804,6 +808,25 @@ class TrafficRule(Base):
 
     def __repr__(self):
         return f"<TrafficRule(id={self.id}, name='{self.name}', period='{self.period}')>"
+
+
+class ClientSegment(Base):
+    """Operator-defined grouping of admin clients with a shared rule template.
+    Non-null rule fields are PUSHED onto member clients' own fields on assign/apply."""
+    __tablename__ = "client_segments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    color: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Rule template — NULL means "leave this client field alone" on push.
+    bandwidth_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    traffic_limit_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    expiry_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    auto_bandwidth_rule_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("traffic_rules.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class AuditLog(Base):

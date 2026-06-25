@@ -205,6 +205,19 @@ export const clientsApi = {
   releaseSlotDevice: (slotId) => api.post(`/clients/slots/admin/${slotId}/release-device`),
 }
 
+// ===== Segments =====
+export const segmentsApi = {
+  list: () => api.get('/segments'),
+  create: (data) => api.post('/segments', data),
+  update: (id, data, apply = false) => api.put(`/segments/${id}${apply ? '?apply=true' : ''}`, data),
+  remove: (id) => api.delete(`/segments/${id}`),
+  apply: (id) => api.post(`/segments/${id}/apply`),
+  addMembers: (id, clientIds) => api.post(`/segments/${id}/members`, { client_ids: clientIds }),
+  removeMembers: (id, clientIds) => api.delete(`/segments/${id}/members`, { data: { client_ids: clientIds } }),
+  enable: (id) => api.post(`/segments/${id}/enable`),
+  disable: (id) => api.post(`/segments/${id}/disable`),
+}
+
 // ===== Servers =====
 export const serversApi = {
   getAll: () => api.get('/servers'),
