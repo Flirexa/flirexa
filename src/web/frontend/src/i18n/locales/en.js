@@ -711,6 +711,7 @@ export default {
       title: 'Client Segments',
       manage: 'Segments',
       segment: 'Segment',
+      none: 'No segment',
       allSegments: 'All segments',
       assign: 'Assign to segment…',
       removeFrom: 'Remove from segment',

@@ -520,6 +520,7 @@ export default {
       title: 'Сегменты клиентов',
       manage: 'Сегменты',
       segment: 'Сегмент',
+      none: 'Без сегмента',
       allSegments: 'Все сегменты',
       assign: 'Назначить сегмент…',
       removeFrom: 'Убрать из сегмента',

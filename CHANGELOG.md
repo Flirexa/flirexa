@@ -4,6 +4,17 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.102 — 2026-06-26
+
+### Added
+
+- **Segment picker in the client forms.** The create-client and edit-client
+  forms now have a Segment selector, so you can put a client into a segment
+  directly (on creation or later) instead of only via the bulk action.
+  Assigning sets the client's segment and pushes the segment's rules onto it.
+
+---
+
 ## v1.9.101 — 2026-06-25
 
 ### Added

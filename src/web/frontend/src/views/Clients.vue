@@ -238,6 +238,13 @@
                      :placeholder="customerEmailPh" maxlength="255" />
               <div class="form-text small">{{ customerEmailHint }}</div>
             </div>
+            <div class="mb-3" v-if="segments.length">
+              <label class="form-label">{{ $t('clients.segments.segment') }}</label>
+              <select v-model="newClient.segment_id" class="form-select">
+                <option :value="null">{{ $t('clients.segments.none') }}</option>
+                <option v-for="seg in segments" :key="seg.id" :value="seg.id">{{ seg.name }}</option>
+              </select>
+            </div>
             <div class="mb-3">
               <label class="form-label">{{ $t('clients.expiryLabel') || 'Expiry' }}</label>
               <div class="d-flex flex-wrap gap-1 mb-2">
@@ -382,6 +389,13 @@
                 :placeholder="$t('clients.namePlaceholder')"
                 @keydown.enter.prevent="saveEdit"
               />
+            </div>
+            <div class="mb-3" v-if="segments.length">
+              <label class="form-label">{{ $t('clients.segments.segment') }}</label>
+              <select v-model="editForm.segment_id" class="form-select form-select-sm">
+                <option :value="null">{{ $t('clients.segments.none') }}</option>
+                <option v-for="seg in segments" :key="seg.id" :value="seg.id">{{ seg.name }}</option>
+              </select>
             </div>
             <template v-if="!isProxyClient(editingClient)">
             <div class="mb-3">
@@ -744,7 +758,7 @@ const bulkLoading = ref(false)
 const showCreateModal = ref(false)
 const creating = ref(false)
 const createError = ref('')
-const newClient = ref({ name: '', server_id: null, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' })
+const newClient = ref({ name: '', server_id: null, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '', segment_id: null })
 
 // Customer-email i18n strings — computed with try/catch so a missing key or
 // vue-i18n hiccup can never break the parent component's render. Falls
@@ -993,7 +1007,7 @@ function highlightJustCreated(clientId) {
 // Edit modal
 const showEditModal = ref(false)
 const editingClient = ref(null)
-const editForm = ref({ bandwidth: 0, trafficLimit: 0, expiryDays: null })
+const editForm = ref({ bandwidth: 0, trafficLimit: 0, expiryDays: null, segment_id: null })
 const editInitial = ref({ bandwidth: 0, trafficLimit: 0 })
 
 function showSuccess(msg) {
@@ -1262,9 +1276,16 @@ async function createClient() {
   creating.value = true
   createError.value = ''
   try {
+    const chosenSegment = newClient.value.segment_id
     const created = await store.createClient(newClient.value)
     showCreateModal.value = false
-    newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '' }
+    newClient.value = { name: '', server_id: servers.value[0]?.id, bandwidth_limit: 0, expiry_days: 0, peer_visibility: false, customer_email: '', segment_id: null }
+    // Assign the new client to the chosen segment (sets segment_id + pushes the
+    // segment's rules onto it). Non-fatal — the client is already created.
+    if (created && created.id != null && chosenSegment) {
+      try { await segmentsApi.addMembers(Number(chosenSegment), [created.id]) } catch (e) { /* non-fatal */ }
+      loadSegments()
+    }
     await store.fetchClients(_currentParams())
     // Mark the new client as highlighted in the table for ~60 s, and
     // pop the post-create modal with a fresh share link + quick actions.
@@ -1429,11 +1450,13 @@ function editClient(client) {
     bandwidth: client.bandwidth_limit || 0,
     trafficLimit: client.traffic_limit_mb || 0,
     expiryDays: null,
+    segment_id: client.segment_id || null,
   }
   editInitial.value = {
     name: client.name || '',
     bandwidth: client.bandwidth_limit || 0,
     trafficLimit: client.traffic_limit_mb || 0,
+    segment_id: client.segment_id || null,
   }
   showEditModal.value = true
 }
@@ -1458,6 +1481,17 @@ async function saveEdit() {
     // Only change expiry if user explicitly selected a value
     if (editForm.value.expiryDays !== null) {
       await store.setExpiry(client.id, editForm.value.expiryDays)
+    }
+    // Segment change → assign to the new one (sets segment_id + pushes its rules)
+    // or remove from the old one. Non-fatal.
+    if ((editForm.value.segment_id || null) !== (editInitial.value.segment_id || null)) {
+      const newSeg = editForm.value.segment_id
+      const oldSeg = editInitial.value.segment_id
+      try {
+        if (newSeg) await segmentsApi.addMembers(Number(newSeg), [client.id])
+        else if (oldSeg) await segmentsApi.removeMembers(Number(oldSeg), [client.id])
+      } catch (e) { /* non-fatal */ }
+      loadSegments()
     }
     showEditModal.value = false
     await store.fetchClients(_currentParams())
