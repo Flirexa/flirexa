@@ -4,6 +4,36 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.0.0 — 2026-06-28
+
+Major release consolidating the agent reliability and management work.
+
+### Added
+
+- **Agent version visibility.** Each agent server now shows the agent build it
+  is running — a version chip on the server card and an "Agent version" row in
+  the Manage Agent panel. Test Connection refreshes it live.
+- **Live (re)install progress.** Installing or reinstalling an agent now streams
+  a live log (connecting → uploading → running vX.Y) instead of a blind spinner,
+  and reports the version the node ended up on.
+
+### Changed
+
+- **Reinstall preserves the agent's port.** Reinstalling an agent reuses the
+  server's current port instead of defaulting to 8001, so the panel keeps
+  pointing at the agent after a reinstall.
+- **Reinstall is forced.** The manual Reinstall action now reinstalls even when
+  the current agent is healthy, so an outdated-but-healthy node can be upgraded
+  to a newer agent build.
+
+### Fixed
+
+- The agent install endpoint mishandled the installer's `(success, error)`
+  result and could raise instead of reporting the real failure; it now surfaces
+  the actual reason (e.g. missing SSH credentials, an unreachable port).
+
+---
+
 ## v1.9.104 — 2026-06-27
 
 ### Changed

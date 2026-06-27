@@ -240,7 +240,7 @@ export const serversApi = {
   getClients: (id) => api.get(`/servers/${id}/clients`),
   saveConfig: (id) => api.post(`/servers/${id}/save-config`, {}, { timeout: 60000 }),
   discover: (data) => api.post('/servers/discover', data, { timeout: 120000 }),
-  installAgent: (id, port = 8001) => api.post(`/servers/${id}/install-agent`, { port }, { timeout: 300000 }),
+  installAgent: (id, port = 8001, opts = {}) => api.post(`/servers/${id}/install-agent`, { port, task_id: opts.taskId || null, force: opts.force || false }, { timeout: 300000 }),
   checkAgentStatus: (id) => api.get(`/agent/${id}/status`),
   uninstallAgent: (id) => api.post(`/agent/${id}/uninstall`, {}, { timeout: 120000 }),
   // Switch the server's mode without uninstalling the agent — useful when the

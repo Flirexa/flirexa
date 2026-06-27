@@ -140,6 +140,7 @@
                 <span v-if="checkingStatus[server.id]" class="spinner-border spinner-border-sm" style="width:.6em;height:.6em;border-width:1.5px"></span>
                 <i v-else-if="server.agent_breaker?.open" class="mdi mdi-alert-circle text-danger" style="font-size:.6em"></i>
                 <i v-else-if="agentStatuses[server.id]" :class="agentStatuses[server.id].healthy ? 'mdi mdi-circle text-success' : 'mdi mdi-circle text-danger'" style="font-size:.6em"></i>
+                <span v-if="server.agent_version" class="srv-agent-badge__ver">v{{ server.agent_version }}</span>
               </button>
               <span v-else-if="server.is_remote" class="srv-agent-badge">SSH</span>
             </div>
@@ -1051,16 +1052,33 @@
             </div>
           </div>
 
+          <!-- Live (re)install progress -->
+          <div v-if="agentInstallTaskId" class="px-3 pb-2">
+            <div class="bootstrap-log-box">
+              <div class="bootstrap-log-box__header">
+                <span><i class="mdi mdi-console-line me-1"></i>{{ $t('servers.installProgress') || 'Installation progress' }}</span>
+              </div>
+              <div class="bootstrap-log-box__body">
+                <div v-for="(line, i) in agentInstallLogs" :key="i" class="bootstrap-log-line">{{ line }}</div>
+                <div v-if="!agentInstallLogs.length" class="text-muted small fst-italic">{{ $t('servers.waitingForServer') || 'Waiting for server...' }}</div>
+              </div>
+            </div>
+          </div>
+
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" @click="showInstallModal = false">
-              {{ $t('common.cancel') || 'Cancel' }}
+            <button type="button" class="btn btn-secondary"
+              @click="stopAgentInstallPolling(); agentInstallTaskId = ''; showInstallModal = false"
+              :disabled="installingAgent[selectedServerId]">
+              {{ $t('common.close') || $t('common.cancel') || 'Close' }}
             </button>
             <button
               type="button"
               class="btn btn-success"
+              :disabled="installingAgent[selectedServerId]"
               @click="installAgent(selectedServerId, installMode === 'manual' ? customPort : 8001)"
             >
-              <i class="mdi mdi-rocket-launch-outline me-1"></i>{{ $t('servers.startInstallation') || 'Start Installation' }}
+              <span v-if="installingAgent[selectedServerId]" class="spinner-border spinner-border-sm me-1"></span>
+              <i v-else class="mdi mdi-rocket-launch-outline me-1"></i>{{ installingAgent[selectedServerId] ? ($t('servers.installing') || 'Installing…') : ($t('servers.startInstallation') || 'Start Installation') }}
             </button>
           </div>
         </div>
@@ -1094,6 +1112,15 @@
                   <tr>
                     <td class="text-muted">{{ $t('servers.mode') || 'Mode' }}</td>
                     <td>{{ agentServer?.agent_mode }}</td>
+                  </tr>
+                  <tr>
+                    <td class="text-muted">{{ $t('servers.agentVersion') || 'Agent version' }}</td>
+                    <td>
+                      <span v-if="agentStatuses[agentServer?.id]?.version || agentServer?.agent_version" class="badge bg-secondary">
+                        v{{ agentStatuses[agentServer?.id]?.version || agentServer?.agent_version }}
+                      </span>
+                      <span v-else class="text-muted">—</span>
+                    </td>
                   </tr>
                   <tr>
                     <td class="text-muted">SSH Host</td>
@@ -2140,6 +2167,23 @@ const serverClients = ref([])
 const clientsServerName = ref('')
 
 const installingAgent = ref({})
+// Live agent (re)install progress — streamed from the bootstrap-log task.
+const agentInstallLogs = ref([])
+const agentInstallTaskId = ref('')
+let agentPollHandle = null
+function stopAgentInstallPolling() {
+  if (agentPollHandle) { clearInterval(agentPollHandle); agentPollHandle = null }
+}
+async function pollAgentInstallLogs(taskId) {
+  let since = 0
+  agentPollHandle = setInterval(async () => {
+    try {
+      const { data } = await serversApi.getBootstrapLogs(taskId, since)
+      if (data.logs?.length) { agentInstallLogs.value.push(...data.logs); since = data.next_index }
+      if (data.complete) stopAgentInstallPolling()
+    } catch (e) { /* keep polling; the agent box may not exist yet */ }
+  }, 1000)
+}
 
 const detectingPublicIp = ref(false)
 const autoDetectedPanelIp = ref('')
@@ -2596,8 +2640,26 @@ async function discoverServer() {
 
 function openInstallModal(serverId) {
   selectedServerId.value = serverId
-  installMode.value = 'auto'
-  customPort.value = 8001
+  // For a REINSTALL keep the agent's CURRENT port — otherwise it reinstalls on
+  // the 8001 default while the panel record still points at the old port, so the
+  // panel can't reach the (healthy) agent. Parse the port from agent_url.
+  const srv = store.servers.find(s => s.id === serverId)
+  let curPort = null
+  if (srv && srv.agent_url) {
+    const m = String(srv.agent_url).match(/:(\d+)\/?$/)
+    if (m) curPort = parseInt(m[1], 10)
+  }
+  if (srv && srv.agent_mode === 'agent' && curPort) {
+    installMode.value = 'manual'
+    customPort.value = curPort
+  } else {
+    installMode.value = 'auto'
+    customPort.value = 8001
+  }
+  // Reset any previous run's progress.
+  stopAgentInstallPolling()
+  agentInstallLogs.value = []
+  agentInstallTaskId.value = ''
   showInstallModal.value = true
 }
 
@@ -2613,6 +2675,7 @@ async function checkAgentStatus(serverId, showAlert = false) {
       healthy: data.agent_healthy === true,
       mode: data.mode,
       agentUrl: data.agent_url,
+      version: data.agent_version || null,
       lastCheck: new Date()
     }
 
@@ -2650,30 +2713,33 @@ async function checkAllAgentStatuses() {
 
 async function installAgent(serverId, port = 8001) {
   installingAgent.value[serverId] = true
-  showInstallModal.value = false
+  // Keep the modal open and stream live progress instead of a blind spinner.
+  agentInstallLogs.value = []
+  const taskId = 'agent-install-' + serverId + '-' + Date.now()
+  agentInstallTaskId.value = taskId
+  pollAgentInstallLogs(taskId)
 
+  // Manual button click always (re)installs — force past the "already healthy"
+  // skip so an outdated-but-healthy agent still gets the new build.
+  // The poll loop is the single source of log lines (it self-terminates on the
+  // task's `complete` flag, fetching the final ✅/❌ in the same tick), so we do
+  // NOT flush here — that double-fetched and duplicated lines.
   try {
-    const { data} = await serversApi.installAgent(serverId, port)
-
+    const { data } = await serversApi.installAgent(serverId, port, { taskId, force: true })
     if (data.success) {
-      // Show success message with port info
-      const portInfo = data.port && data.port !== 8001 ? ` (port ${data.port})` : ''
-      alert(t('servers.agentInstalled') || `✅ Agent installed successfully! Server is now 10x faster.${portInfo}`)
-
-      // Refresh server list to update badge
+      // Refresh list so the version chip + badge update.
       await store.fetchServers()
-
-      // Check agent status after installation
-      setTimeout(() => {
-        checkAgentStatus(serverId)
-      }, 2000)
-    } else {
-      // Show failure message
-      alert(t('servers.agentInstallFailed') || `⚠️ Agent installation failed: ${data.message}`)
+      setTimeout(() => checkAgentStatus(serverId), 1500)
     }
+    // success:false and server-side errors arrive via the streamed log.
   } catch (err) {
-    const errorMsg = err.response?.data?.detail || err.message
-    alert(t('servers.agentInstallError') || `❌ Error: ${errorMsg}`)
+    // The request itself failed (network/timeout) — surface it only if the
+    // stream didn't already carry an error line.
+    stopAgentInstallPolling()
+    const detail = err.response?.data?.detail || err.message
+    if (!agentInstallLogs.value.some(l => l.startsWith('❌'))) {
+      agentInstallLogs.value.push('❌ ' + detail)
+    }
   } finally {
     installingAgent.value[serverId] = false
   }
@@ -3811,6 +3877,7 @@ onUnmounted(() => {
   transition: background .15s;
 }
 .srv-agent-badge:hover { background: rgba(115,103,240,.18); }
+.srv-agent-badge__ver { font-size: .68em; font-weight: 600; opacity: .75; letter-spacing: .2px; }
 [data-theme="dark"] .srv-agent-badge { background: rgba(115,103,240,.18); }
 
 /* Open circuit-breaker — agent is unreachable. The red wash plus the alert
