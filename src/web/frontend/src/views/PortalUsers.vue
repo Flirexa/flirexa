@@ -404,6 +404,9 @@
                     <button class="btn btn-sm btn-outline-primary" @click="showExtend = true" :disabled="!detail.subscription || actionLoading">
                       {{ $t('portalUsers.extendSub') || 'Extend' }}
                     </button>
+                    <button class="btn btn-sm btn-outline-warning" @click="openSetExpiry" :disabled="!detail.subscription || actionLoading">
+                      {{ $t('portalUsers.setExpiry') || 'Set Expiry Date' }}
+                    </button>
                     <button class="btn btn-sm btn-outline-info" @click="resetTraffic" :disabled="!detail.subscription || actionLoading">
                       {{ $t('portalUsers.resetTraffic') || 'Reset Traffic' }}
                     </button>
@@ -458,6 +461,25 @@
                       {{ $t('common.confirm') }}
                     </button>
                     <button class="btn btn-sm btn-outline-secondary" @click="showExtend=false">{{ $t('common.cancel') }}</button>
+                  </div>
+                </div>
+
+                <!-- Set expiry date — exact end date (correct / deduct, unlike Extend which only adds) -->
+                <div v-if="showSetExpiry" class="stat-card p-3 mb-3">
+                  <h6 class="mb-2">{{ $t('portalUsers.setExpiry') || 'Set Expiry Date' }}</h6>
+                  <div class="row g-2">
+                    <div class="col-md-6">
+                      <label class="form-label small">{{ $t('portalUsers.expiryDate') || 'Expiry date' }}</label>
+                      <input type="date" class="form-control form-control-sm" v-model="setExpiryDate" />
+                    </div>
+                  </div>
+                  <div class="form-text small">{{ $t('portalUsers.setExpiryHint') || 'Sets the exact end date — use it to correct a mistake or deduct days.' }}</div>
+                  <div class="mt-2 d-flex gap-2">
+                    <button class="btn btn-sm btn-primary" @click="doSetExpiry" :disabled="actionLoading || !setExpiryDate">
+                      <span v-if="actionLoading" class="spinner-border spinner-border-sm me-1"></span>
+                      {{ $t('common.confirm') }}
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" @click="showSetExpiry=false">{{ $t('common.cancel') }}</button>
                   </div>
                 </div>
               </div>
@@ -660,6 +682,8 @@ const showGrant = ref(false)
 const showExtend = ref(false)
 const grantForm = ref({ tier: 'basic', duration_days: 30 })
 const extendDays = ref(30)
+const showSetExpiry = ref(false)
+const setExpiryDate = ref('')
 const actionLoading = ref(false)
 
 const showMsgInput = ref(false)
@@ -857,6 +881,25 @@ async function doExtend() {
   try {
     await portalUsersApi.extendSubscription(detail.value.id, { days: extendDays.value })
     showExtend.value = false
+    await openDetail(detail.value.id)
+    await loadUsers()
+  } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }
+  actionLoading.value = false
+}
+
+function openSetExpiry() {
+  // prefill from the current expiry so the operator edits/corrects from it
+  const cur = detail.value?.subscription?.expiry_date
+  setExpiryDate.value = cur ? String(cur).slice(0, 10) : ''
+  showSetExpiry.value = true
+}
+
+async function doSetExpiry() {
+  if (!setExpiryDate.value) return
+  actionLoading.value = true
+  try {
+    await portalUsersApi.setSubscriptionExpiry(detail.value.id, { expiry_date: setExpiryDate.value })
+    showSetExpiry.value = false
     await openDetail(detail.value.id)
     await loadUsers()
   } catch (e) { alert(e.response?.data?.detail || (t('common.error') || 'Error')) }

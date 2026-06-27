@@ -4,6 +4,18 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.103 — 2026-06-27
+
+### Added
+
+- **Set Subscription Expiry Date.** Portal-user subscriptions now have a
+  "Set Expiry Date" action that sets the exact end date. Unlike Extend
+  (which only adds days), this can also move the date earlier, so an
+  operator can correct a mistake or deduct days without having to cancel
+  and re-grant the subscription.
+
+---
+
 ## v1.9.102 — 2026-06-26
 
 ### Added

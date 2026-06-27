@@ -173,6 +173,12 @@ class ExtendSubscriptionRequest(BaseModel):
     days: int = Field(..., ge=1, le=3650)
 
 
+class SetSubscriptionExpiryRequest(BaseModel):
+    # Absolute end date — lets an admin correct a mistake or DEDUCT time,
+    # unlike extend (which only adds days).
+    expiry_date: datetime
+
+
 class SendMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
 
@@ -1216,6 +1222,32 @@ def extend_subscription(user_id: int, data: ExtendSubscriptionRequest, db: Sessi
 
     logger.info(f"Admin extended subscription for user {user.username} by {data.days} days")
     return {"message": f"Subscription extended by {data.days} days", "subscription": _serialize_subscription(sub)}
+
+
+@router.post("/{user_id}/set-subscription-expiry")
+def set_subscription_expiry(user_id: int, data: SetSubscriptionExpiryRequest, db: Session = Depends(get_db)):
+    """Set the subscription's exact end date (admin correction — can move it
+    earlier OR later, unlike extend which only adds days)."""
+    user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    mgr = SubscriptionManager(db)
+    sub = mgr.get_subscription(user_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="User has no subscription to adjust")
+
+    # Store naive (the column is a naive DateTime); strip tz if the client sent one.
+    new_expiry = data.expiry_date
+    if new_expiry.tzinfo is not None:
+        new_expiry = new_expiry.astimezone(timezone.utc).replace(tzinfo=None)
+    sub.expiry_date = new_expiry
+    db.commit()
+    db.refresh(sub)
+    mgr.apply_subscription_limits(user_id)
+
+    logger.info(f"Admin set subscription expiry for user {user.username} to {new_expiry.isoformat()}")
+    return {"message": "Subscription expiry updated", "subscription": _serialize_subscription(sub)}
 
 
 @router.post("/{user_id}/cancel-subscription")

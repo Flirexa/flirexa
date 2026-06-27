@@ -320,6 +320,7 @@ export const portalUsersApi = {
   getTiers: () => api.get('/portal-users/tiers'),
   grantSubscription: (id, data) => api.post(`/portal-users/${id}/grant-subscription`, data),
   extendSubscription: (id, data) => api.post(`/portal-users/${id}/extend-subscription`, data),
+  setSubscriptionExpiry: (id, data) => api.post(`/portal-users/${id}/set-subscription-expiry`, data),
   cancelSubscription: (id) => api.post(`/portal-users/${id}/cancel-subscription`),
   resetTraffic: (id) => api.post(`/portal-users/${id}/reset-traffic`),
   addDeviceSlot: (id, data) => api.post(`/portal-users/${id}/devices`, data),
