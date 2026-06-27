@@ -4,6 +4,32 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v1.9.104 — 2026-06-27
+
+### Changed
+
+- **Node agent resilience hardening.** Every `wg` / `wg-quick` / `tc`
+  subprocess now runs under a timeout, so a hung command can no longer freeze
+  the agent's event loop or its `/health` probe. The agent writes its config
+  atomically (temp file + `os.replace`, with a `.bak`), so a crash or full disk
+  mid-write can no longer truncate and brick the interface config. All
+  config-mutating endpoints are serialized behind a lock and run off the event
+  loop, so concurrent calls can no longer corrupt the config file. The API-key
+  check is now constant-time, and `wg show dump` is parsed defensively (a short
+  line is skipped instead of raising). Peer add/remove responses now include
+  whether the change was persisted to disk.
+
+### Fixed
+
+- **Aborted-transaction leak.** The request DB session now rolls back a failed
+  transaction before returning the connection to the pool, so an error in one
+  request can no longer surface as "current transaction is aborted" in the next.
+- **Missing index on `client_user_clients.slot_id`** (migration 049). This link
+  table is filtered by `slot_id` on nearly every authenticated request but had
+  no index for it; the migration adds one (idempotent, no data change).
+
+---
+
 ## v1.9.103 — 2026-06-27
 
 ### Added

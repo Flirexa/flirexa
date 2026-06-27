@@ -131,6 +131,15 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        # Roll back a failed transaction before the connection returns to the
+        # pool. Without this, a route that catches its own error and keeps
+        # using `db` (several portal endpoints commit after partial work) can
+        # leave the session in an aborted-transaction state, so the NEXT
+        # pooled user hits "current transaction is aborted". We do NOT commit
+        # here — routes commit explicitly; only the cleanup is centralised.
+        db.rollback()
+        raise
     finally:
         db.close()
 

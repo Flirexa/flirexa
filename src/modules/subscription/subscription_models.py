@@ -486,6 +486,12 @@ class ClientUserClients(Base):
     __tablename__ = "client_user_clients"
     __table_args__ = (
         UniqueConstraint('client_user_id', 'client_id', name='uq_user_client'),
+        # slot_id is filtered (slot_id IN (...)) on nearly every customer
+        # request — /devices, /subscription, slot heal/peer lookups — but had
+        # no index (the unique constraint only prefix-serves client_user_id,
+        # never slot_id). Without this it's a full scan of the busiest link
+        # table. See migration 049.
+        Index('ix_cuc_slot_id', 'slot_id'),
     )
 
     id = Column(Integer, primary_key=True)
