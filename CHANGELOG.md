@@ -4,6 +4,28 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.32 — 2026-07-10
+
+### Fixed
+- **Servers could disappear from the customer portal.** A server is auto-hidden
+  from customers when it hasn't been confirmed healthy in the last 5 minutes,
+  but the "last healthy" timestamp was only refreshed while an admin had the
+  Server Monitoring page open — so once that stamp went stale, the whole fleet
+  vanished from customer apps while the panel itself looked healthy. The health
+  checker now runs on a fixed ~2-minute cadence in the background worker, so
+  customer-facing visibility no longer depends on an admin keeping a tab open.
+- **Usernames containing `@` could not sign in.** The portal login guessed
+  "email vs username" by the presence of an `@`, which locked out customers
+  whose username itself contains one. Login now falls back to a username lookup
+  when the email lookup misses.
+
+### Added
+- **Reinstall agents (fleet-wide).** A one-click action on the Servers page
+  reinstalls the agent on every agent-mode server, one node at a time, with a
+  live rollout log. Nodes without stored SSH credentials are skipped.
+
+---
+
 ## v2.0.0 — 2026-06-28
 
 Major release consolidating the agent reliability and management work.
