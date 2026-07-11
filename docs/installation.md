@@ -22,8 +22,14 @@ The installer requires internet access to download packages from apt and pip.
 ## Option A: Automated Install (Recommended)
 
 ```bash
-tar xzf vpn-manager-v1.5.48.tar.gz
-cd vpn-manager-v1.5.48
+curl -fsSL https://flirexa.biz/install.sh | sudo bash
+```
+
+Or clone the repository and run the installer from source:
+
+```bash
+git clone https://github.com/Flirexa/flirexa.git
+cd flirexa
 sudo bash install.sh
 ```
 
@@ -32,7 +38,7 @@ The installer runs fully interactive. It will ask for:
 - **Telegram bot tokens** — optional, can be configured later via the admin panel
 - **Admin Telegram user IDs** — who receives admin bot notifications
 - **WireGuard endpoint** — auto-detected, you confirm or override (format: `ip:port`)
-- **Activation code** — `XXXX-XXXX-XXXX-XXXX` format, or skip to start a 7-day trial
+- **License key** — `XXXX-XXXX-XXXX-XXXX` format, or skip to run the FREE tier (80 clients, no expiry, no license needed)
 
 The installer performs these steps automatically:
 
@@ -89,8 +95,8 @@ Default install directory is `/opt/vpnmanager`.
 ## Option B: Docker
 
 ```bash
-tar xzf vpn-manager-v1.5.48.tar.gz
-cd vpn-manager-v1.5.48
+git clone https://github.com/Flirexa/flirexa.git
+cd flirexa
 cp .env.example .env
 ```
 
@@ -143,14 +149,14 @@ http://YOUR_SERVER_IP:10090
 3. Paste your activation code or license key
 4. Click **Activate**
 
-Without a license the system runs in trial mode:
+Without a license key the system runs on the **FREE** tier — forever, no expiry, no license-server contact:
 
-| Tier | Clients | Servers | Notes |
-|------|---------|---------|-------|
-| Trial | 10 | 1 | 7-day limit |
-| Standard | 50 | 1 | Basic features |
-| Pro | 200 | 5 | Client portal, bots |
-| Enterprise | Unlimited | Unlimited | All features |
+| Tier | Price | Clients | Servers | Notes |
+|------|-------|---------|---------|-------|
+| FREE | $0 | 80 | 2 local (WireGuard + AmneziaWG) | Runs offline, no license needed |
+| Starter | $19/mo | 500 | 2 local | + Hysteria2, TUIC, promo codes, auto-renewal |
+| Business | $49/mo | 2000 | up to 10 | + multi-server, client Telegram bot, traffic rules, scheduled backups, basic white-label |
+| Enterprise | $149/mo | Unlimited | Unlimited | + corporate site-to-site VPN, full white-label, manager RBAC |
 
 ### 3. Verify WireGuard
 
@@ -193,8 +199,15 @@ The `.env` file at the install directory holds all settings. Most can also be ch
 
 ### Payments
 
+NOWPayments is the built-in crypto provider available on the FREE tier. Card / fiat
+billing via PayLio and the other card processors are paid plugins delivered by the
+license server.
+
 | Setting | Description |
 |---------|-------------|
+| `NOWPAYMENTS_API_KEY` | NOWPayments API key (crypto — built-in FREE provider) |
+| `NOWPAYMENTS_IPN_SECRET` | NOWPayments IPN secret for webhook signature verification |
+| `NOWPAYMENTS_SANDBOX` | `true` for sandbox, `false` for live |
 | `CRYPTOPAY_API_TOKEN` | CryptoPay (@CryptoBot) API token |
 | `CRYPTOPAY_TESTNET` | `true` for sandbox, `false` for live |
 
@@ -257,10 +270,13 @@ Or configure via **Settings → Web Access** in the admin panel.
 
 ## Reset Admin Password
 
-If you lose access to the admin panel:
+If you still have a working session, change your password from **Settings → Account**
+in the admin panel.
+
+If you are locked out, there is no dedicated CLI reset command. Recover access by
+re-running the installer over the existing installation — it detects the existing
+`.env` and lets you re-create the administrator account without touching your data:
 
 ```bash
-cd /opt/vpnmanager
-source venv/bin/activate
-python3 main.py reset-admin --username admin --password new-secure-password
+sudo bash install.sh
 ```

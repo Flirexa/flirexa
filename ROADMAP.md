@@ -6,20 +6,12 @@ If you'd like to see something prioritised, [open a discussion](https://github.c
 
 ---
 
-## 2026 Q2 — Make the open-core launch real
+## 2026 Q3 — Formalise the channel + make the project welcoming
 
-The repository is public, but the commercial loop isn't fully wired yet. This quarter is about closing that.
-
-- [ ] **Crypto subscription billing on flirexa.biz**
-  Recurring NOWPayments subscriptions for all paid tiers — BTC, USDT, Monero, ETH, and 50+ other currencies. Webhooks for renewal / cancellation / past-due. Email notifications. Card / fiat payments are deliberately not on the roadmap; the crypto-only flow matches the operating reality of our target operators and avoids merchant-of-record entanglements with our jurisdiction.
 - [ ] **Signed plugin distribution**
   Paid plugins (`extra-protocols`, `multi-server`, `corporate-vpn`, …) ship as RSA-signed `.tar.gz` packages from the license server. The plugin loader downloads and verifies them on startup for licensees. Today they live in the private `flirexa-pro` repo and are baked into the official installer; this formalises the channel.
 - [ ] **Domain consolidation**
   Migrate active workloads onto a single primary host (`flirexa.biz`) with the previous infrastructure as failover. Reduces operational complexity for the launch period.
-- [ ] **Pre-commit hooks**
-  `detect-secrets`, `ruff`, `mypy` so contributors catch problems locally before CI does. CI already runs detect-secrets on PRs.
-
-## 2026 Q3 — Make the project welcoming
 
 - [ ] **Public demo instance**
   `demo.flirexa.biz` with the admin panel and client portal pre-populated with realistic fake data and a 6-hour automatic reset. Lets evaluators try the product before they install.
@@ -37,7 +29,7 @@ The repository is public, but the commercial loop isn't fully wired yet. This qu
 - [ ] **Mobile client app**
   Native Android (and probably iOS) app that pairs with a Flirexa install via QR, fetches configs, manages multiple endpoints. Closed-source, distributed via Play Store / TestFlight, free for end users of any Flirexa install.
 - [ ] **Localisation expansion**
-  Persian (Farsi), Chinese, Turkish, Spanish/Portuguese for LATAM. Driven by where the user base ends up actually being.
+  Persian (Farsi), Chinese, Turkish, and Portuguese for LATAM. Driven by where the user base ends up actually being. (English, Русский, Deutsch, Français, and Español already ship.)
 - [ ] **Backup-to-cloud presets**
   S3, Backblaze B2, Hetzner Storage Box — one-click destinations for the `auto-backup` plugin.
 
@@ -63,6 +55,13 @@ To set expectations honestly, these are things Flirexa **will not** become:
 - A cryptocurrency exchange or payment processor (we *integrate* with NOWPayments, Stripe, etc.; we don't compete with them)
 
 ---
+
+## Done in 2026 Q2 (open-core launch)
+
+Wiring up the commercial loop after the repository went public:
+
+- **Subscription billing on flirexa.biz** — recurring subscriptions for all paid tiers, payable by **card / fiat** (Visa/Mastercard, Apple Pay, Google Pay, bank transfer in USD/EUR via PayLio) *or* in **crypto** via NOWPayments (BTC, USDT, Monero, ETH, and 50+ currencies). Webhooks for renewal / cancellation / past-due, plus email notifications.
+- **Pre-commit hooks** — `detect-secrets`, `ruff`, `mypy` so contributors catch problems locally before CI does.
 
 ## Done in 1.5.0 (initial public release)
 

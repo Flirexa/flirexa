@@ -33,5 +33,5 @@ Attach the generated archive to your support email.
 ## Self-help resources
 
 - **Documentation:** [github.com/Flirexa/flirexa/tree/main/docs](https://github.com/Flirexa/flirexa/tree/main/docs)
-- **CLI reference:** See [cli-reference.md](cli-reference.md) for all available commands
+- **CLI reference:** See [cli.md](cli.md) for all available commands
 - **Troubleshooting guide:** See [troubleshooting.md](troubleshooting.md) for common issues and solutions

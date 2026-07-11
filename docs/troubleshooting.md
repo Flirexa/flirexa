@@ -297,7 +297,7 @@ echo "=== Python ===" && python3 --version
 echo "=== Services ===" && systemctl is-active vpnmanager-api vpnmanager-worker wg-quick@wg0
 echo "=== WireGuard ===" && wg show 2>/dev/null || echo "not running"
 echo "=== API logs ===" && journalctl -u vpnmanager-api -n 30 --no-pager
-echo "=== Server ID ===" && grep ACTIVATION_CODE /opt/vpnmanager/.env 2>/dev/null || echo "check Settings > License"
+echo "=== License ===" && grep LICENSE_KEY /opt/vpnmanager/.env 2>/dev/null || echo "check Settings > License"
 ```
 
 Include this output when contacting support.

@@ -728,8 +728,7 @@ Local post-update hooks + per-site landing analytics on the license server.
   purely to overlay local overrides on top.
 - **License server: per-site analytics.** `POST /api/visit`,
   `/api/heartbeat`, and `/api/copy-install` now accept an optional
-  `site` field in the JSON body. Multiple landings (flirexa.biz,
-  vpnsponge.xyz, future operators) can ping the same license server
+  `site` field in the JSON body. Multiple landings (flirexa.biz and future operators) can ping the same license server
   without merging into one bucket. Backward-compatible: missing /
   unknown `site` → "flirexa" (legacy file paths unchanged). The
   admin panel's Traffic page grows a per-site tab strip and a

@@ -81,3 +81,6 @@ id_*.priv
 .env.local
 .env.*.local
 .env.production
+
+# Vite temp config artifacts
+src/web/frontend/vite.config.js.timestamp-*.mjs

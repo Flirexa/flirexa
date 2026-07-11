@@ -42,7 +42,7 @@ No telemetry. No phone-home. No license check on FREE. No kill switch.
 | **Languages** | English, Русский, Deutsch, Français, Español |
 | **Updates** | Auto-pull from GitHub Releases, no phone-home |
 | **Backup** | Manual export/restore with full data |
-| **Payment plugins** | Plugin loader is open. NOWPayments ships in the core; Stripe / Mollie / Razorpay / Klarna / PayPal are paid plugins (Business+) and live in the closed-source `flirexa-pro` package. |
+| **Payment plugins** | Plugin loader is open. NOWPayments ships in the core; Stripe / Mollie / Razorpay / Payme / PayPal are paid plugins (Business+) and live in the closed-source `flirexa-pro` package. |
 
 If you can run a VPS, you can run a VPN service.
 
@@ -107,7 +107,7 @@ The paid plugins live in `plugins/<name>/` as license-gated declarations. Withou
 | **Business** | $49 | + `multi-server`, `client-tg-bot`, `traffic-rules`, `white-label-basic`, `auto-backup` |
 | **Enterprise** | $149 | + `corporate-vpn` (site-to-site mesh), `manager-rbac` (multi-admin RBAC) |
 
-**Subscriptions are billed by card in fiat.** We accept Visa/Mastercard, Apple Pay, Google Pay, and bank transfer in USD/EUR via [PayLio](https://paylio.org) recurring subscriptions. If you need an invoice for accounting purposes, email `support@flirexa.biz` and we'll issue one.
+**Subscriptions can be paid by card or crypto.** Card/fiat — Visa/Mastercard, Apple Pay, Google Pay, bank transfer in USD/EUR via [PayLio](https://paylio.org) recurring subscriptions; or pay in cryptocurrency via NOWPayments. If you need an invoice for accounting purposes, email `support@flirexa.biz` and we'll issue one.
 
 Pricing and licensing: [flirexa.biz](https://flirexa.biz)
 
@@ -131,7 +131,7 @@ Pricing and licensing: [flirexa.biz](https://flirexa.biz)
 | Site-to-site Corporate VPN | paid (Enterprise) | ❌ | ❌ | ❌ | ❌ |
 | White-label branding | paid | ❌ | partial | ❌ | ❌ |
 | Auto-updates from upstream | ✓ | manual | ✓ | manual | manual |
-| 6-language UI | **✓** | ✓ | ✓ | partial | ✓ |
+| 5-language UI | **✓** | ✓ | ✓ | partial | ✓ |
 | Open source license | MIT | AGPL-3.0 | GPL-3.0 | MIT | GPL-3.0 |
 
 The matrix above isn't "we're better than everyone." It's "we made different trade-offs." Marzban is excellent if you live entirely in the V2Ray ecosystem. Hiddify is excellent if you want a polished single-server panel. WG-Easy is excellent if you just want WireGuard for yourself and your family. **Flirexa is what you pick if you want to run VPN as a small business.**
@@ -177,8 +177,8 @@ See [docs/installation.md](docs/installation.md) for details, alternative databa
 
 The admin API is a documented FastAPI app. After install:
 
-- **Swagger UI:** `http://<your-server-ip>:10086/docs`
-- **OpenAPI schema:** `http://<your-server-ip>:10086/openapi.json`
+- **Swagger UI:** `http://<your-server-ip>:10086/api/docs`
+- **OpenAPI schema:** `http://<your-server-ip>:10086/api/openapi.json`
 - **Architecture overview:** [docs/architecture.md](docs/architecture.md)
 - **API reference:** [docs/api.md](docs/api.md)
 
@@ -223,11 +223,12 @@ See [docs/plugins.md](docs/plugins.md) for the full plugin authoring guide and [
 
 Active items, in rough order. See [ROADMAP.md](ROADMAP.md) for the full picture.
 
-- **2026 Q2** — Card / fiat subscription billing on `flirexa.biz` (PayLio recurring, USD/EUR)
-- **2026 Q2** — Signed plugin distribution from license server (paid plugins as `.tar.gz` packages)
+- **2026 Q3** — Signed plugin distribution from license server (paid plugins as `.tar.gz` packages)
 - **2026 Q3** — Public demo instance (`demo.flirexa.biz`)
 - **2026 Q3** — Plugin marketplace (community-authored plugins)
 - **2026 Q4** — Mobile app (Android/iOS) for client-side config management
+
+Card / fiat (PayLio) and crypto (NOWPayments) subscription billing on `flirexa.biz` shipped in 2026 Q2.
 
 ---
 

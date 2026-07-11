@@ -62,7 +62,7 @@ Handles:
 - Client user registration and login
 - Subscription purchase and management
 - VPN config download
-- CryptoPay webhook processing
+- NOWPayments webhook processing
 
 Communicates with the main API internally via `SERVICE_API_TOKEN`.
 
@@ -254,7 +254,6 @@ Admin panel → POST /api/v1/updates/apply
 - Package URL embedded in the signed manifest — URL injection is not possible
 
 **Code integrity:**
-- Sentinel process checks SHA-256 of critical files on startup and every 200 requests
 - License module protected with PyArmor obfuscation in production builds
 
 ---

@@ -227,10 +227,10 @@ Response:
 
 ```json
 {
-  "current_version": "1.1.0",
+  "current_version": "2.0.0",
   "channel": "stable",
   "available_update": {
-    "version": "1.2.0",
+    "version": "2.1.0",
     "update_type": "minor",
     "changelog": "...",
     "has_db_migrations": true
@@ -245,7 +245,7 @@ Response:
 POST /api/v1/updates/apply
 Content-Type: application/json
 
-{"version": "1.2.0"}
+{"version": "2.1.0"}
 ```
 
 ### Check Progress
@@ -377,6 +377,27 @@ Content-Type: application/json
   "tier": "pro"
 }
 ```
+
+---
+
+## Additional Endpoint Groups
+
+Beyond the groups documented above, the API exposes several more domains. These are
+fully described in the interactive Swagger UI at `/api/docs`; some belong to paid
+plugins and only respond when the corresponding license feature is active (otherwise
+they return **403** with an upgrade hint).
+
+| Group | Base path | Purpose |
+|-------|-----------|---------|
+| Payments | `/api/v1/payments` | Payment provider config, invoices, webhooks |
+| Traffic rules | `/api/v1/traffic` | Traffic rules and bandwidth policies (paid) |
+| Promo codes | `/api/v1/promo-codes` | Discount / promo code management (paid) |
+| Corporate | `/api/v1/corporate` | Site-to-site corporate VPN (Enterprise) |
+| Bots | `/api/v1/bots` | Telegram bot configuration and control |
+| Segments | `/api/v1/segments` | Client segmentation and grouping |
+
+For the complete, always-current endpoint surface — including request/response
+schemas and every route above — use the interactive docs at `/api/docs`.
 
 ---
 

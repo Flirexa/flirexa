@@ -2,6 +2,8 @@
 
 Flirexa can manage WireGuard on multiple servers. The local server is registered automatically during installation. Additional remote servers are added through the admin panel.
 
+> **Paid feature.** Multi-server orchestration and the remote agent are a **Business-tier** capability, delivered by the `multi-server` plugin from the license server. On the FREE tier you run up to two local servers (one WireGuard + one AmneziaWG) on the install host and this page does not apply. The manual `agent.py` / `distribution` steps below ship inside the paid `multi-server` package — they are not present in the public open-core tree, so public-repo users cannot run them as-is.
+
 ---
 
 ## How Remote Servers Work

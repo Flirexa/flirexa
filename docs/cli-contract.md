@@ -1,6 +1,6 @@
 # CLI Contract
 
-This document freezes the public operational contract of `vpnmanager` for the commercial line. The baseline began in `1.3.0` and remains in force for the current `1.4.x` line.
+This document freezes the public operational contract of `vpnmanager` for the commercial line. The baseline began in `1.3.0` and remains in force for the current `2.x` line.
 
 ## Scope
 
@@ -46,7 +46,7 @@ The command names, destructive semantics, and JSON field families in this docume
 
 ### Stable Rules
 
-For the active commercial line (`1.4.x` at the time of writing):
+For the active commercial line (`2.x` at the time of writing):
 - commands supporting `--json` must keep returning valid JSON
 - top-level success/failure semantics must not invert
 - command names and major field groups must remain stable

@@ -24,13 +24,13 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 |---|---|
 | **Protocols** | WireGuard, AmneziaWG |
 | **Clients** | up to 80 |
-| **Servers** | 1 |
+| **Servers** | up to 2 local (one WireGuard + one AmneziaWG) |
 | **Admin panel** | full Vue 3 SPA on port 10086 |
 | **Client portal** | full Vue 3 SPA on port 10090 with self-service signup, plans, payment, config download |
 | **Telegram admin bot** | full functionality |
 | **Telegram client bot** | not available (Business+ feature) |
 | **Crypto payments** | NOWPayments built-in (BTC, ETH, USDT, XMR, +50 more) |
-| **Other payment providers** | not in FREE — Stripe / Mollie / Razorpay / Klarna / PayPal ship as paid plugins (Business tier or higher) |
+| **Other payment providers** | not in FREE — Stripe / Mollie / Razorpay / Payme / PayPal ship as paid plugins (Business tier or higher) |
 | **Languages** | EN, RU, DE, FR, ES |
 | **Manual backup / restore** | yes |
 | **Scheduled backups** | not available (Business+ feature) |
@@ -41,7 +41,7 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 ### Limits in numbers
 
 - **80 clients per install**: enforced by the API, not just a soft suggestion. If you hit 80, you cannot add a 81st without upgrading or deleting an existing one.
-- **1 server per install**: the multi-server orchestration code is loaded only with the `multi-server` plugin. The API rejects creating a 2nd server with `403`.
+- **Up to 2 local servers**: one per protocol type — a single WireGuard server and a single AmneziaWG server. Adding a third server (or a second of the same protocol) needs the multi-server plugin; the API returns `403` until then.
 - **WireGuard endpoint count**: a single WireGuard interface can host all 80 clients comfortably.
 
 ---
@@ -114,7 +114,7 @@ You don't need a separate installer. Every Flirexa install ships with the same c
 - `LicenseManager` validates the RSA-signed key against the local public key, then heartbeats with the license server to check for revocation. Local cache + 72-hour grace period mean a license-server outage doesn't break paid customers' running installs.
 - Plugin loader picks up the matching plugin manifests and mounts their routers.
 - Paid feature endpoints return real responses.
-- For `extra-protocols` (Hysteria2/TUIC) and `corporate-vpn` specifically, the actual implementation files are not in the public repository at all — the official `install.sh` overlays them from the closed-source `flirexa-pro` package after license validation.
+- For `extra-protocols` (Hysteria2/TUIC) and `corporate-vpn`, the implementation ships in this public MIT tree but stays inert until the matching license feature-flag is granted — the plugin manifest plus the middleware gate in `main.py`/`servers.py` keep it disabled on FREE and enable it on a valid paid license.
 
 If your subscription expires or is cancelled, the paid plugins refuse to load on the next restart. Your FREE-tier features keep working unchanged.
 
@@ -138,7 +138,7 @@ A few things people sometimes ask about that are FREE forever:
 A few things to know up front:
 
 - **Paid features rely on the license server.** If you lose connection to `flirexa.biz` for more than 72 hours, paid plugins disable themselves. This is intentional — it's how subscription validation works. FREE installs are not affected.
-- **Paid plugins for Hysteria2/TUIC and corporate VPN are genuinely closed-source.** The implementations are not in the public repository. Forks of the public repo cannot trivially access them. (Other paid plugins live in the public repo as gates over public code; that's a smaller protection but covers the most-fork-sensitive features.)
+- **Most paid features are gates over public code, not obfuscated binaries.** The Hysteria2/TUIC and corporate-VPN implementations live in this MIT repo; the license feature-flag is what activates them at runtime. What you pay for is maintained, supported, license-managed capability — not secret code. The genuine exception is the third-party **card-processor providers** (Stripe / Mollie / Razorpay / Payme / PayPal): those provider modules are delivered separately via the licence server and are not in the public tree. NOWPayments (crypto) is built in and free.
 - **One-time / lifetime licenses are not offered.** All paid tiers are monthly subscriptions. If recurring billing isn't an option for you, contact `support@flirexa.biz` — case-by-case annual upfront pricing is available.
 
 ---

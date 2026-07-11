@@ -47,7 +47,7 @@ class RemoteServerAdapter:
         # Initialize backend
         if self.mode == "mikrotik" and server.agent_url:
             # Mikrotik RouterOS REST API. `agent_url` carries the scheme+host
-            # (e.g. "http://142.171.45.138" or "https://router.example.com:443"),
+            # (e.g. "http://192.0.2.10" or "https://router.example.com:443"),
             # `agent_api_key` is "user:password" — picked because the existing
             # Server model already has those two columns and they're encrypted
             # at rest. Avoids a schema migration just for one new mode.

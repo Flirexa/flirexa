@@ -6,6 +6,8 @@
 
 Flirexa includes a scheduled backup system that runs in the background.
 
+You can also run backups and restores from the CLI: `vpnmanager backup --full` (or `--db-only`) and `vpnmanager restore --archive <path> --yes`. See [cli.md](cli.md).
+
 ### Configure Scheduled Backups
 
 1. Go to **Settings → Backups** in the admin panel
@@ -37,7 +39,7 @@ Each backup includes:
 sudo -u postgres pg_dump vpnmanager_db > backup_$(date +%Y%m%d_%H%M).sql
 ```
 
-If the database name is different (older installations may use `vpnmanager_db`), check `DATABASE_URL` in `.env`:
+The default database name is `vpnmanager_db`. If yours differs, check `DATABASE_URL` in `.env`:
 
 ```bash
 grep DATABASE_URL /opt/vpnmanager/.env

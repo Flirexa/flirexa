@@ -8,7 +8,7 @@ Thanks for taking the time to contribute. This document explains how the reposit
 
 - **Bug fixes** — please include a reproduction case in the issue or PR.
 - **Documentation improvements** — typos, clarifications, missing setup steps.
-- **Translations** — we ship 6 languages today (`src/web/frontend/src/i18n/locales/`); more are welcome.
+- **Translations** — we ship 5 languages today (`src/web/frontend/src/i18n/locales/`); more are welcome.
 - **Community plugins** — drop a new directory under `plugins/` with a manifest declaring `requires_license_feature: "community"`. See `plugins/prometheus-metrics/` for the canonical example and [`docs/plugins.md`](docs/plugins.md) for the full guide.
 - **Compatibility patches** — newer Ubuntu / Debian / RHEL releases, alternative database setups, container runtimes.
 - **Performance fixes** with measurable before/after numbers.

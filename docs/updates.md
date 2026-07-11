@@ -12,7 +12,9 @@ Flirexa has a built-in update system with cryptographically signed packages, cha
 4. The system downloads the package, verifies its SHA-256 checksum, creates a backup, applies the update, runs migrations, restarts services, and runs a smoke check
 5. If anything fails, it automatically rolls back from the backup
 
-All update packages are signed with an RSA-PSS key. The corresponding public key ships with the distribution. A package with an invalid signature is rejected before download. Package downloads require a valid license key — unauthorized access is rejected with HTTP 403.
+All update packages are signed with an RSA-PSS key. The corresponding public key ships with the distribution. A package with an invalid signature is rejected before download.
+
+On the **FREE tier** updates are pulled from public GitHub Releases — no license key, no phone-home (see below). On the **paid update channel**, package downloads require a valid license key and unauthorized access is rejected with HTTP 403.
 
 ---
 
@@ -32,39 +34,24 @@ POST /api/v1/updates/channel
 
 ---
 
-## Release Workflow
+## FREE-Tier Updates (GitHub Releases)
 
-All new versions follow a **test → stable** promotion cycle:
+On the FREE tier there is **no phone-home and no license check**. New versions are
+published as public **GitHub Releases** at
+[github.com/Flirexa/flirexa/releases](https://github.com/Flirexa/flirexa/releases).
 
+The admin panel checks the Releases feed, shows the latest available version and its
+changelog, and lets you apply it with one click. The apply flow is identical to the
+one described above — download, checksum verification, backup, migrate, restart,
+smoke check, and automatic rollback on failure. Nothing is sent to any Flirexa
+server during a FREE-tier update.
+
+You can also update from the command line at any time:
+
+```bash
+cd /opt/vpnmanager
+sudo bash update.sh
 ```
-build_release.sh
-       ↓
-  publish to TEST channel
-       ↓
-  apply update on test stand, verify everything works
-       ↓
-  promote to STABLE channel  ←  clients on stable receive the update
-```
-
-### Step by step (developer)
-
-1. Make code changes and commit
-2. Bump version in `VERSION` file
-3. Run `bash build_release.sh`
-4. Publish to **test** channel via the license server admin panel (`/panel/updates`)
-5. On your test server, switch to `test` channel and apply the update via admin panel
-6. Run through the test checklist (see below)
-7. If all checks pass, promote to stable via the license server admin panel
-
-### Test Checklist
-
-- [ ] Admin panel loads, login works
-- [ ] Client portal loads
-- [ ] WireGuard peers listed correctly
-- [ ] Agent install works on a test server
-- [ ] Client bot responds to /start
-- [ ] Payment flow (if payment-related changes)
-- [ ] Smoke check passes (green in Updates → History)
 
 ---
 
@@ -150,12 +137,10 @@ sudo bash update.sh --no-build     # Skip frontend rebuild (faster)
 sudo bash update.sh --rollback     # Restore from latest backup
 ```
 
-Or by re-running the installer with a new package:
+Or by re-running the installer:
 
 ```bash
-tar xzf vpn-manager-v1.2.0.tar.gz
-cd vpn-manager-v1.2.0
-sudo bash install.sh
+curl -fsSL https://flirexa.biz/install.sh | sudo bash
 ```
 
 The installer detects an existing installation and performs a safe upgrade instead of a fresh install.

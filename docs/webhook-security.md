@@ -140,13 +140,11 @@ journalctl -u vpnmanager-api --since "1 hour ago" | grep -iE 'subscription.*upgr
 
 ---
 
-## Tools shipped with the system
+## Verifying signature handling
 
-- **`tools/test_webhook_signatures.py`** — offline unit tests of every provider's signature verification with known-good and known-bad inputs. Runs in ~1 s. Use after upgrading the package or modifying a plugin.
-- **`tools/simulate_payments.py`** — end-to-end integration test that POSTs signed webhook payloads to the live API. Verifies a real `pending → completed` transition. Runs against a configured environment (env vars must be set).
-- The **Test** button in the admin panel runs the same logic as `test_webhook_signatures.py` for one provider, in-process. Output renders as a green/red checklist under the provider card.
+- The **Test** button in the admin panel runs each provider's signature verification in-process against known-good and known-bad inputs. Output renders as a green/red checklist under the provider card. This is the operator-facing way to confirm a provider is wired correctly — no shell access needed.
 
-All three tools test the same security-critical paths. The unit one is fastest, the simulator most realistic, the admin button most discoverable.
+> The vendor's internal signature-regression and payment-simulation scripts (under `tools/`) are part of the CI/build tooling and are **not shipped in the public open-core tree**. The admin **Test** button exercises the same security-critical verification path in-process, so you do not need them.
 
 ---
 
@@ -157,7 +155,7 @@ Quick checklist before going live:
 - [ ] Each provider you've enabled has its **Webhook URL registered** at the provider's dashboard (not just our admin panel)
 - [ ] Each provider's **Webhook Secret** in admin matches what's set at the provider
 - [ ] **Test** button in admin shows green for every active provider
-- [ ] `tools/simulate_payments.py` passes (run it from the API host)
+- [ ] The webhook endpoint is reachable over HTTPS from the public internet (providers can't POST to a private or HTTP-only URL)
 - [ ] You've made one real low-amount test transaction for each provider you enabled
 - [ ] You've verified the recovery poller works: kill the API service, pay a test invoice, restart the API, wait 60s, see the payment auto-complete
 

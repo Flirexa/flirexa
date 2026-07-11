@@ -19,12 +19,12 @@ It is designed for:
 
 | Feature | Description |
 |---------|-------------|
-| Multi-server management | Manage unlimited remote WireGuard / AmneziaWG servers from one panel |
+| Multi-server management (paid) | Manage remote WireGuard / AmneziaWG servers from one panel — Business tier; FREE runs up to 2 local servers |
 | Remote agent | Lightweight HTTP agent replaces SSH for day-to-day operations |
 | Client portal | End-user web UI for self-registration, payment, and config download |
 | Telegram bots | Admin bot for operations, client bot for self-service |
 | Traffic & bandwidth | Per-client traffic counters, limits, and `tc`-based bandwidth shaping |
-| Subscriptions | Plan-based billing with CryptoPay integration |
+| Subscriptions | Plan-based billing with built-in NOWPayments (crypto) integration |
 | Automatic updates | Signed update packages with rollback support |
 | Backup and restore | Scheduled database + config backups with one-command restore |
 | Drift detection | Automatic comparison of DB state vs live WireGuard interface with auto-reconcile |
@@ -50,8 +50,14 @@ When you add a server, you select the type: `wireguard` or `amneziawg`. All subs
 **1. Install on a fresh server:**
 
 ```bash
-tar xzf vpn-manager-v1.5.48.tar.gz
-cd vpn-manager-v1.5.48
+curl -fsSL https://flirexa.biz/install.sh | sudo bash
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/Flirexa/flirexa.git
+cd flirexa
 sudo bash install.sh
 ```
 
@@ -69,11 +75,11 @@ Create your admin account on first visit.
 http://YOUR_SERVER_IP:10090
 ```
 
-**4. Activate your license:**
+**4. Activate your license (optional):**
 
-Go to **Settings → License**, paste your activation code, click **Activate**.
+Go to **Settings → License**, paste your license key, click **Activate**.
 
-Trial mode allows 10 clients on 1 server for 7 days.
+No license key is required. Without one the system runs on the **FREE** tier — 80 clients, up to 2 local servers, no expiry, no license-server contact.
 
 **5. Add your first client:**
 
