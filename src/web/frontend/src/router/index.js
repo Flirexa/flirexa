@@ -62,6 +62,15 @@ const routes = [
     }),
   },
   {
+    // Design section — a standalone nav item in the new design. The new-design
+    // shell renders D2Design (registry, route name 'Design'); Legacy has no
+    // Design page (it lives under Settings there), so this component is just a
+    // harmless placeholder for the rare Legacy visit to /design.
+    path: '/design',
+    name: 'Design',
+    component: { template: '<div></div>' },
+  },
+  {
     path: '/portal-users',
     name: 'PortalUsers',
     component: () => import('../views/PortalUsers.vue'),

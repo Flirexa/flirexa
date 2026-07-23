@@ -701,7 +701,7 @@ def _run_apply_script(
     """
     Run update_apply.sh in a new session so it survives the API service restart.
 
-    update_apply.sh stops the API service (systemctl stop vpnmanager-api / vpnmanager-api).
+    update_apply.sh stops the API service under either the legacy or current prefix.
     Without start_new_session=True the script is in the same process group as the API,
     so systemd's SIGTERM kills it too (exit code -15). With a new session the script
     is detached and continues running even after the API process dies.
@@ -713,7 +713,7 @@ def _run_apply_script(
     # Prefer the apply script bundled with the staged release over the one
     # currently installed. If the installed copy has a bug that blocks
     # updates from applying (e.g. 1.9.34's hardcoded venv path on legacy
-    # vpnmanager layouts → "Migration required but alembic not available"
+    # legacy layouts → "Migration required but alembic not available"
     # + exit 1), the only path out is to run the updated script that
     # SHIPPED with the fix. The installed copy stays the fallback so
     # rollback / older clients still work.

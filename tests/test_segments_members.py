@@ -17,7 +17,7 @@ from sqlalchemy.pool import StaticPool
 from src.api.main import create_app
 from src.api.routes.system import get_db
 from src.api.middleware.auth import get_current_admin
-from src.database.models import Base, ClientSegment, Client
+from src.database.models import AdminUser, Base, ClientSegment, Client
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +29,18 @@ def client():
     )
     Base.metadata.create_all(bind=engine)
     TestSession = sessionmaker(bind=engine)
+
+    db = TestSession()
+    db.add(AdminUser(
+        id=1,
+        username="testadmin",
+        password_hash="not-used-by-overridden-auth",
+        is_superadmin=True,
+        is_active=True,
+        role="owner",
+    ))
+    db.commit()
+    db.close()
 
     app = create_app(debug=True)
 

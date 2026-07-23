@@ -241,7 +241,7 @@ async def get_client_config(
         raise HTTPException(status_code=404, detail="Client not found")
 
     server_type = (getattr(client.server, "server_type", "") or "").lower() if client.server else ""
-    if server_type in {"hysteria2", "tuic"}:
+    if server_type in {"hysteria2", "tuic", "vless-reality"}:
         access = core.clients.get_proxy_client_access(client_id)
         if not access:
             raise HTTPException(status_code=500, detail="Failed to generate proxy config")
@@ -274,7 +274,7 @@ async def get_client_qrcode(
         raise HTTPException(status_code=404, detail="Client not found")
 
     server_type = (getattr(client.server, "server_type", "") or "").lower() if client.server else ""
-    if server_type in {"hysteria2", "tuic"}:
+    if server_type in {"hysteria2", "tuic", "vless-reality"}:
         access = core.clients.get_proxy_client_access(client_id)
         qr_payload = access.get("uri") if access else None
         if not qr_payload:

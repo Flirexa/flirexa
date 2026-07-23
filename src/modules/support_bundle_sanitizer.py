@@ -21,10 +21,22 @@ _SENSITIVE_SUBSTRINGS = (
     "ssh_private_key",
     "ssh_password",
     "agent_api_key",
+    "database_url",
+    "dsn",
 )
 
 _STRICT_KEY_RE = re.compile(r"(^|_)(key|secret|token|password)(_|$)")
 _PEM_RE = re.compile(r"-----BEGIN [A-Z0-9 ]+-----")
+# Redact credentials embedded in connection URLs (postgres/redis/amqp/mongodb/…):
+# scheme://user:password@host → scheme://***:***@host — catches DATABASE_URL and
+# friends regardless of the key name. (security: support-bundle URL-cred leak 2026-07)
+_URL_CREDS_RE = re.compile(r"([a-zA-Z][\w+.\-]*://)[^/@\s:]*:[^/@\s]+@")
+
+
+def redact_url_creds(text: str) -> str:
+    if not text or "://" not in text:
+        return text
+    return _URL_CREDS_RE.sub(r"\1***:***@", text)
 
 
 def is_sensitive_key(key: str, *, strict: bool = False) -> bool:
@@ -62,6 +74,9 @@ def sanitize_value(key: str, value: Any, *, strict: bool = False) -> Any:
         return mask_secret(text)
     if _PEM_RE.search(text):
         return "[REDACTED_PEM]"
+    redacted = redact_url_creds(text)
+    if redacted != text:
+        return redacted
     return value
 
 
@@ -90,5 +105,5 @@ def sanitize_env_text(text: str, *, strict: bool = False) -> str:
         elif _PEM_RE.search(value):
             lines.append(f"{key}=[REDACTED_PEM]")
         else:
-            lines.append(raw_line)
+            lines.append(f"{key}={redact_url_creds(value)}")
     return "\n".join(lines) + ("\n" if text.endswith("\n") else "")

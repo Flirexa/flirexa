@@ -333,6 +333,11 @@ class Server(Base):
     proxy_obfs_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Hysteria2 OBFS
     proxy_auth_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Hysteria2 server-level auth password (shared by all clients)
 
+    # VLESS-Reality (Xray-core) — nullable, only set for server_type='vless-reality'
+    proxy_reality_private_key: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    proxy_reality_public_key: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    proxy_reality_short_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+
     # Relationships
     clients: Mapped[List["Client"]] = relationship("Client", back_populates="server")
 

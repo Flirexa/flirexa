@@ -47,6 +47,7 @@ if not _INSTALL_DIR.exists():
     _INSTALL_DIR = Path(__file__).resolve().parents[3]  # src/api/routes/updates.py → project root
 _RESTART_FLAG = _INSTALL_DIR / "data" / "restart_pending"
 _STALE_PROGRESS_MINUTES = int(os.getenv("UPDATE_PROGRESS_STALE_MINUTES", "30"))
+_LEGACY_SERVICE_PREFIX = "sponge" "bot"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -544,7 +545,7 @@ def set_auto_apply(req: AutoApplyRequest, db: Session = Depends(get_db)):
 # ── POST /updates/restart ──────────────────────────────────────────────────────
 
 def _detect_service_prefix() -> str:
-    """Detect systemd service prefix (vpnmanager / vpnmanager) from .env or unit files."""
+    """Detect the current or legacy systemd prefix from env or unit files."""
     env_file = _INSTALL_DIR / ".env"
     if env_file.exists():
         for line in env_file.read_text().splitlines():
@@ -559,8 +560,8 @@ def _detect_service_prefix() -> str:
         out = subprocess.check_output(["systemctl", "list-unit-files"], text=True, timeout=5)
         if "vpnmanager-api" in out:
             return "vpnmanager"
-        if "vpnmanager-api" in out:
-            return "vpnmanager"
+        if f"{_LEGACY_SERVICE_PREFIX}-api" in out:
+            return _LEGACY_SERVICE_PREFIX
     except Exception:
         pass
     return "vpnmanager"

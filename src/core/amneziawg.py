@@ -10,6 +10,7 @@ the Server model and embedded into both server and client configs.
 import base64
 import json
 import os
+import shlex
 import struct
 import subprocess
 import zlib
@@ -584,17 +585,25 @@ class AmneziaWGManager(WireGuardManager):
         # ("10.8.0.1/24,fd42:42:42::1/64") — pick the IPv4 half. NAT/route
         # rules are IPv4-only here; IPv6 forwarding sits on the kernel
         # default and doesn't need its own MASQUERADE.
+        # security: derive the IPv4 subnet from a parsed network object instead
+        # of raw string-slicing so metacharacters in `address` can't survive to
+        # the root PostUp shell rule. For a valid host address like 10.8.0.1/24
+        # this yields the same 10.8.0.0/24 the old slicing produced.
+        import ipaddress as _ipaddr
         ipv4_part = address.split(",")[0].strip()
-        base_ip = ipv4_part.split("/")[0]
-        prefix = ipv4_part.split("/")[1] if "/" in ipv4_part else "24"
-        octets = base_ip.rsplit(".", 1)
-        subnet = f"{octets[0]}.0/{prefix}"
+        _pool = ipv4_part if "/" in ipv4_part else f"{ipv4_part}/24"
+        subnet = str(_ipaddr.ip_network(_pool, strict=False))
 
         # Egress interface: use explicit value or auto-detect at runtime via shell substitution.
         # Shell command runs inside PostUp/PostDown (bash -c), not at config generation time.
-        eth_out = eth_interface if eth_interface else "$(ip route | awk '/^default/{print $5; exit}')"
+        # security: quote an explicit egress interface; the auto-detect form is a
+        # command substitution and must stay unquoted to keep working.
+        eth_out = shlex.quote(eth_interface) if eth_interface else "$(ip route | awk '/^default/{print $5; exit}')"
 
         iface = self.interface
+        # security: quote subnet + interface before they reach the root PostUp shell
+        _subnet_q = shlex.quote(subnet)
+        _iface_q = shlex.quote(iface)
         config = (
             f"[Interface]\n"
             f"Address = {address}\n"
@@ -613,14 +622,14 @@ class AmneziaWGManager(WireGuardManager):
             f"H2 = {_h2}\n"
             f"H3 = {_h3}\n"
             f"H4 = {_h4}\n"
-            f"PostUp   = iptables -t nat -A POSTROUTING -s {subnet} -o {eth_out} -j MASQUERADE; "
-            f"iptables -A FORWARD -i {iface} -j ACCEPT; "
-            f"iptables -A FORWARD -o {iface} -j ACCEPT; "
-            f"ip route add {subnet} dev {iface} 2>/dev/null || true\n"
-            f"PostDown = iptables -t nat -D POSTROUTING -s {subnet} -o {eth_out} -j MASQUERADE; "
-            f"iptables -D FORWARD -i {iface} -j ACCEPT; "
-            f"iptables -D FORWARD -o {iface} -j ACCEPT; "
-            f"ip route del {subnet} dev {iface} 2>/dev/null || true\n"
+            f"PostUp   = iptables -t nat -A POSTROUTING -s {_subnet_q} -o {eth_out} -j MASQUERADE; "
+            f"iptables -A FORWARD -i {_iface_q} -j ACCEPT; "
+            f"iptables -A FORWARD -o {_iface_q} -j ACCEPT; "
+            f"ip route add {_subnet_q} dev {_iface_q} 2>/dev/null || true\n"
+            f"PostDown = iptables -t nat -D POSTROUTING -s {_subnet_q} -o {eth_out} -j MASQUERADE; "
+            f"iptables -D FORWARD -i {_iface_q} -j ACCEPT; "
+            f"iptables -D FORWARD -o {_iface_q} -j ACCEPT; "
+            f"ip route del {_subnet_q} dev {_iface_q} 2>/dev/null || true\n"
         )
 
         for peer in (peers or []):
@@ -898,8 +907,12 @@ esac
         # Use base64-via-stdin pattern to avoid shell-quoting hazards
         import base64 as _b64
         b64 = _b64.b64encode(config_content.encode()).decode()
+        # security: quote the config path inside the bash -c string so a crafted
+        # interface name can't inject shell metacharacters. `b64` is pure base64
+        # and already single-quoted.
+        _cfg_q = shlex.quote(config_file)
         self._run_cmd(
-            ["bash", "-c", f"echo '{b64}' | base64 -d > {config_file} && chmod 600 {config_file}"],
+            ["bash", "-c", f"echo '{b64}' | base64 -d > {_cfg_q} && chmod 600 {_cfg_q}"],
             check=False,
         )
         details["config_path"] = config_file

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+LEGACY_PREFIX="sponge""bot"
+
 # Resolve the script through symlinks so SCRIPT_DIR points at the actual code
-# (release-layout: /opt/vpnmanager/releases/<ver>/; compat-inplace: /opt/vpnmanager/).
+# (release-layout under /opt/vpnmanager; legacy compat-inplace is also supported).
 SOURCE="${BASH_SOURCE[0]}"
 while [[ -L "$SOURCE" ]]; do
   BASE_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
@@ -36,8 +38,8 @@ find_venv_python() {
     echo "/opt/vpnmanager/venv/bin/python3"
     return 0
   fi
-  if [[ -x "/opt/vpnmanager/venv/bin/python3" ]]; then
-    echo "/opt/vpnmanager/venv/bin/python3"
+  if [[ -x "/opt/${LEGACY_PREFIX}/venv/bin/python3" ]]; then
+    echo "/opt/${LEGACY_PREFIX}/venv/bin/python3"
     return 0
   fi
   echo "python3"

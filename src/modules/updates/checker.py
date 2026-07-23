@@ -74,22 +74,57 @@ REQUIRED_FIELDS = {
 
 # ── RSA public key loader ──────────────────────────────────────────────────────
 
-_pub_key = None
+# Pinned update-manifest verification keys (RSA-PSS). During the 2026-07 key
+# rotation both OLD (leaked in pre-2.2.33 tarballs; retired after the flip) and
+# NEW are accepted — a manifest is trusted if EITHER verifies. Pinned in code so
+# swapping data/update_public.pem cannot defeat verification.
+_UPD_PUB_OLD = b"""-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx65TizYb6YiCOeISTvl7
+vdEHZMNM8UKojp9YbwuDVCfs5XXE3UkQEXzyv01iSbSkKgI2jRgvAPlMokYNmgz2
+5JUX1g4zxcihwg//yXoHWpSQVrta6be1gGulLdkhVYduDkgGdWpu6DFJtKuueY43
+rtmkdQFwY1qJZQSPU2R7UmnA419RXpG1+cIMNSj1cclKsGPxh2jPFp71OA/bMgwJ
+QANOTFMzbQOtDzIA7Yp3yHPedgoSMU1aLXiLH1OvKPu8TwmM3RxcQU5htuRASRev
+CBr4i8iGhcUEZdrWY+OgOyEqR2ed3wqzJ6cJPylEcDtby8o08WQ6PHWp+aEUTf7Y
+fQIDAQAB
+-----END PUBLIC KEY-----
+"""
+_UPD_PUB_NEW = b"""-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtNfNVOVQEvO2RXwWjtjt
+YrAuUi4oLgygVUTM9Is68zrXoUfXbyQUmez9mna3icl6f5T+in0idMVcXP3M0aBm
+H2Bd3eYoNdejYxeCNWWqZFtu2758XCk5MPobeOxdeT9x/9G+orNeNDrkDLGMr5Pl
+teypFMOh8NhwORlnm47XTPESBwCAWF7+fahOYPXGI9DXMqMLJFXKjlpSwkZVAgVR
+sG0CPooHHqi/k8lZDpJu+yF3cmbR4KmjH8pFN6R+uW8edZQXE+rkETBeqqWkVq7f
+Q+iEVHFuNDffix5ogsV6uWvzWPMZEzDktMX1QzFjA8CC/oS4nMVpiF5hT8vyhIAK
+9wIDAQAB
+-----END PUBLIC KEY-----
+"""
+
+_pub_keys_cache = None
 
 
-def _load_pub_key():
-    global _pub_key
-    if _pub_key is not None:
-        return _pub_key
-
-    key_path = Path(os.getenv("UPDATE_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH)))
-    if not key_path.exists():
-        raise RuntimeError(f"Update public key not found: {key_path}")
-
+def _load_pub_keys():
+    """Accepted update-manifest public keys: pinned old+new, plus the on-disk file
+    (dev fallback). A manifest is trusted if any of these verifies it."""
+    global _pub_keys_cache
+    if _pub_keys_cache is not None:
+        return _pub_keys_cache
     from cryptography.hazmat.primitives import serialization
-    with open(key_path, "rb") as f:
-        _pub_key = serialization.load_pem_public_key(f.read())
-    return _pub_key
+    keys = []
+    for pem in (_UPD_PUB_OLD, _UPD_PUB_NEW):
+        if pem.strip():
+            try:
+                keys.append(serialization.load_pem_public_key(pem))
+            except Exception as exc:
+                logger.error("Embedded update key failed to load: {}", exc)
+    key_path = Path(os.getenv("UPDATE_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH)))
+    if key_path.exists():
+        try:
+            with open(key_path, "rb") as f:
+                keys.append(serialization.load_pem_public_key(f.read()))
+        except Exception as exc:
+            logger.error("Failed to load update_public.pem: {}", exc)
+    _pub_keys_cache = keys
+    return keys
 
 
 # ── Signature verification ─────────────────────────────────────────────────────
@@ -116,17 +151,24 @@ def _verify_manifest_signature(manifest: dict) -> bool:
     try:
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import padding
-        key = _load_pub_key()
-        key.verify(
-            sig_bytes,
-            payload_b64.encode(),
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH,
-            ),
-            hashes.SHA256(),
-        )
-        return True
+        keys = _load_pub_keys()
+        if not keys:
+            return False
+        for key in keys:
+            try:
+                key.verify(
+                    sig_bytes,
+                    payload_b64.encode(),
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH,
+                    ),
+                    hashes.SHA256(),
+                )
+                return True
+            except Exception:
+                continue
+        return False
     except Exception:
         return False
 

@@ -56,8 +56,24 @@ else:
     # max_connections AND reduce per-worker pool or set the env vars
     # explicitly (e.g. DB_POOL_SIZE=10 DB_MAX_OVERFLOW=15 for 4 workers
     # against a 100-connection Postgres).
-    _pool_size     = int(os.getenv("DB_POOL_SIZE")     or 20)
-    _max_overflow  = int(os.getenv("DB_MAX_OVERFLOW")  or 30)
+    # Auto-size the per-worker pool when the API runs multi-worker.
+    # run_server() resolves the worker count (hardware-aware) and publishes it
+    # as VPNM_RESOLVED_WORKERS before uvicorn spawns the workers. With N > 1
+    # we split a global connection budget (default 80, i.e. Postgres
+    # max_connections=100 minus headroom for the worker/portal services)
+    # evenly across workers so N × (pool + overflow) can't blow past PG.
+    # Explicit DB_POOL_SIZE / DB_MAX_OVERFLOW always win; N == 1 keeps the
+    # long-standing 20 + 30 defaults unchanged.
+    _n_workers = int(os.getenv("VPNM_RESOLVED_WORKERS") or 1)
+    if _n_workers > 1 and not (os.getenv("DB_POOL_SIZE") or os.getenv("DB_MAX_OVERFLOW")):
+        _budget = int(os.getenv("DB_CONN_BUDGET") or 80)
+        _per_worker = max(10, _budget // _n_workers)
+        _auto_pool = max(5, _per_worker // 2)
+        _pool_size = _auto_pool
+        _max_overflow = max(5, _per_worker - _auto_pool)
+    else:
+        _pool_size     = int(os.getenv("DB_POOL_SIZE")     or 20)
+        _max_overflow  = int(os.getenv("DB_MAX_OVERFLOW")  or 30)
     # pool_pre_ping=True does a SELECT 1 round-trip on every checkout
     # to catch connections killed by a Postgres restart. Cheap when one
     # request acquires one connection. Painful under thread-pool fan-out:
@@ -201,11 +217,26 @@ async def get_async_db_context() -> AsyncGenerator[AsyncSession, None]:
 # INITIALIZATION FUNCTIONS
 # ============================================================================
 
+def _register_all_model_metadata() -> None:
+    """Load models declared outside ``src.database.models``.
+
+    ``FcmToken`` and the corporate tables reference ``client_users``, which is
+    declared in the subscription module.  CLI-driven fresh installs import the
+    connection layer directly (without importing the FastAPI routes first), so
+    those tables must be registered explicitly before ``create_all()`` sorts
+    foreign keys.
+    """
+    from ..modules.subscription import subscription_models as _subscription_models  # noqa: F401
+    from ..modules.corporate import models as _corporate_models  # noqa: F401
+
+
 def _run_alembic_migrations() -> None:
     """Run Alembic migrations to bring schema up to date."""
     import logging
     log = logging.getLogger(__name__)
     try:
+        _register_all_model_metadata()
+
         from alembic.config import Config
         from alembic import command
         import os
@@ -247,7 +278,8 @@ def _run_alembic_migrations() -> None:
         # had no idea WHY the migration failed. With the traceback in
         # journalctl, the next failure is at most a `journalctl -u …
         # | grep "Alembic migration failed"` away.
-        log.error("Alembic migration failed (non-fatal, app will still start): %s", e, exc_info=True)
+        log.error("Alembic migration failed: %s", e, exc_info=True)
+        raise
 
 
 def init_db() -> None:
@@ -255,6 +287,8 @@ def init_db() -> None:
     Initialize database - create all tables
     Call this at application startup
     """
+    _register_all_model_metadata()
+
     if is_sqlite:
         Base.metadata.create_all(bind=engine)
         return

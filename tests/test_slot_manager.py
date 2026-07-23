@@ -423,3 +423,56 @@ class TestSlotKeyRotation:
         p3 = slot.public_key
         # Each rotation yields a distinct keypair; no error on repeat.
         assert len({p1, p2, p3}) == 3
+
+
+class TestSwitchRegionLeakGuard:
+    """switch_active_server must not flip the active pointer (leaking access to
+    the 'off' region) when the OLD peer couldn't be disabled AND the old node is
+    still live — but must PROCEED when the old node is down (its leftover peer
+    serves nothing, and blocking would trap the customer on a dead region)."""
+
+    def _slot_and_target(self, db_session, servers, user):
+        from src.modules.subscription.slot_manager import SlotManager
+        mgr = SlotManager(db_session)
+        slot = mgr.create_slot(user=user, label="Phone")
+        old_id = slot.active_server_id
+        target = next(s for s in servers if s.id != old_id)
+        return mgr, slot, old_id, target
+
+    def test_refuses_503_when_old_node_online_and_disable_fails(
+        self, db_session, two_visible_servers, client_user, patched_wg, monkeypatch,
+    ):
+        import src.modules.subscription.slot_manager as sm
+        from src.modules.subscription.slot_manager import SlotManagerError
+        from src.database.models import Server
+
+        mgr, slot, old_id, target = self._slot_and_target(
+            db_session, two_visible_servers, client_user)
+        db_session.query(Server).filter(Server.id == old_id).update(
+            {"lifecycle_status": "online"}); db_session.commit()
+        # disable always fails; enable would succeed.
+        monkeypatch.setattr(sm, "_agent_apply",
+                            lambda core, client, action: action == "enable")
+
+        with pytest.raises(SlotManagerError) as ei:
+            mgr.switch_active_server(slot, target.id)
+        assert ei.value.http_status == 503
+
+        db_session.refresh(slot)
+        assert slot.active_server_id == old_id, "must NOT flip on a live-node leak"
+
+    def test_proceeds_when_old_node_down_even_if_disable_fails(
+        self, db_session, two_visible_servers, client_user, patched_wg, monkeypatch,
+    ):
+        import src.modules.subscription.slot_manager as sm
+        from src.database.models import Server
+
+        mgr, slot, old_id, target = self._slot_and_target(
+            db_session, two_visible_servers, client_user)
+        db_session.query(Server).filter(Server.id == old_id).update(
+            {"lifecycle_status": "offline"}); db_session.commit()
+        monkeypatch.setattr(sm, "_agent_apply",
+                            lambda core, client, action: action == "enable")
+
+        result = mgr.switch_active_server(slot, target.id)
+        assert result.active_server_id == target.id, "dead old node → switch proceeds"

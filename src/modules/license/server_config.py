@@ -41,22 +41,57 @@ def _is_production() -> bool:
     return any(p.exists() for p in candidates)
 
 
-def _load_pub_key():
+# Pinned server-verify public keys (RSA-PSS). During the 2026-07 key rotation the
+# panel accepts BOTH the OLD key (leaked in pre-2.2.33 tarballs; retired after the
+# server-side flip) and the NEW key — a signed artifact is trusted if EITHER
+# verifies. Pinned in code so swapping the on-disk file can't defeat verification.
+_SV_PUB_OLD = b"""-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnXezdbLomyz58LwJB6eG
+U62ZlmSJPc2qS4+cZ/Wg65HonMSZt6/S0bkRO9MMlukZqFG7fCZKW2TKFstJJ5y+
+Arw+jrQEJxnKBDUUPy2iC3/oymKIf+gJIAuWkWIFkxwNr6WT449W1Tmh4QgCRkFR
+dXeYMcpLYLZFH98seoAP2C99WyLGPniLMtt6g74CenMkaTzbkjXwNRMkdvC0O24k
+uNTfK19s3W8cPpDZkES013VC3Qa0pj9tZP1PeBuOww4CSIJXao+2QQfsYVfwoisg
+/JAlL+ih7lJJNOd92wDhjpRBuwfeuUwI+1dqjTgQ4nXn3y9SJXsn6THf360oqeSU
+SwIDAQAB
+-----END PUBLIC KEY-----
+"""
+_SV_PUB_NEW = b"""-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4XHN7ytdeE+padSbGncw
+kvL81PYqtG50ohbFd2a6OZJ1GKINXO4WiCuzvKnma00uMRWb0iXvl1bOJNPKSeAG
+RVZc8FSiMQHTf9sD3AyuXJBmGokOlZV3Iib0mvVF/WX/R2tYPbjr3CF2hSC2izoE
+xtn36wrytfOIR42Hv0/wKGcm/MJ6/gVS1UcKDsQqju3mTMm7JEV7DxzSVGTlnswx
+N3lGKb387U6g8MmcRHmIh0DxjfmJku9RvqnFBDhdIX+GY+NoBu37alvS8aNm3vrt
+Jg8mJwXUXinZL3fjVmsT2ikvfLAPmUIXPIFjGqr2jSfeYJv7ozXOEqrlXSQUoTTO
+3wIDAQAB
+-----END PUBLIC KEY-----
+"""
+
+
+def _load_pub_keys():
+    """Accepted server-verify public keys: pinned old+new, plus the on-disk file
+    (dev fallback). A signed artifact is trusted if any of these verifies it."""
+    from cryptography.hazmat.primitives.serialization import load_pem_public_key
+    keys = []
+    for pem in (_SV_PUB_OLD, _SV_PUB_NEW):
+        if pem.strip():
+            try:
+                keys.append(load_pem_public_key(pem))
+            except Exception as exc:
+                logger.error("Embedded server-verify key failed to load: %s", exc)
     path = Path(os.getenv("SERVER_VERIFY_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH)))
-    if not path.exists():
-        return None
-    try:
-        from cryptography.hazmat.primitives.serialization import load_pem_public_key
-        return load_pem_public_key(path.read_bytes())
-    except Exception as exc:
-        logger.error("Failed to load server_verify_public.pem: %s", exc)
-        return None
+    if path.exists():
+        try:
+            keys.append(load_pem_public_key(path.read_bytes()))
+        except Exception as exc:
+            logger.error("Failed to load server_verify_public.pem: %s", exc)
+    return keys
 
 
 def _verify_signed(data: dict):
-    """Verify RSA-PSS signature and return decoded payload dict, or None."""
-    pub_key = _load_pub_key()
-    if pub_key is None:
+    """Verify RSA-PSS signature (against any accepted key) and return the decoded
+    payload dict, or None."""
+    keys = _load_pub_keys()
+    if not keys:
         return None
     try:
         payload_b64 = data.get("payload", "")
@@ -70,18 +105,24 @@ def _verify_signed(data: dict):
         pad2 = (4 - len(sig_b64) % 4) % 4
         sig_bytes = base64.urlsafe_b64decode(sig_b64 + "=" * pad2)
 
-        pub_key.verify(
-            sig_bytes,
-            payload_b64.encode("ascii"),
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH,
-            ),
-            hashes.SHA256(),
-        )
-        return json.loads(payload_bytes)
+        for pub_key in keys:
+            try:
+                pub_key.verify(
+                    sig_bytes,
+                    payload_b64.encode("ascii"),
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH,
+                    ),
+                    hashes.SHA256(),
+                )
+                return json.loads(payload_bytes)
+            except Exception:
+                continue
+        logger.error("Signed data verification failed against all accepted keys")
+        return None
     except Exception as exc:
-        logger.error("Signed data verification failed: %s", exc)
+        logger.error("Signed data verification error: %s", exc)
         return None
 
 

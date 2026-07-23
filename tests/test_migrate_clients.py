@@ -24,7 +24,7 @@ from sqlalchemy.pool import StaticPool
 from src.api.main import create_app
 from src.api.routes.system import get_db
 from src.api.middleware.auth import get_current_admin
-from src.database.models import Base, Server, Client
+from src.database.models import AdminUser, Base, Server, Client
 
 
 @pytest.fixture
@@ -48,6 +48,14 @@ def app_with_two_servers():
 
     # Seed: src + dst on different subnets so the IP-conflict pre-flight passes
     db = TestSession()
+    db.add(AdminUser(
+        id=1,
+        username="testadmin",
+        password_hash="not-used-by-overridden-auth",
+        is_superadmin=True,
+        is_active=True,
+        role="owner",
+    ))
     src = Server(
         name="src", interface="wg0", endpoint="203.0.113.1:51820", listen_port=51820,
         public_key="SrcPubKeyBase64XXXXXXXXXXXXXXXXXXXXXXXXXX=",

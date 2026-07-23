@@ -104,8 +104,18 @@ async def _try_auto_apply(manifest: dict, current_version: str, channel: str) ->
         (cooldown window above)
     Failures here are logged but never crash the auto-check loop.
     """
-    if not _auto_apply_enabled():
+    # A mandatory update forces itself even when the operator turned auto-apply
+    # OFF (e.g. a customer who normally pulls manually). It overrides ONLY this
+    # gate — every other safety gate below (newer-version, in-flight, maintenance,
+    # 24h failure cooldown) and the transactional apply/rollback are unchanged.
+    is_mandatory = manifest.get("mandatory") is True
+    if not is_mandatory and not _auto_apply_enabled():
         return
+    if is_mandatory and not _auto_apply_enabled():
+        logger.warning(
+            "auto-apply: MANDATORY update {} — forcing despite auto-apply OFF",
+            manifest.get("version"),
+        )
     try:
         # `is_newer` lives in checker.py, not manager.py — pre-1.5.68 builds
         # had this wrong import which silently broke every auto-apply attempt.
@@ -219,3 +229,70 @@ async def run_auto_update_check_loop():
     while True:
         had_failure = await _run_one_check()
         await asyncio.sleep(_RETRY_INTERVAL if had_failure else interval)
+
+
+# ── Mandatory (forced) update watcher ─────────────────────────────────────────
+# A separate, fast loop so a release flagged `mandatory` in its signed manifest
+# is force-applied within ~5 minutes even when the operator has auto-apply OFF —
+# without changing the normal (slow) auto-check cadence above. This loop acts
+# ONLY on mandatory manifests; non-mandatory updates are left entirely to the
+# main loop. The in-flight guard inside `_try_auto_apply` makes the two loops
+# safe to run concurrently.
+_MANDATORY_INTERVAL_DEFAULT = 300    # 5 minutes
+_MANDATORY_INTERVAL_MIN     = 60     # never poll the manifest faster than 1/min
+
+
+def _mandatory_interval() -> int:
+    raw = os.getenv("MANDATORY_UPDATE_CHECK_INTERVAL", "")
+    try:
+        v = int(raw) if raw else _MANDATORY_INTERVAL_DEFAULT
+    except ValueError:
+        v = _MANDATORY_INTERVAL_DEFAULT
+    return max(v, _MANDATORY_INTERVAL_MIN)
+
+
+async def _run_one_mandatory_check() -> None:
+    """Fetch the manifest; if it flags `mandatory` and we're behind, force-apply.
+
+    `force=True` bypasses the checker's 1h manifest cache so a freshly-published
+    mandatory build is seen within one interval. Non-mandatory manifests are
+    ignored here (the main loop owns normal cadence).
+    """
+    from .checker import check_for_update
+    from .manager import get_current_version
+
+    current = get_current_version()
+    channel = _get_channel()
+    try:
+        manifest, error = await check_for_update(current, channel, force=True)
+    except Exception as exc:
+        logger.warning("Mandatory update-check raised unexpectedly: {}", exc)
+        return
+    if error or manifest is None:
+        return
+    if manifest.get("mandatory") is not True:
+        return
+
+    logger.warning(
+        "Mandatory update-check ({}): mandatory {} available (current {}) — forcing",
+        channel, manifest.get("version", "?"), current,
+    )
+    await _try_auto_apply(manifest, current, channel)
+
+
+async def run_mandatory_watch_loop():
+    """Long-running task — poll for mandatory updates every
+    MANDATORY_UPDATE_CHECK_INTERVAL seconds (default 5 min)."""
+    if not _enabled():
+        return
+
+    await asyncio.sleep(_STARTUP_DELAY)
+    interval = _mandatory_interval()
+    logger.info("Mandatory update-watch started (interval={}s)", interval)
+
+    while True:
+        try:
+            await _run_one_mandatory_check()
+        except Exception as e:
+            logger.warning("mandatory-watch: iteration error: {}", e)
+        await asyncio.sleep(interval)

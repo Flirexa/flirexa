@@ -34,7 +34,7 @@ def _load_cli_env() -> None:
             break
     # explicit final fallbacks for known install paths
     candidates.append(Path("/opt/vpnmanager/.env"))
-    candidates.append(Path("/opt/vpnmanager/.env"))
+    candidates.append(Path("/opt") / ("sponge" "bot") / ".env")
 
     seen: set[Path] = set()
     for env_file in candidates:

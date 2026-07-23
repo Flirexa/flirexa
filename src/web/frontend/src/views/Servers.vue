@@ -103,6 +103,7 @@
               <span v-if="server.server_type === 'amneziawg'" class="srv-proto srv-proto--awg"><i class="mdi mdi-shield-outline me-1"></i>AWG</span>
               <span v-else-if="server.server_type === 'hysteria2'" class="srv-proto srv-proto--hy2"><i class="mdi mdi-web me-1"></i>HY2</span>
               <span v-else-if="server.server_type === 'tuic'" class="srv-proto srv-proto--tuic"><i class="mdi mdi-web me-1"></i>TUIC</span>
+              <span v-else-if="server.server_type === 'vless-reality'" class="srv-proto srv-proto--vless"><i class="mdi mdi-web me-1"></i>VLESS</span>
               <span v-if="server.is_default" class="srv-proto srv-proto--default"><i class="mdi mdi-star me-1"></i>Default</span>
               <span v-if="server.customer_visible === false" class="srv-proto srv-proto--hidden"
                 :title="$t('servers.hiddenFromCustomersHint') || 'This server is hidden from the customer portal'">
@@ -440,6 +441,16 @@
                   <span class="proto-badge proto-badge--amber mt-1">{{ $t('servers.tuicTag') }}</span>
                   <div class="proto-card__desc">{{ $t('servers.tuicDesc') }}</div>
                 </div>
+                <div class="add-card proto-card flex-fill"
+                     :class="newServer.server_type === 'vless-reality' ? 'add-card--active-amber' : ''"
+                     @click="newServer.server_type = 'vless-reality'; onProtocolChange()">
+                  <div class="d-flex align-items-center gap-1">
+                    <strong class="proto-card__name">VLESS-Reality</strong>
+                    <HelpTooltip :text="$t('help.vlessReality')" />
+                  </div>
+                  <span class="proto-badge proto-badge--amber mt-1">{{ $t('servers.vlessTag') }}</span>
+                  <div class="proto-card__desc">{{ $t('servers.vlessDesc') }}</div>
+                </div>
               </div>
             </div>
 
@@ -526,8 +537,11 @@
               </div>
             </div>
 
-            <!-- Proxy TLS section -->
-            <div v-if="newServer.server_category === 'proxy'" class="mb-4">
+            <!-- Proxy TLS section (Hysteria2 / TUIC — cert-based TLS modes.
+                 VLESS-Reality doesn't use this: Reality forges the TLS
+                 handshake of the camouflage domain instead of terminating
+                 its own cert, so self-signed/ACME/manual don't apply.) -->
+            <div v-if="newServer.server_category === 'proxy' && newServer.server_type !== 'vless-reality'" class="mb-4">
 
               <!-- TLS mode: segmented control -->
               <div class="mb-3">
@@ -598,6 +612,19 @@
                   <input v-model="newServer.proxy_key_path" type="text" class="form-control" placeholder="/etc/ssl/key.pem" />
                 </div>
               </div>
+            </div>
+
+            <!-- VLESS-Reality camouflage domain — the SNI of a real, popular
+                 HTTPS site whose TLS handshake Reality borrows. No cert to
+                 manage; always optional (backend defaults to www.microsoft.com
+                 when left blank). -->
+            <div v-if="newServer.server_type === 'vless-reality'" class="mb-4">
+              <label class="form-label mb-1 small fw-medium d-flex align-items-center gap-1">
+                {{ $t('servers.proxyDomainVless') }}
+                <span class="text-muted" style="font-weight:400">({{ $t('common.optional') }})</span>
+                <HelpTooltip :text="$t('servers.proxyDomainVlessHint')" />
+              </label>
+              <input v-model="newServer.proxy_domain" type="text" class="form-control" placeholder="www.microsoft.com" />
             </div>
 
             <!-- Advanced settings: custom collapsible -->
@@ -2271,6 +2298,12 @@ function onProtocolChange() {
     newServer.value.listen_port = 8443
   } else if (type === 'tuic') {
     newServer.value.listen_port = 8444
+  } else if (type === 'vless-reality') {
+    newServer.value.listen_port = 443
+    // Reality doesn't use the cert TLS-mode picker (that section is hidden
+    // for this protocol) — force it back off 'acme' so a stale value from a
+    // previously-selected hy2/tuic card can't block submit on an empty domain.
+    newServer.value.proxy_tls_mode = 'self_signed'
   }
 }
 
@@ -2361,7 +2394,7 @@ async function confirmDeleteServer(server) {
   const clientCount = server.total_clients ?? server.client_count ?? 0
   let msg
   if (server.server_category === 'proxy') {
-    msg = `Uninstall proxy "${server.name}"?\n\nThis will stop and remove the ${server.server_type === 'hysteria2' ? 'Hysteria 2' : 'TUIC'} service from the remote server and delete this server record.`
+    msg = `Uninstall proxy "${server.name}"?\n\nThis will stop and remove the ${server.server_type === 'hysteria2' ? 'Hysteria 2' : server.server_type === 'tuic' ? 'TUIC' : 'VLESS-Reality'} service from the remote server and delete this server record.`
     if (clientCount > 0) {
       msg += `\n\n⚠ This server has ${clientCount} client(s) — they will all be deleted along with the server.`
     }
@@ -3854,10 +3887,12 @@ onUnmounted(() => {
 .srv-badge-svg { vertical-align: -2px; margin-right: 4px; }
 .srv-proto--hy2     { background: rgba(253,126,20,.13);  color: #c05621; }
 .srv-proto--tuic    { background: rgba(32,201,151,.13);  color: #047857; }
+.srv-proto--vless   { background: rgba(37,99,235,.13);   color: #1d4ed8; }
 .srv-proto--default { background: rgba(115,103,240,.12); color: var(--vxy-primary); }
 [data-theme="dark"] .srv-proto--awg     { background: rgba(139,92,246,.18); color: #a78bfa; }
 [data-theme="dark"] .srv-proto--hy2     { background: rgba(245,158,11,.18); color: #fcd34d; }
 [data-theme="dark"] .srv-proto--tuic    { background: rgba(52,211,153,.18); color: #6ee7b7; }
+[data-theme="dark"] .srv-proto--vless   { background: rgba(96,165,250,.18); color: #93c5fd; }
 [data-theme="dark"] .srv-proto--default { background: rgba(115,103,240,.18); color: #a5b4fc; }
 
 /* ── Agent badge ──────────────────────────────────────── */

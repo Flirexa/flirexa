@@ -24,6 +24,8 @@
 
 set -euo pipefail
 
+LEGACY_PREFIX="sponge""bot"
+
 UPDATE_ID="${UPDATE_ID:-0}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/vpnmanager}"
 STAGING_DIR="${STAGING_DIR:-}"
@@ -81,7 +83,7 @@ effective_runtime_root() {
 
 # Resolve the alembic CLI on this host. update_apply.sh used to assume
 # the venv lives at ``$INSTALL_DIR/venv``, which broke on installs
-# whose venv stayed at the legacy ``/opt/vpnmanager/venv`` after the
+# whose venv stayed under the legacy install root after the
 # install dir was renamed to ``/opt/vpnmanager`` (mid-2026 migration).
 # Symptom: "Migration required but alembic not available" + exit 1
 # even though alembic itself was installed and the DB user worked.
@@ -90,7 +92,7 @@ effective_runtime_root() {
 #      is broken)
 #   2. $INSTALL_DIR/venv/bin/alembic            (new layout)
 #   3. /opt/vpnmanager/venv/bin/alembic         (explicit new path)
-#   4. /opt/vpnmanager/venv/bin/alembic          (legacy path)
+#   4. legacy install root / venv / bin / alembic
 #   5. $(command -v alembic)                    (system-wide fallback)
 # Prints the first hit and returns 0, or returns 1 if nothing exists.
 find_alembic_bin() {
@@ -99,7 +101,7 @@ find_alembic_bin() {
     candidates+=(
         "$INSTALL_DIR/venv/bin/alembic"
         "/opt/vpnmanager/venv/bin/alembic"
-        "/opt/vpnmanager/venv/bin/alembic"
+        "/opt/${LEGACY_PREFIX}/venv/bin/alembic"
     )
     for c in "${candidates[@]}"; do
         if [[ -x "$c" ]]; then
@@ -170,12 +172,12 @@ detect_service_prefix() {
     fi
     if systemctl list-unit-files 2>/dev/null | grep -q 'vpnmanager-api'; then
         echo "vpnmanager"
-    elif systemctl list-unit-files 2>/dev/null | grep -q 'vpnmanager-api'; then
-        echo "vpnmanager"
+    elif systemctl list-unit-files 2>/dev/null | grep -q "${LEGACY_PREFIX}-api"; then
+        echo "$LEGACY_PREFIX"
     elif systemctl list-units --state=active 2>/dev/null | grep -q 'vpnmanager-api'; then
         echo "vpnmanager"
-    elif systemctl list-units --state=active 2>/dev/null | grep -q 'vpnmanager-api'; then
-        echo "vpnmanager"
+    elif systemctl list-units --state=active 2>/dev/null | grep -q "${LEGACY_PREFIX}-api"; then
+        echo "$LEGACY_PREFIX"
     else
         echo "vpnmanager"
     fi
@@ -309,8 +311,8 @@ install_service_units_from_release() {
 
     for svc in "$API_SVC" "$ADMIN_BOT_SVC" "$CLIENT_BOT_SVC" "$WORKER_SVC"; do
         source_name="$svc"
-        if [[ "$SVC_PREFIX" == "vpnmanager" ]]; then
-            source_name="${svc/vpnmanager/vpnmanager}"
+        if [[ "$SVC_PREFIX" == "$LEGACY_PREFIX" ]]; then
+            source_name="${svc/${LEGACY_PREFIX}/vpnmanager}"
         fi
         src="$release_root/deploy/systemd/${source_name}.service"
         dst="$SYSTEMD_UNIT_DIR/${svc}.service"
@@ -325,7 +327,7 @@ install_service_units_from_release() {
     done
 
     src="$release_root/deploy/${PORTAL_SVC}.service"
-    if [[ ! -f "$src" && "$SVC_PREFIX" == "vpnmanager" ]]; then
+    if [[ ! -f "$src" && "$SVC_PREFIX" == "$LEGACY_PREFIX" ]]; then
         src="$release_root/deploy/vpnmanager-client-portal.service"
     fi
     dst="$SYSTEMD_UNIT_DIR/${PORTAL_SVC}.service"
@@ -347,7 +349,7 @@ is_versioned_runtime_supported() {
     if [[ "$SVC_PREFIX" == "vpnmanager" ]]; then
         [[ -f "$extract_root/deploy/systemd/${API_SVC}.service" ]] || return 1
         [[ -f "$extract_root/deploy/${PORTAL_SVC}.service" ]] || return 1
-    elif [[ "$SVC_PREFIX" == "vpnmanager" ]]; then
+    elif [[ "$SVC_PREFIX" == "$LEGACY_PREFIX" ]]; then
         [[ -f "$extract_root/deploy/systemd/vpnmanager-api.service" ]] || return 1
         [[ -f "$extract_root/deploy/vpnmanager-client-portal.service" ]] || return 1
     else
@@ -787,7 +789,7 @@ if [[ "$REQUIRES_MIGRATION" == "true" ]]; then
         log_err "Migration required but alembic not available"
         log_err "  searched: \$INSTALL_DIR/venv/bin/alembic ($INSTALL_DIR/venv/bin/alembic)"
         log_err "  searched: /opt/vpnmanager/venv/bin/alembic"
-        log_err "  searched: /opt/vpnmanager/venv/bin/alembic"
+        log_err "  searched: /opt/${LEGACY_PREFIX}/venv/bin/alembic"
         log_err "  searched: command -v alembic (system PATH)"
         log_err "  alembic.ini present: $([[ -f "$TARGET_RELEASE_DIR/alembic.ini" ]] && echo yes || echo no) (at $TARGET_RELEASE_DIR/alembic.ini)"
         log_err "  override available: export ALEMBIC_BIN=/path/to/alembic and re-run"

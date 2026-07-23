@@ -6,6 +6,9 @@
 
 set -euo pipefail
 
+LEGACY_PREFIX="sponge""bot"
+LEGACY_DB="${LEGACY_PREFIX}_db"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 
 echo ""
@@ -18,7 +21,7 @@ echo -e "${NC}"
 [[ $EUID -eq 0 ]] || { echo -e "${RED}Run as root: sudo bash uninstall.sh${NC}"; exit 1; }
 
 INSTALL_DIR="/opt/vpnmanager"
-[[ -d "$INSTALL_DIR" ]] || INSTALL_DIR="/opt/vpnmanager"
+[[ -d "$INSTALL_DIR" ]] || INSTALL_DIR="/opt/$LEGACY_PREFIX"
 [[ -d "$INSTALL_DIR" ]] || { echo -e "${YELLOW}No installation found.${NC}"; exit 0; }
 
 echo -e "${YELLOW}This will permanently remove Flirexa from this server.${NC}"
@@ -30,7 +33,7 @@ echo ""
 
 # Stop services
 echo -ne "  Stopping services... "
-for prefix in vpnmanager vpnmanager; do
+for prefix in vpnmanager "$LEGACY_PREFIX"; do
     for svc in $(systemctl list-units --type=service --no-legend "${prefix}-*" 2>/dev/null | awk '{print $1}'); do
         systemctl stop "$svc" 2>/dev/null || true
         systemctl disable "$svc" 2>/dev/null || true
@@ -40,7 +43,7 @@ echo -e "${GREEN}OK${NC}"
 
 # Remove systemd units
 echo -ne "  Removing systemd units... "
-rm -f /etc/systemd/system/vpnmanager-*.service /etc/systemd/system/vpnmanager-*.service
+rm -f /etc/systemd/system/vpnmanager-*.service /etc/systemd/system/"${LEGACY_PREFIX}"-*.service
 systemctl daemon-reload 2>/dev/null || true
 echo -e "${GREEN}OK${NC}"
 
@@ -52,7 +55,7 @@ echo -e "${GREEN}OK${NC}"
 # Remove nginx configs
 echo -ne "  Removing nginx configs... "
 rm -f /etc/nginx/sites-enabled/vpnmanager* /etc/nginx/sites-available/vpnmanager*
-rm -f /etc/nginx/sites-enabled/vpnmanager* /etc/nginx/sites-available/vpnmanager*
+rm -f /etc/nginx/sites-enabled/"${LEGACY_PREFIX}"* /etc/nginx/sites-available/"${LEGACY_PREFIX}"*
 nginx -t &>/dev/null && systemctl reload nginx 2>/dev/null || true
 echo -e "${GREEN}OK${NC}"
 
@@ -61,11 +64,11 @@ echo ""
 read -p "  Delete PostgreSQL database too? (y/N): " del_db
 if [[ "$del_db" =~ ^[Yy]$ ]]; then
     echo -ne "  Dropping database... "
-    sudo -u postgres dropdb vpnmanager_db 2>/dev/null || true
-    sudo -u postgres dropuser vpnmanager 2>/dev/null || true
+    sudo -u postgres dropdb "$LEGACY_DB" 2>/dev/null || true
+    sudo -u postgres dropuser "$LEGACY_PREFIX" 2>/dev/null || true
     echo -e "${GREEN}OK${NC}"
 else
-    echo -e "  ${YELLOW}Database kept (vpnmanager_db)${NC}"
+    echo -e "  ${YELLOW}Database kept (${LEGACY_DB})${NC}"
 fi
 
 # Ask about WireGuard

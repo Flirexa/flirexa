@@ -362,7 +362,7 @@
           <div class="modal-footer">
             <button type="button" class="btn btn-secondary" @click="closeConfigModal">{{ $t('common.close') }}</button>
             <button type="button" class="btn btn-primary" @click="downloadConfig">
-              {{ isProxyConfig ? $t('clients.downloadProxyConf') + ' (.' + (proxyConfig?.protocol === 'hysteria2' ? 'yaml' : 'json') + ')' : $t('clients.downloadConf') }}
+              {{ isProxyConfig ? $t('clients.downloadProxyConf') + ' (.' + proxyConfigExt(proxyConfig?.protocol) + ')' : $t('clients.downloadConf') }}
             </button>
           </div>
         </div>
@@ -1327,6 +1327,7 @@ function getServerProtocol(serverId) {
   const t = srv?.server_type || ''
   if (t === 'hysteria2') return 'Hysteria2'
   if (t === 'tuic') return 'TUIC'
+  if (t === 'vless-reality') return 'VLESS-Reality'
   if (t === 'amneziawg') return 'AmneziaWG'
   return 'WireGuard'
 }
@@ -1336,7 +1337,7 @@ function getServerProtocol(serverId) {
 function protocolBadgeClass(client) {
   const srv = servers.value.find(s => s.id === client?.server_id)
   const t = srv?.server_type || ''
-  if (t === 'hysteria2' || t === 'tuic') return 'badge-soft-warning'
+  if (t === 'hysteria2' || t === 'tuic' || t === 'vless-reality') return 'badge-soft-warning'
   if (t === 'amneziawg') return 'badge-soft-info'
   return 'badge-soft-primary'
 }
@@ -1344,7 +1345,17 @@ function protocolBadgeClass(client) {
 function isProxyClient(client) {
   if (!client) return false
   const srv = servers.value.find(s => s.id === client.server_id)
-  return srv?.server_category === 'proxy' || srv?.server_type === 'hysteria2' || srv?.server_type === 'tuic'
+  return srv?.server_category === 'proxy' || srv?.server_type === 'hysteria2' || srv?.server_type === 'tuic' || srv?.server_type === 'vless-reality'
+}
+
+// File extension for a proxy client's downloadable config_text. Must match
+// what the backend actually put in config_text (see clients.py get_client_config /
+// download_client_config): Hysteria2 emits YAML, TUIC and VLESS-Reality both emit
+// a v2ray-compatible JSON blob (config_json) — the vless:// URI itself is
+// copied separately via the always-visible Copy URI button, not downloaded here.
+function proxyConfigExt(protocol) {
+  if (protocol === 'hysteria2') return 'yaml'
+  return 'json'
 }
 
 // Free any QR object URLs from a previous config view and reset them. Mirrors
@@ -1411,7 +1422,7 @@ function downloadConfig() {
   const safeName = (configClient.value?.name || 'client').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 48) || 'client'
   if (isProxyConfig.value) {
     const text = proxyConfig.value?.config_text || ''
-    const ext = proxyConfig.value?.protocol === 'hysteria2' ? 'yaml' : 'json'
+    const ext = proxyConfigExt(proxyConfig.value?.protocol)
     const blob = new Blob([text], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

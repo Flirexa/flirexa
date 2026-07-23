@@ -649,24 +649,38 @@ async function loadMapData() {
   }
 }
 
+function _applyDashboardData(status, cData, sData, rev, ch) {
+  stats.value = status || {}
+  clients.value = (cData && cData.items) ? cData.items : (Array.isArray(cData) ? cData : [])
+  servers.value = (sData && sData.items) ? sData.items : (Array.isArray(sData) ? sData : [])
+  revenue.value = rev || {}
+  charts.value = ch || { revenue_trend: [], user_trend: [], sub_distribution: {}, payment_methods: {} }
+}
+
 onMounted(async () => {
   try {
-    const [statusRes, clientsRes, serversRes, revenueRes, chartsRes] = await Promise.all([
-      systemApi.getStatus(),
-      clientsApi.getAll(),
-      serversApi.getAll(),
-      portalUsersApi.getRevenueStats().catch(() => ({ data: {} })),
-      portalUsersApi.getChartData().catch(() => ({ data: { revenue_trend: [], user_trend: [], sub_distribution: {}, payment_methods: {} } })),
-    ])
-    stats.value = statusRes.data
-    const cData = clientsRes.data
-    clients.value = (cData && cData.items) ? cData.items : (Array.isArray(cData) ? cData : [])
-    const sData = serversRes.data
-    servers.value = (sData && sData.items) ? sData.items : (Array.isArray(sData) ? sData : [])
-    revenue.value = revenueRes.data
-    charts.value = chartsRes.data
-  } catch (err) {
-    console.error('Dashboard load error:', err)
+    // ONE batched request instead of 5 parallel ones: same payload shapes,
+    // one HTTP round-trip, one DB session server-side. The individual
+    // endpoints still exist — fall back to them if the batch call fails
+    // (defense against a mixed-version deploy mid-update).
+    const { data } = await systemApi.getDashboard()
+    _applyDashboardData(data.status, data.clients, data.servers, data.revenue, data.charts)
+  } catch (batchErr) {
+    console.warn('Dashboard batch endpoint failed, falling back to individual calls:', batchErr)
+    try {
+      const [statusRes, clientsRes, serversRes, revenueRes, chartsRes] = await Promise.all([
+        systemApi.getStatus(),
+        // Dashboard only renders the 10 most-recent clients (slice(0,10));
+        // the total comes from /system/status — fetch 10, not every row.
+        clientsApi.getAll({ limit: 10 }),
+        serversApi.getAll(),
+        portalUsersApi.getRevenueStats().catch(() => ({ data: {} })),
+        portalUsersApi.getChartData().catch(() => ({ data: { revenue_trend: [], user_trend: [], sub_distribution: {}, payment_methods: {} } })),
+      ])
+      _applyDashboardData(statusRes.data, clientsRes.data, serversRes.data, revenueRes.data, chartsRes.data)
+    } catch (err) {
+      console.error('Dashboard load error:', err)
+    }
   }
 
   // Init map after DOM is ready

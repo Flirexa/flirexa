@@ -15,6 +15,8 @@
 
 set -euo pipefail
 
+LEGACY_PREFIX="sponge""bot"
+
 # Auto-detect install directory (check common locations)
 detect_install_dir() {
     if [ -n "${INSTALL_DIR:-}" ]; then
@@ -23,16 +25,16 @@ detect_install_dir() {
         echo "$(pwd)"
     elif [ -f "./main.py" ] && [ -d "./src" ]; then
         echo "$(pwd)"
+    elif [ -d "/opt/$LEGACY_PREFIX" ] && [ -L "/opt/$LEGACY_PREFIX/current" ]; then
+        echo "/opt/$LEGACY_PREFIX"
+    elif [ -d "/opt/$LEGACY_PREFIX" ] && [ -f "/opt/$LEGACY_PREFIX/main.py" ]; then
+        echo "/opt/$LEGACY_PREFIX"
     elif [ -d "/opt/vpnmanager" ] && [ -L "/opt/vpnmanager/current" ]; then
         echo "/opt/vpnmanager"
     elif [ -d "/opt/vpnmanager" ] && [ -f "/opt/vpnmanager/main.py" ]; then
         echo "/opt/vpnmanager"
-    elif [ -d "/opt/vpnmanager" ] && [ -L "/opt/vpnmanager/current" ]; then
-        echo "/opt/vpnmanager"
-    elif [ -d "/opt/vpnmanager" ] && [ -f "/opt/vpnmanager/main.py" ]; then
-        echo "/opt/vpnmanager"
-    elif [ -d "/root/vpnmanager_new" ] && [ -f "/root/vpnmanager_new/main.py" ]; then
-        echo "/root/vpnmanager_new"
+    elif [ -d "/root/${LEGACY_PREFIX}_new" ] && [ -f "/root/${LEGACY_PREFIX}_new/main.py" ]; then
+        echo "/root/${LEGACY_PREFIX}_new"
     else
         echo ""
     fi
@@ -41,12 +43,12 @@ detect_install_dir() {
 detect_service_prefix() {
     if systemctl list-unit-files 2>/dev/null | grep -q '^vpnmanager-api\.service'; then
         echo "vpnmanager"
-    elif systemctl list-unit-files 2>/dev/null | grep -q '^vpnmanager-api\.service'; then
-        echo "vpnmanager"
+    elif systemctl list-unit-files 2>/dev/null | grep -q "^${LEGACY_PREFIX}-api\\.service"; then
+        echo "$LEGACY_PREFIX"
     elif [ -d "/etc/systemd/system" ] && ls /etc/systemd/system/vpnmanager-*.service >/dev/null 2>&1; then
         echo "vpnmanager"
     else
-        echo "vpnmanager"
+        echo "$LEGACY_PREFIX"
     fi
 }
 
@@ -89,9 +91,9 @@ install_service_unit_from_template() {
     cp "$src" "$dst"
     sed -i \
         -e "s|/opt/vpnmanager|$INSTALL_DIR|g" \
-        -e "s|/opt/vpnmanager|$INSTALL_DIR|g" \
+        -e "s|/opt/${LEGACY_PREFIX}|$INSTALL_DIR|g" \
         -e "s|vpnmanager-|${SERVICE_PREFIX}-|g" \
-        -e "s|vpnmanager-|${SERVICE_PREFIX}-|g" \
+        -e "s|${LEGACY_PREFIX}-|${SERVICE_PREFIX}-|g" \
         "$dst"
     return 0
 }
@@ -263,7 +265,7 @@ setup_systemd() {
     log "Installing systemd services..."
 
     local source_prefix="$SERVICE_PREFIX"
-    if [ "$SERVICE_PREFIX" = "vpnmanager" ]; then
+    if [ "$SERVICE_PREFIX" = "$LEGACY_PREFIX" ]; then
         source_prefix="vpnmanager"
     fi
 

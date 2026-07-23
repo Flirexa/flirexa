@@ -8,9 +8,16 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 import bcrypt
 import os
 import hashlib
+import json as _json
+import logging
+
+from src.database.connection import get_db
+
+logger = logging.getLogger(__name__)
 
 
 # Configuration
@@ -103,6 +110,10 @@ async def get_current_admin(
         )
         if "user_id" not in payload:
             raise HTTPException(status_code=401, detail="Invalid token payload")
+        # A long-lived refresh token must NOT be accepted as an access token —
+        # otherwise the 30-min access lifetime is defeated (refresh lives 7 days).
+        if payload.get("type") == "refresh":
+            raise HTTPException(status_code=401, detail="Refresh token cannot be used for access")
         return payload
     except JWTError:
         raise HTTPException(
@@ -110,3 +121,79 @@ async def get_current_admin(
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+async def require_superadmin(
+    payload: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Dependency that requires the caller to be an ACTIVE superadmin.
+
+    Loads the AdminUser row (authoritative, not just the token claim) so that a
+    deactivated/deleted admin is cut immediately, and so a scoped "manager"
+    account cannot reach superadmin-only surfaces (e.g. admin-account CRUD).
+
+    The owner (role='owner') always passes — the operator is never locked out of
+    their own box even if the is_superadmin flag was never set on their row. If
+    the AdminUser lookup itself fails (e.g. a column a migration hasn't added on
+    an older install), fall back to the signed token claims instead of 500-ing.
+    """
+    from src.database.models import AdminUser
+    try:
+        admin = db.query(AdminUser).filter(AdminUser.id == payload.get("user_id")).first()
+    except Exception as e:
+        logger.warning("require_superadmin: AdminUser lookup failed (%s) — using token claims", e)
+        if payload.get("is_superadmin") or payload.get("role") == "owner":
+            return payload
+        raise HTTPException(status_code=403, detail="Superadmin privileges required")
+    if not admin or getattr(admin, "is_active", True) is False:
+        raise HTTPException(status_code=401, detail="Account inactive or not found")
+    if getattr(admin, "is_superadmin", False) or getattr(admin, "role", "") == "owner":
+        return payload
+    raise HTTPException(status_code=403, detail="Superadmin privileges required")
+
+
+def require_permission(permission: str):
+    """
+    Dependency FACTORY that gates an admin router/route on a manager permission.
+
+    - Owner/admin accounts and explicit superadmins bypass every permission check
+      — only a scoped "manager" account is restricted by its granted list. This
+      is what keeps the operator (and any full admin) from being locked out of
+      their own panel: a missing/false is_superadmin flag on an owner row no
+      longer 403s the entire panel.
+    - Non-owner "manager" accounts must have `permission` in their granted list,
+      else 403.
+    - Re-checks the account is still active, cutting deactivated/deleted admins.
+    - If the AdminUser lookup raises (schema drift on an older install), fall back
+      to the signed token claims rather than blanking every data endpoint.
+    """
+    async def _dep(
+        payload: dict = Depends(get_current_admin),
+        db: Session = Depends(get_db),
+    ) -> dict:
+        from src.database.models import AdminUser
+        try:
+            admin = db.query(AdminUser).filter(AdminUser.id == payload.get("user_id")).first()
+        except Exception as e:
+            logger.warning(
+                "require_permission(%s): AdminUser lookup failed (%s) — using token claims",
+                permission, e,
+            )
+            if payload.get("is_superadmin") or payload.get("role", "owner") != "manager":
+                return payload
+            raise HTTPException(status_code=403, detail=f"Missing permission: {permission}")
+        if not admin or getattr(admin, "is_active", True) is False:
+            raise HTTPException(status_code=401, detail="Account inactive or not found")
+        # Owner/admin/superadmin → full access; only 'manager' is scoped.
+        if getattr(admin, "is_superadmin", False) or getattr(admin, "role", "owner") != "manager":
+            return payload
+        try:
+            perms = _json.loads(admin.permissions) if admin.permissions else []
+        except (ValueError, TypeError):
+            perms = []
+        if permission not in perms:
+            raise HTTPException(status_code=403, detail=f"Missing permission: {permission}")
+        return payload
+    return _dep

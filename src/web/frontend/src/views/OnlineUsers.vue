@@ -265,8 +265,12 @@ async function refresh() {
   if (inflight) return
   inflight = true
   try {
+    // getOnline() = server-side handshake filter: only the online rows come
+    // back. This poll runs every 5s — getAll() re-downloaded EVERY client
+    // row each tick (~2.7MB at 3000+ clients) just to render a dozen online.
+    // Fallback to getAll() covers a mixed-version deploy mid-update.
     const [cRes, sRes] = await Promise.all([
-      clientsApi.getAll(),
+      clientsApi.getOnline().catch(() => clientsApi.getAll()),
       serversApi.getAll(),
     ])
     const cData = cRes.data

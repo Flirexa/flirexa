@@ -2,6 +2,14 @@
   <div v-if="isLoginPage">
     <router-view />
   </div>
+  <!-- NEW design variant (default) — full shell + router content -->
+  <template v-else-if="design.isNew">
+    <D2App />
+    <DonateModal v-model="donateOpen" @dismissed="onDonateDismissed" />
+    <UpgradeBanner />
+    <UpgradeModal />
+  </template>
+  <!-- Legacy variant — unchanged -->
   <div v-else class="app-wrapper" :class="{ 'sidebar-collapsed': system.sidebarCollapsed }">
     <Sidebar />
     <div class="sidebar-overlay" :class="{ active: system.sidebarOpen }" @click="system.closeSidebar()"></div>
@@ -25,11 +33,14 @@ import Navbar from './components/Navbar.vue'
 import DonateModal from './components/DonateModal.vue'
 import UpgradeBanner from './components/UpgradeBanner.vue'
 import UpgradeModal from './components/UpgradeModal.vue'
+import D2App from './design2/D2App.vue'
+import { useDesignMode } from './stores/designMode'
 import { useSystemStore } from './stores/system'
 import { useBrandingStore } from './stores/branding'
 import { useLicenseStore } from './stores/license'
 
 const route = useRoute()
+const design = useDesignMode()
 const system = useSystemStore()
 const branding = useBrandingStore()
 const license = useLicenseStore()

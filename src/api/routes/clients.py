@@ -240,6 +240,56 @@ def list_clients(
     return {"total": total, "limit": limit, "offset": offset, "items": clients}
 
 
+@router.get("/online")
+def list_online_clients(
+    window: int = Query(180, ge=10, le=3600, description="Online window in seconds"),
+    db: Session = Depends(get_db)
+):
+    """
+    Only the clients that are online right now (handshake within `window`).
+
+    The Online Users tab used to call GET /clients (every row, ~2.7MB at
+    3000+ clients) on a 5-second poll just to filter down to the handful of
+    online peers client-side. This endpoint does the filter server-side
+    against the in-memory handshake cache, then loads ONLY the matching
+    rows — payload and DB work scale with the online count, not the total
+    client count.
+
+    Keyed by (server_id, public_key), matching _enrich_handshakes: device
+    slots reuse one keypair across regions, so pubkey alone would light up
+    every region's row when one region is online.
+
+    Declared `def` (sync SQLAlchemy → threadpool), same as list_clients.
+    """
+    from src.modules.cache.handshake_cache import get_cache
+
+    pairs = get_cache().online_pairs(window_seconds=window)
+    if not pairs:
+        return {"total": 0, "items": []}
+
+    pubkeys = list({pk for (_sid, pk) in pairs.keys()})
+    rows = (
+        db.query(Client)
+        .options(
+            defer(Client.private_key),
+            defer(Client.preshared_key),
+            defer(Client.proxy_password),
+        )
+        .filter(Client.public_key.in_(pubkeys))
+        .all()
+    )
+    # Keep only exact (server_id, pubkey) matches + stamp the cached handshake.
+    items = []
+    for c in rows:
+        hs = pairs.get((c.server_id, c.public_key))
+        if hs is None:
+            continue
+        c.last_handshake = hs
+        items.append(c)
+    items.sort(key=lambda c: c.last_handshake, reverse=True)
+    return {"total": len(items), "items": items}
+
+
 # ============================================================================
 # MAP DATA (GeoIP) — must be before /{client_id} routes
 # ============================================================================

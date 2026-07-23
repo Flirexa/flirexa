@@ -73,8 +73,16 @@ def app_with_db():
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_admin] = _fake_admin
 
-    # Seed server
+    # Seed authoritative owner + server.
     db = TestSession()
+    db.add(AdminUser(
+        id=1,
+        username="testadmin",
+        password_hash="not-used-by-overridden-auth",
+        is_superadmin=True,
+        is_active=True,
+        role="owner",
+    ))
     server = Server(
         name="wg0",
         interface="wg0",
@@ -493,7 +501,7 @@ class TestClientPortalFlow:
             "username": "second",
         })
         assert r.status_code == 400
-        assert "already registered" in r.json()["detail"].lower()
+        assert "already exists" in r.json()["detail"].lower()
 
     def test_register_short_password(self, client):
         r = client.post("/client-portal/auth/register", json={

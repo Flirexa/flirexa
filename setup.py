@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Flirexa Setup
+Flirexa setup metadata.
 """
+
+from pathlib import Path
 
 from setuptools import setup, find_packages
 
@@ -12,20 +14,19 @@ with open("requirements.txt", "r", encoding="utf-8") as f:
     requirements = [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 setup(
-    name="vpnmanager",
-    version="2.0.0",
-    author="Flirexa Team",
+    name="flirexa-vpn-manager",
+    version=Path("VERSION").read_text(encoding="utf-8").strip(),
+    author="Flirexa",
     description="WireGuard VPN Management Platform",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/vpnmanager/vpnmanager",
+    url="https://github.com/Flirexa/flirexa",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.10",
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "vpnmanager=main:main",
             "vpnmanager=src.cli.main:main",
         ],
     },

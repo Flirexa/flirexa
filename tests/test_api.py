@@ -1,5 +1,5 @@
 """
-Integration tests for Flirexa FastAPI API
+Integration tests for the Flirexa FastAPI API
 Uses TestClient with SQLite in-memory database
 """
 
@@ -18,7 +18,14 @@ os.environ["AUTH_ENABLED"] = "false"
 os.environ["SMTP_ENABLED"] = "false"
 os.environ["LICENSE_CHECK_ENABLED"] = "false"
 
-from src.database.models import Base, Server, Client, ClientStatus, SystemConfig
+from src.database.models import (
+    AdminUser,
+    Base,
+    Client,
+    ClientStatus,
+    Server,
+    SystemConfig,
+)
 from src.database.connection import get_db
 from src.api.main import create_app
 from src.api.middleware.auth import get_current_admin
@@ -57,8 +64,18 @@ def app_with_db():
         "user_id": 1, "username": "testadmin", "is_superadmin": True
     }
 
-    # Seed a server
+    # Seed the authoritative admin row used by DB-backed RBAC dependencies.
     db = TestSession()
+    db.add(AdminUser(
+        id=1,
+        username="testadmin",
+        password_hash="not-used-by-overridden-auth",
+        is_superadmin=True,
+        is_active=True,
+        role="owner",
+    ))
+
+    # Seed a server
     server = Server(
         name="wg0",
         interface="wg0",
@@ -366,6 +383,32 @@ class TestTariffCorporateFields:
         data = updated.json()
         assert data["corp_networks"] == 4
         assert data["corp_sites"] == 40
+
+    def test_tariff_popular_flag_roundtrips_and_can_be_cleared(self, client):
+        payload = {
+            "tier": "featured-plan",
+            "name": "Featured",
+            "description": "highlighted tier",
+            "max_devices": 5,
+            "traffic_limit_gb": 100,
+            "bandwidth_limit_mbps": 50,
+            "price_monthly_usd": 12.0,
+            "is_active": True,
+            "is_visible": True,
+            "display_order": 5,
+            "popular": True,
+        }
+        created = client.post("/api/v1/tariffs", json=payload)
+        assert created.status_code == 201, created.text
+        assert created.json()["popular"] is True
+
+        tariff_id = created.json()["id"]
+        updated = client.put(
+            f"/api/v1/tariffs/{tariff_id}",
+            json={"popular": False},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["popular"] is False
 
 
 # ============================================================================

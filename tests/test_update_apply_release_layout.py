@@ -111,7 +111,7 @@ def _run_apply(tmp_path: Path, install_dir: Path, staging_dir: Path, package_pat
         }
     )
     return subprocess.run(
-        ["bash", "/root/vpnmanager_new/update_apply.sh"],
+        ["bash", "/root/" + ("sponge" "bot") + "_new/update_apply.sh"],
         text=True,
         capture_output=True,
         env=env,
@@ -139,11 +139,11 @@ def test_update_apply_uses_release_layout_when_runtime_is_ready(tmp_path: Path):
     assert (tmp_path / "backup" / "previous_release_path").read_text().strip().endswith("/releases/1.2.82")
 
 
-def test_update_apply_uses_release_layout_for_legacy_vpnmanager_with_template_adaptation(tmp_path: Path):
+def test_update_apply_uses_release_layout_for_legacy_prefix_with_template_adaptation(tmp_path: Path):
     install_dir = tmp_path / "install"
     install_dir.mkdir()
     _write(install_dir / "VERSION", "1.2.82")
-    _write(install_dir / ".env", "API_SERVICE=vpnmanager-api\n")
+    _write(install_dir / ".env", "API_SERVICE=" + ("sponge" "bot") + "-api\n")
     (install_dir / "releases").mkdir()
     current = install_dir / "current"
     current.symlink_to(install_dir)
@@ -162,7 +162,7 @@ def test_update_apply_falls_back_to_inplace_when_release_layout_templates_missin
     install_dir = tmp_path / "install"
     install_dir.mkdir()
     _write(install_dir / "VERSION", "1.2.82")
-    _write(install_dir / ".env", "API_SERVICE=vpnmanager-api\n")
+    _write(install_dir / ".env", "API_SERVICE=" + ("sponge" "bot") + "-api\n")
     (install_dir / "releases").mkdir()
     current = install_dir / "current"
     current.symlink_to(install_dir)

@@ -4,6 +4,42 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.52 — 2026-07-23
+
+### Added
+
+- **New admin experience.** The redesigned light/dark admin panel is now
+  reproducible from source and remains switchable with the legacy interface.
+- **VLESS-Reality support.** Operators can provision Reality-backed Xray
+  servers, issue clients, and share subscription links and QR configurations
+  through the admin and customer interfaces.
+- **Mandatory security updates.** Signed manifests can mark an update as
+  mandatory so critical fixes apply even when routine auto-updates are off,
+  while retaining package-signature, migration, and rollback safeguards.
+
+### Changed
+
+- Product-facing runtime text, services, documentation, and generated assets
+  now consistently use the Flirexa brand.
+- Full-host backups now cover the complete recovery set and verify required
+  content before uploading encrypted archives.
+- FREE installations support up to 80 clients and one local server for each
+  included protocol: WireGuard and AmneziaWG.
+
+### Fixed
+
+- Fresh PostgreSQL installations now register every model before creating the
+  schema and fail clearly on migration errors instead of reporting a false
+  success.
+- Existing owner accounts retain full access when upgrading to database-backed
+  RBAC permissions.
+- Update, payment, activation, support-bundle, and privileged tunnel paths
+  received additional validation, redaction, and trust-boundary hardening.
+- Secondary workers shut down cleanly, and the paid customer Telegram bot is
+  enabled for the license tiers that advertise it.
+
+---
+
 ## v2.2.32 — 2026-07-10
 
 ### Fixed

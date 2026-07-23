@@ -67,7 +67,7 @@ def _make_manifest(version="1.1.0", channel="stable", private_key=None) -> dict:
         "update_type":               "minor",
         "release_notes":             "Bug fixes",
         "changelog":                 "Bug fixes",
-        "package_url":               f"https://example.com/updates/packages/vpn-manager-v{version}.tar.gz",
+        "package_url":               f"https://flirexa.biz/updates/packages/vpn-manager-v{version}.tar.gz",
         "sha256":                    "a" * 64,
         "package_sha256":            "a" * 64,
         "package_size":              12345,
@@ -139,9 +139,9 @@ class TestManifestVerification:
             f.write(self.pub_pem)
             pub_path = f.name
         try:
-            with patch("src.modules.updates.checker._load_pub_key") as mock_load:
+            with patch("src.modules.updates.checker._load_pub_keys") as mock_load:
                 from cryptography.hazmat.primitives import serialization
-                mock_load.return_value = serialization.load_pem_public_key(self.pub_pem)
+                mock_load.return_value = [serialization.load_pem_public_key(self.pub_pem)]
                 assert _verify_manifest_signature(m) is True
         finally:
             os.unlink(pub_path)
@@ -150,36 +150,36 @@ class TestManifestVerification:
         from src.modules.updates.checker import _verify_manifest_signature
         m = _make_manifest(private_key=self.priv_key)
         m["signature"] = "AAAA"  # corrupt
-        with patch("src.modules.updates.checker._load_pub_key") as mock_load:
+        with patch("src.modules.updates.checker._load_pub_keys") as mock_load:
             from cryptography.hazmat.primitives import serialization
-            mock_load.return_value = serialization.load_pem_public_key(self.pub_pem)
+            mock_load.return_value = [serialization.load_pem_public_key(self.pub_pem)]
             assert _verify_manifest_signature(m) is False
 
     def test_tampered_manifest_fails(self):
         from src.modules.updates.checker import _verify_manifest_signature
         m = _make_manifest(private_key=self.priv_key)
         m["version"] = "9.9.9"  # tamper after signing
-        with patch("src.modules.updates.checker._load_pub_key") as mock_load:
+        with patch("src.modules.updates.checker._load_pub_keys") as mock_load:
             from cryptography.hazmat.primitives import serialization
-            mock_load.return_value = serialization.load_pem_public_key(self.pub_pem)
+            mock_load.return_value = [serialization.load_pem_public_key(self.pub_pem)]
             assert _verify_manifest_signature(m) is False
 
     def test_missing_signature_fails(self):
         from src.modules.updates.checker import _verify_manifest_signature
         m = _make_manifest(private_key=self.priv_key)
         del m["signature"]
-        with patch("src.modules.updates.checker._load_pub_key") as mock_load:
+        with patch("src.modules.updates.checker._load_pub_keys") as mock_load:
             from cryptography.hazmat.primitives import serialization
-            mock_load.return_value = serialization.load_pem_public_key(self.pub_pem)
+            mock_load.return_value = [serialization.load_pem_public_key(self.pub_pem)]
             assert _verify_manifest_signature(m) is False
 
     def test_wrong_key_fails(self):
         from src.modules.updates.checker import _verify_manifest_signature
         m = _make_manifest(private_key=self.priv_key)
         _, wrong_pub_pem, _ = _make_key_pair()  # different key
-        with patch("src.modules.updates.checker._load_pub_key") as mock_load:
+        with patch("src.modules.updates.checker._load_pub_keys") as mock_load:
             from cryptography.hazmat.primitives import serialization
-            mock_load.return_value = serialization.load_pem_public_key(wrong_pub_pem)
+            mock_load.return_value = [serialization.load_pem_public_key(wrong_pub_pem)]
             assert _verify_manifest_signature(m) is False
 
 
@@ -248,8 +248,8 @@ class TestFetchManifest:
     def _patch_pub_key(self):
         from cryptography.hazmat.primitives import serialization
         return patch(
-            "src.modules.updates.checker._load_pub_key",
-            return_value=serialization.load_pem_public_key(self.pub_pem),
+            "src.modules.updates.checker._load_pub_keys",
+            return_value=[serialization.load_pem_public_key(self.pub_pem)],
         )
 
     @pytest.mark.asyncio
@@ -353,7 +353,8 @@ class TestFetchManifest:
             return True
 
         with patch("httpx.AsyncClient") as mock_cls, \
-             patch("src.modules.updates.checker._verify_manifest_signature", side_effect=fake_verify):
+             patch("src.modules.updates.checker._verify_manifest_signature", side_effect=fake_verify), \
+             patch.dict(os.environ, {"UPDATE_SERVER_ALLOWED_HOSTS": "example.com"}):
             instance = AsyncMock()
             instance.__aenter__ = AsyncMock(return_value=instance)
             instance.__aexit__ = AsyncMock(return_value=None)
@@ -452,13 +453,17 @@ class TestManagerHelpers:
         from src.modules.updates import manager
         version_file = tmp_path / "VERSION"
         version_file.write_text("1.2.3\n")
-        with patch.object(manager, "_VERSION_FILE", version_file):
+        with patch.dict(os.environ, {"VERSION_FILE": str(version_file)}):
             assert manager.get_current_version() == "1.2.3"
 
     def test_get_current_version_missing_returns_default(self, tmp_path):
         from src.modules.updates import manager
-        with patch.object(manager, "_VERSION_FILE", tmp_path / "MISSING"):
-            assert manager.get_current_version() == "0.0.0"
+        with patch.dict(os.environ, {"VERSION_FILE": str(tmp_path / "MISSING")}):
+            # Hide the checkout's real VERSION so the fallback chain can be
+            # exercised deterministically.
+            with patch.object(manager, "_INSTALL_DIR", tmp_path / "install"), \
+                 patch.object(manager, "_REPO_ROOT", tmp_path / "repo"):
+                assert manager.get_current_version() == "0.0.0"
 
     def test_get_active_update_id_none_when_empty(self):
         from src.modules.updates import manager
@@ -977,8 +982,8 @@ class TestCheckerErrorMessages:
 
         from cryptography.hazmat.primitives import serialization
         with patch("httpx.AsyncClient") as mock_cls, \
-             patch("src.modules.updates.checker._load_pub_key",
-                   return_value=serialization.load_pem_public_key(pub_pem)):
+             patch("src.modules.updates.checker._load_pub_keys",
+                   return_value=[serialization.load_pem_public_key(pub_pem)]):
             instance = AsyncMock()
             instance.__aenter__ = AsyncMock(return_value=instance)
             instance.__aexit__ = AsyncMock(return_value=None)
@@ -1103,4 +1108,3 @@ class TestUpdateArtifactCleanup:
         assert keep.rollback_available is True
         assert old.rollback_available is False
         assert old.backup_path is None
-

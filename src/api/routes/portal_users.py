@@ -15,7 +15,7 @@ from sqlalchemy import func, or_, and_
 from loguru import logger
 
 from ...database.connection import get_db
-from ...database.models import Client, Server, ClientStatus
+from ...database.models import Client, Server, ClientStatus, TrafficDaily
 from ...modules.subscription.subscription_models import (
     ClientUser, ClientPortalSubscription, ClientPortalPayment,
     SubscriptionPlan, SubscriptionStatus, ClientUserClients,
@@ -185,8 +185,10 @@ class SendMessageRequest(BaseModel):
 
 class BroadcastRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
-    tier: Optional[str] = None  # None = all users
-    only_active: bool = True
+    tier: Optional[str] = None       # None or "all" = every tier
+    only_active: bool = False        # matches the UI toggle default (off)
+    platform: Optional[str] = None   # None or "all" = every platform; else "android" | "ios"
+    title: Optional[str] = None      # optional heading; defaults to "Announcement"
 
 
 class PaymentListItem(BaseModel):
@@ -789,20 +791,43 @@ def get_chart_data(db: Session = Depends(get_db)):
     ).group_by(ClientPortalSubscription.tier).all()
     sub_distribution = {row[0] or "free": row[1] for row in tier_rows}
 
-    # Payment method distribution
+    # Payment method distribution — dollar VOLUME per method (the dashboard bar
+    # card prefixes values with "$", so this must be summed amount, not a count).
     method_rows = db.query(
         ClientPortalPayment.payment_method,
-        func.count(ClientPortalPayment.id)
+        func.sum(ClientPortalPayment.amount_usd)
     ).filter(
         ClientPortalPayment.status == "completed"
     ).group_by(ClientPortalPayment.payment_method).all()
-    payment_methods = {str(row[0].value) if row[0] else "unknown": row[1] for row in method_rows}
+    payment_methods = {
+        (str(row[0].value) if row[0] else "unknown"): round(float(row[1] or 0), 2)
+        for row in method_rows
+    }
+
+    # Traffic by day — last 14 days, aggregated across ALL clients, in GB.
+    # Feeds the dashboard "Traffic" bar chart (previously it mistakenly reused
+    # the new-users series). Source: traffic_daily (TrafficManager.sync_traffic_to_db).
+    traffic_trend = []
+    today = now.date()
+    tstart = today - timedelta(days=13)
+    traffic_rows = db.query(
+        func.date(TrafficDaily.date),
+        func.sum(TrafficDaily.bytes_rx + TrafficDaily.bytes_tx)
+    ).filter(
+        func.date(TrafficDaily.date) >= tstart
+    ).group_by(func.date(TrafficDaily.date)).all()
+    traffic_by_day = {str(row[0]): int(row[1] or 0) for row in traffic_rows}
+    for i in range(13, -1, -1):
+        d = today - timedelta(days=i)
+        gb = round(traffic_by_day.get(str(d), 0) / (1024 ** 3), 2)
+        traffic_trend.append({"date": d.strftime("%b %d"), "gb": gb})
 
     return {
         "revenue_trend": revenue_trend,
         "user_trend": user_trend,
         "sub_distribution": sub_distribution,
         "payment_methods": payment_methods,
+        "traffic_trend": traffic_trend,
     }
 
 
@@ -810,30 +835,77 @@ def get_chart_data(db: Session = Depends(get_db)):
 
 @router.post("/broadcast")
 def broadcast_message(data: BroadcastRequest, db: Session = Depends(get_db)):
-    """Send a Telegram message to all (or filtered) portal users"""
-    query = db.query(ClientUser).filter(ClientUser.telegram_id.isnot(None))
+    """Broadcast a message to portal users.
+
+    Delivers on every channel we have for each matched user: an in-app
+    notification (shown in the app/portal — reaches everyone, no Telegram
+    required), a Telegram DM for users who linked it, and an FCM push for
+    users with a registered mobile install. Filter by tier, active state, and
+    platform (android | ios; desktop can't be split — Windows and Linux both
+    report as one platform, see the panel note).
+    """
+    from ...database.models import PushNotification, FcmToken
+
+    tier = (data.tier or "").strip().lower()
+    if tier in ("", "all"):
+        tier = None
+    platform = (data.platform or "").strip().lower()
+    if platform in ("", "all"):
+        platform = None
+    if platform and platform not in ("android", "ios"):
+        raise HTTPException(status_code=400, detail="Unknown platform (expected android, ios, or all)")
+
+    query = db.query(ClientUser)
     if data.only_active:
         query = query.filter(ClientUser.is_active == True, ClientUser.is_banned == False)
-    if data.tier:
-        query = query.join(ClientPortalSubscription).filter(func.lower(ClientPortalSubscription.tier) == data.tier.lower())
+    if tier:
+        query = query.join(ClientPortalSubscription).filter(func.lower(ClientPortalSubscription.tier) == tier)
+    if platform:
+        # Users who have at least one registered device on this platform.
+        plat_users = db.query(FcmToken.user_id).filter(func.lower(FcmToken.platform) == platform).distinct()
+        query = query.filter(ClientUser.id.in_(plat_users))
 
     users = query.all()
     if not users:
-        raise HTTPException(status_code=404, detail="No users matching criteria")
+        raise HTTPException(status_code=404, detail="No users match the selected filters")
 
+    title = (data.title or "").strip() or "Announcement"
+
+    # 1) In-app notification feed — one row per matched user (the app/portal
+    #    reads these via GET /client-portal/notifications).
+    for user in users:
+        db.add(PushNotification(
+            user_id=user.id, title=title, message=data.message, notification_type="info",
+        ))
+    db.commit()
+
+    # 2) Telegram DM — best-effort, only users who linked a chat.
     from ...modules.notifications import NotificationService
     notif = NotificationService(db)
-
-    sent = 0
-    failed = 0
+    telegram_sent = 0
     for user in users:
-        ok = notif.notify_user(user.id, data.message)
-        if ok:
-            sent += 1
-        else:
-            failed += 1
+        if getattr(user, "telegram_id", None) and notif.notify_user(user.id, data.message):
+            telegram_sent += 1
 
-    return {"ok": True, "sent": sent, "failed": failed, "total": len(users)}
+    # 3) FCM push — best-effort, only users with a registered mobile install.
+    push_sent = 0
+    try:
+        from ...modules.notifications_fcm import send_to_user
+        for user in users:
+            try:
+                push_sent += send_to_user(db, user.id, title, data.message) or 0
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "recipients": len(users),
+        "inapp": len(users),
+        "telegram": telegram_sent,
+        "push": push_sent,
+    }
 
 
 # --- SUPPORT MESSAGES (Admin side) ---

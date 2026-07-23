@@ -1,5 +1,20 @@
 <template>
   <div class="settings-page">
+    <!-- Design mode (beta) — switch between the new redesign and the classic UI -->
+    <div class="card mb-4">
+      <div class="card-body d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div>
+          <strong>{{ $t('settings.designMode') || 'Design mode' }}</strong>
+          <span class="badge bg-warning text-dark ms-2">Beta</span>
+          <div class="text-muted small mt-1">{{ $t('settings.designModeHint') || 'Switch between the new design and the classic (legacy) one.' }}</div>
+        </div>
+        <div class="btn-group" role="group">
+          <button type="button" class="btn btn-sm" :class="design.isNew ? 'btn-primary' : 'btn-outline-secondary'" @click="design.set('new')">{{ $t('settings.designNew') || 'New' }}</button>
+          <button type="button" class="btn btn-sm" :class="design.isLegacy ? 'btn-primary' : 'btn-outline-secondary'" @click="design.set('legacy')">{{ $t('settings.designLegacy') || 'Legacy' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- License -->
     <h4 class="mb-4 settings-page__section-title">{{ $t('settings.license') }}</h4>
 
@@ -1067,6 +1082,7 @@
 <script>
 import { systemApi, authApi, backupApi } from '../api'
 import { useSystemStore } from '../stores/system'
+import { useDesignMode } from '../stores/designMode'
 import PaymentTestResult from '../components/PaymentTestResult.vue'
 import HelpTooltip from '../components/HelpTooltip.vue'
 
@@ -1279,6 +1295,7 @@ export default {
     }
   },
   computed: {
+    design() { return useDesignMode() },
     curTheme() { return useSystemStore().theme },
     /**
      * Public-facing webhook host. The admin panel runs on port 10086,

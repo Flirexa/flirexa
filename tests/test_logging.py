@@ -32,7 +32,7 @@ os.environ["AUTH_ENABLED"] = "false"
 os.environ["SMTP_ENABLED"] = "false"
 os.environ["LICENSE_CHECK_ENABLED"] = "false"
 
-from src.database.models import Base
+from src.database.models import AdminUser, Base
 from src.database.connection import get_db
 from src.api.main import create_app
 from src.api.middleware.auth import get_current_admin
@@ -47,6 +47,18 @@ def app_and_client():
     )
     Base.metadata.create_all(bind=engine)
     TestSession = sessionmaker(bind=engine)
+
+    db = TestSession()
+    db.add(AdminUser(
+        id=1,
+        username="testadmin",
+        password_hash="not-used-by-overridden-auth",
+        is_superadmin=True,
+        is_active=True,
+        role="owner",
+    ))
+    db.commit()
+    db.close()
 
     app = create_app(debug=True)
 

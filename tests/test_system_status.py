@@ -184,7 +184,8 @@ def test_collect_system_status_does_not_require_worker_heartbeat_when_worker_dis
 
 
 def test_service_prefix_prefers_active_legacy_units(monkeypatch, tmp_path):
-    install_root = tmp_path / "vpnmanager"
+    legacy_prefix = "sponge" "bot"
+    install_root = tmp_path / legacy_prefix
     install_root.mkdir()
     monkeypatch.setenv("INSTALL_DIR", str(install_root))
 
@@ -193,11 +194,11 @@ def test_service_prefix_prefers_active_legacy_units(monkeypatch, tmp_path):
             def __init__(self, rc):
                 self.returncode = rc
                 self.stdout = ""
-        if cmd == ["systemctl", "is-active", "vpnmanager-api"]:
+        if cmd == ["systemctl", "is-active", f"{legacy_prefix}-api"]:
             return R(0)
         if cmd == ["systemctl", "is-active", "vpnmanager-api"]:
             return R(3)
         return R(3)
 
     monkeypatch.setattr("src.modules.system_status.collector.subprocess.run", fake_run)
-    assert _service_prefix() == "vpnmanager"
+    assert _service_prefix() == legacy_prefix

@@ -924,6 +924,7 @@ const protocolLabel = (serverType) => {
     case 'amneziawg': return 'AmneziaWG'
     case 'hysteria2': return 'Hysteria2'
     case 'tuic': return 'TUIC'
+    case 'vless-reality': return 'VLESS-Reality'
     default: return serverType || 'WireGuard'
   }
 }
@@ -958,6 +959,7 @@ const downloadConfigButtonText = computed(() => {
   switch ((configProtocol.value || '').toLowerCase()) {
     case 'hysteria2': return t('dash.downloadYaml')
     case 'tuic': return t('dash.downloadJson')
+    case 'vless-reality': return t('dash.downloadJson')
     default: return t('dash.downloadConf')
   }
 })
@@ -1056,10 +1058,14 @@ const openConfigModalForPeer = async (device) => {
   }
 }
 
+// Extension for the downloaded config_text — must match its actual content
+// (see client_manager._get_proxy_client_config_dict): Hysteria2 emits YAML,
+// TUIC and VLESS-Reality both emit a v2ray-compatible JSON blob.
 const configExtension = (protocol) => {
   switch ((protocol || '').toLowerCase()) {
     case 'hysteria2': return 'yaml'
     case 'tuic': return 'json'
+    case 'vless-reality': return 'json'
     default: return 'conf'
   }
 }

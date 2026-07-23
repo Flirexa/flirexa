@@ -176,12 +176,23 @@ export const authApi = {
 // ===== Clients =====
 export const clientsApi = {
   getAll: (params) => api.get('/clients', { params }),
+  // Online subset only — server-side handshake filter. Payload scales with
+  // the online count, not the total client count (Online tab polls this
+  // every 5s; getAll() there used to re-download every row each tick).
+  getOnline: (params) => api.get('/clients/online', { params }),
   get: (id) => api.get(`/clients/${id}`),
-  create: (data) => api.post('/clients', data),
-  update: (id, data) => api.put(`/clients/${id}`, data),
-  delete: (id) => api.delete(`/clients/${id}`),
-  enable: (id) => api.post(`/clients/${id}/enable`),
-  disable: (id) => api.post(`/clients/${id}/disable`),
+  // Proxy clients (hysteria2/tuic/vless-reality) re-apply the node's config
+  // over SSH on every create/update/delete/enable/disable, and a slow node can
+  // take well over the 30s default before the backend responds (the client is
+  // still created server-side — the request just outlives the default timeout,
+  // surfacing a misleading "timeout of 30000ms exceeded"). Give these the same
+  // headroom the other node-SSH calls already use. Harmless for WG clients,
+  // which return near-instantly regardless of the ceiling.
+  create: (data) => api.post('/clients', data, { timeout: 180000 }),
+  update: (id, data) => api.put(`/clients/${id}`, data, { timeout: 180000 }),
+  delete: (id) => api.delete(`/clients/${id}`, { timeout: 180000 }),
+  enable: (id) => api.post(`/clients/${id}/enable`, null, { timeout: 180000 }),
+  disable: (id) => api.post(`/clients/${id}/disable`, null, { timeout: 180000 }),
   getConfig: (id) => api.get(`/clients/${id}/config`),
   // Returns the .conf as a blob — use for browser-triggered file download
   // (the JSON `getConfig` is for in-app rendering / QR code generation).
@@ -241,6 +252,9 @@ export const serversApi = {
   saveConfig: (id) => api.post(`/servers/${id}/save-config`, {}, { timeout: 60000 }),
   discover: (data) => api.post('/servers/discover', data, { timeout: 120000 }),
   installAgent: (id, port = 8001, opts = {}) => api.post(`/servers/${id}/install-agent`, { port, task_id: opts.taskId || null, force: opts.force || false }, { timeout: 300000 }),
+  // Fleet-wide agent reinstall: returns immediately (background rollout);
+  // progress streams through getBootstrapLogs(taskId), one task for the fleet.
+  reinstallAllAgents: (taskId) => api.post('/servers/agents/reinstall-all', { task_id: taskId || null }, { timeout: 60000 }),
   checkAgentStatus: (id) => api.get(`/agent/${id}/status`),
   uninstallAgent: (id) => api.post(`/agent/${id}/uninstall`, {}, { timeout: 120000 }),
   // Switch the server's mode without uninstalling the agent — useful when the
@@ -402,6 +416,9 @@ export const systemApi = {
   licenseTransferCancel: () => api.post('/system/license/transfer/cancel'),
   // System
   getStatus: () => api.get('/system/status'),
+  // ONE round-trip for the dashboard's initial load (status+clients+servers
+  // +revenue+charts). Shapes identical to the 5 individual endpoints.
+  getDashboard: () => api.get('/system/dashboard'),
   getHealth: () => api.get('/system/health'),
   getLogs: (params) => api.get('/system/logs', { params }),
   getConfig: () => api.get('/system/config'),
@@ -430,6 +447,30 @@ export const systemApi = {
   // `update_channel`; defaults to stable. The Updates page reads it too.
   getUpdateChannel: () => api.get('/updates/channel'),
   setUpdateChannel: (channel) => api.post('/updates/channel', { channel }),
+  // Updates page (designer handoff UpdatesScreen). Backed by routes/updates.py.
+  getUpdateStatus: () => api.get('/updates/status'),
+  checkUpdate: () => api.post('/updates/check', {}, { timeout: 60000 }),
+  applyUpdate: (data = {}) => api.post('/updates/apply', data, { timeout: 300000 }),
+  rollbackUpdate: (updateId) => api.post(`/updates/rollback/${updateId}`, {}, { timeout: 300000 }),
+  getUpdateHistory: () => api.get('/updates/history'),
+  getUpdateLog: (updateId) => api.get(`/updates/log/${updateId}`),
+  getUpdateProgress: (updateId) => api.get(`/updates/progress/${updateId}`),
+  restartServices: () => api.post('/updates/restart', {}, { timeout: 60000 }),
+  getAutoApply: () => api.get('/updates/auto-apply'),
+  setAutoApply: (data) => api.post('/updates/auto-apply', data),
+  // Push notifications page (designer handoff PushNotificationsScreen).
+  getNotificationsList: (params) => api.get('/system/notifications/list', { params }),
+  sendNotification: (data) => api.post('/system/notifications/send', data),
+  // Donation wallets (designer handoff Settings → donate tab + Support modal).
+  getDonationWallets: () => api.get('/system/donation-wallets'),
+  updateDonationWallets: (data) => api.post('/system/donation-wallets', data),
+}
+
+// ===== Plugins (admin) =====  routes/plugins_admin.py, mounted at /plugins
+export const pluginsApi = {
+  installed: () => api.get('/plugins/installed'),
+  install: (data) => api.post('/plugins/install', data, { timeout: 120000 }),
+  uninstall: (name) => api.delete(`/plugins/${encodeURIComponent(name)}`),
 }
 
 export const appAccountsApi = {

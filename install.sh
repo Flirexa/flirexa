@@ -1446,19 +1446,11 @@ install_systemd() {
 
     # Client portal service (separate file location)
     local cp_src="$INSTALL_DIR/deploy/vpnmanager-client-portal.service"
-    if [[ ! -f "$cp_src" ]]; then
-        cp_src="$INSTALL_DIR/deploy/vpnmanager-client-portal.service"
-    fi
-    local legacy_portal_root
-    legacy_portal_root="$(printf '/opt/%s\n' 'vpnmanager')"
     local cp_dst="/etc/systemd/system/vpnmanager-client-portal.service"
     if [[ -f "$cp_src" ]]; then
         cp "$cp_src" "$cp_dst"
         sed -i \
             -e "s|/opt/vpnmanager|$INSTALL_DIR|g" \
-            -e "s|${legacy_portal_root}|$INSTALL_DIR|g" \
-            -e "s|vpnmanager-client-portal|vpnmanager-client-portal|g" \
-            -e "s|Flirexa Client Portal|Flirexa Client Portal|g" \
             "$cp_dst"
         log_info "  Installed: vpnmanager-client-portal.service"
     else

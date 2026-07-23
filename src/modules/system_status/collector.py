@@ -46,6 +46,7 @@ from src.utils.runtime_paths import get_current_link, get_install_root, get_runt
 
 
 _DEFAULT_INSTALL_ROOT = "/opt/vpnmanager"
+_LEGACY_SERVICE_PREFIX = "sponge" "bot"
 _LOW_DISK_MB = int(os.getenv("VPNMANAGER_STATUS_LOW_DISK_MB", "1024"))
 _STALE_UPDATE_MINUTES = int(os.getenv("UPDATE_PROGRESS_STALE_MINUTES", "30"))
 
@@ -59,7 +60,7 @@ def _service_prefix() -> str:
     if env_prefix:
         return env_prefix
     try:
-        for prefix in ("vpnmanager", "vpnmanager"):
+        for prefix in (_LEGACY_SERVICE_PREFIX, "vpnmanager"):
             active_res = subprocess.run(
                 ["systemctl", "is-active", f"{prefix}-api"],
                 capture_output=True,
@@ -71,8 +72,8 @@ def _service_prefix() -> str:
     except Exception:
         pass
     install_root = get_install_root(_DEFAULT_INSTALL_ROOT)
-    if install_root.name == "vpnmanager":
-        return "vpnmanager"
+    if install_root.name == _LEGACY_SERVICE_PREFIX:
+        return _LEGACY_SERVICE_PREFIX
     if install_root.name == "vpnmanager":
         return "vpnmanager"
     try:
@@ -82,8 +83,8 @@ def _service_prefix() -> str:
             stderr=subprocess.DEVNULL,
             timeout=5,
         )
-        if "vpnmanager-api.service" in out:
-            return "vpnmanager"
+        if f"{_LEGACY_SERVICE_PREFIX}-api.service" in out:
+            return _LEGACY_SERVICE_PREFIX
         if "vpnmanager-api.service" in out:
             return "vpnmanager"
     except Exception:

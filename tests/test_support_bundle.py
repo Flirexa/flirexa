@@ -64,6 +64,18 @@ def test_sanitize_env_text_masks_sensitive_keys():
     assert "NORMAL=value" in sanitized
 
 
+def test_sanitize_env_text_redacts_credentials_inside_urls():
+    text = (
+        "SERVICE_ENDPOINT=postgresql://dbuser:dbpass@db.internal:5432/app\n"
+        "PUBLIC_URL=https://example.com/status\n"
+    )
+    sanitized = sanitize_env_text(text)
+    assert "dbuser" not in sanitized
+    assert "dbpass" not in sanitized
+    assert "SERVICE_ENDPOINT=postgresql://***:***@db.internal:5432/app" in sanitized
+    assert "PUBLIC_URL=https://example.com/status" in sanitized
+
+
 def test_create_support_bundle_builds_archive_and_redacts_env(monkeypatch, tmp_path):
     install_root = tmp_path / "install"
     (install_root / "backups" / "update_backups" / "pre_1.2.88").mkdir(parents=True)

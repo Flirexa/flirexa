@@ -1,5 +1,5 @@
 """
-Unit tests for Flirexa Core modules
+Unit tests for Flirexa core modules
 Tests run against SQLite in-memory DB with mocked WireGuard
 """
 

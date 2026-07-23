@@ -787,6 +787,8 @@ class BusinessValidator:
             self._check_tuic_config(server, config_raw, auto_fix)
         elif server_type == "hysteria2":
             self._check_hysteria2_config(server, config_raw, auto_fix)
+        elif server_type == "vless-reality":
+            self._check_vless_config(server, config_raw, auto_fix)
 
     def _check_tuic_config(self, server: Server, config_raw: str, auto_fix: bool):
         """Verify TUIC config users dict matches DB enabled clients."""
@@ -855,6 +857,82 @@ class BusinessValidator:
             self._record_violation(v)
             logger.critical(
                 "[BV] INV-10 CRITICAL: TUIC server {} '{}' — {} ghost user(s) in config",
+                server.id, server.name, len(ghost),
+            )
+            if auto_fix:
+                self._fix_proxy_config(server, v)
+
+    def _check_vless_config(self, server: Server, config_raw: str, auto_fix: bool):
+        """Verify VLESS-Reality (Xray) config clients match DB enabled clients."""
+        import json as _json
+
+        try:
+            cfg = _json.loads(config_raw)
+        except Exception as exc:
+            logger.warning("[BV] INV-10 VLESS-Reality config JSON parse error for server {}: {}",
+                           server.id, exc)
+            return
+
+        inbound = (cfg.get("inbounds") or [{}])[0]
+        live_uuids: set = {
+            c.get("id") for c in inbound.get("settings", {}).get("clients", [])
+            if c.get("id")
+        }
+
+        db_clients = (
+            self.db.query(Client)
+            .filter(
+                Client.server_id == server.id,
+                Client.public_key.is_(None),
+            )
+            .all()
+        )
+        enabled_uuids = {
+            c.proxy_uuid for c in db_clients
+            if c.enabled and c.proxy_uuid
+        }
+        disabled_uuids = {
+            c.proxy_uuid for c in db_clients
+            if not c.enabled and c.proxy_uuid
+        }
+
+        self._report.checked += 1
+
+        # Enabled in DB but missing from config
+        missing = enabled_uuids - live_uuids
+        # Disabled in DB but present in config (access leak)
+        ghost = disabled_uuids & live_uuids
+
+        if missing:
+            v = Violation(
+                invariant="INV-10",
+                entity="server",
+                entity_id=server.id,
+                description=(
+                    f"VLESS-Reality server '{server.name}': {len(missing)} enabled client(s) "
+                    f"missing from config {server.proxy_config_path} — access not granted"
+                ),
+                severity="error",
+            )
+            self._record_violation(v)
+            if auto_fix:
+                self._fix_proxy_config(server, v)
+            return  # auto-fix will rebuild whole config
+
+        if ghost:
+            v = Violation(
+                invariant="INV-10",
+                entity="server",
+                entity_id=server.id,
+                description=(
+                    f"VLESS-Reality server '{server.name}': {len(ghost)} disabled client(s) "
+                    f"still present in config (access leak) — config not regenerated"
+                ),
+                severity="critical",
+            )
+            self._record_violation(v)
+            logger.critical(
+                "[BV] INV-10 CRITICAL: VLESS-Reality server {} '{}' — {} ghost user(s) in config",
                 server.id, server.name, len(ghost),
             )
             if auto_fix:

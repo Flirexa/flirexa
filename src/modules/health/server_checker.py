@@ -744,7 +744,9 @@ class ServerHealthChecker:
                 ssh_password=server.ssh_password,
                 ssh_private_key=server.ssh_private_key,
             )
-            default_svc = "hysteria-server" if server_type == "hysteria2" else "tuic-server"
+            default_svc = "hysteria-server" if server_type == "hysteria2" else (
+                "tuic-server" if server_type == "tuic" else "xray-reality"
+            )
 
             if server_type == "hysteria2":
                 from src.core.hysteria2 import Hysteria2Manager, DEFAULT_CERT_PATH, DEFAULT_KEY_PATH
@@ -768,6 +770,18 @@ class ServerHealthChecker:
                     listen_port=server.listen_port or 8444,
                     domain=server.proxy_domain,
                     tls_mode=server.proxy_tls_mode or "self_signed",
+                    **ssh_kwargs,
+                )
+            elif server_type == "vless-reality":
+                from src.core.vless_reality import VlessRealityManager
+                mgr = VlessRealityManager(
+                    config_path=server.proxy_config_path or "/etc/xray/config.json",
+                    service_name=server.proxy_service_name or default_svc,
+                    listen_port=server.listen_port or 443,
+                    domain=server.proxy_domain,
+                    reality_private_key=server.proxy_reality_private_key,
+                    reality_public_key=server.proxy_reality_public_key,
+                    short_id=server.proxy_reality_short_id,
                     **ssh_kwargs,
                 )
             else:
@@ -854,7 +868,9 @@ class ServerHealthChecker:
         import subprocess
         server_type = getattr(server, 'server_type', 'hysteria2')
         svc = server.proxy_service_name or (
-            "hysteria-server" if server_type == "hysteria2" else "tuic-server"
+            "hysteria-server" if server_type == "hysteria2" else (
+                "tuic-server" if server_type == "tuic" else "xray-reality"
+            )
         )
         try:
             r = subprocess.run(

@@ -306,32 +306,64 @@ def is_license_blocked() -> tuple[bool, str]:
 
 # ── Signature verification ────────────────────────────────────────────────────
 
-def _load_server_pub_key():
+# Pinned server-verify public keys (RSA-PSS) — mirror of server_config.py. During
+# the 2026-07 key rotation both OLD (leaked, retired after the flip) and NEW are
+# accepted; a response is trusted if EITHER verifies. (security: rotation 2026-07)
+_SV_PUB_OLD = b"""-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnXezdbLomyz58LwJB6eG
+U62ZlmSJPc2qS4+cZ/Wg65HonMSZt6/S0bkRO9MMlukZqFG7fCZKW2TKFstJJ5y+
+Arw+jrQEJxnKBDUUPy2iC3/oymKIf+gJIAuWkWIFkxwNr6WT449W1Tmh4QgCRkFR
+dXeYMcpLYLZFH98seoAP2C99WyLGPniLMtt6g74CenMkaTzbkjXwNRMkdvC0O24k
+uNTfK19s3W8cPpDZkES013VC3Qa0pj9tZP1PeBuOww4CSIJXao+2QQfsYVfwoisg
+/JAlL+ih7lJJNOd92wDhjpRBuwfeuUwI+1dqjTgQ4nXn3y9SJXsn6THf360oqeSU
+SwIDAQAB
+-----END PUBLIC KEY-----
+"""
+_SV_PUB_NEW = b"""-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4XHN7ytdeE+padSbGncw
+kvL81PYqtG50ohbFd2a6OZJ1GKINXO4WiCuzvKnma00uMRWb0iXvl1bOJNPKSeAG
+RVZc8FSiMQHTf9sD3AyuXJBmGokOlZV3Iib0mvVF/WX/R2tYPbjr3CF2hSC2izoE
+xtn36wrytfOIR42Hv0/wKGcm/MJ6/gVS1UcKDsQqju3mTMm7JEV7DxzSVGTlnswx
+N3lGKb387U6g8MmcRHmIh0DxjfmJku9RvqnFBDhdIX+GY+NoBu37alvS8aNm3vrt
+Jg8mJwXUXinZL3fjVmsT2ikvfLAPmUIXPIFjGqr2jSfeYJv7ozXOEqrlXSQUoTTO
+3wIDAQAB
+-----END PUBLIC KEY-----
+"""
+
+
+def _load_server_pub_keys():
+    """Accepted server-verify public keys: pinned old+new, plus the on-disk file
+    (dev fallback)."""
+    keys = []
+    for pem in (_SV_PUB_OLD, _SV_PUB_NEW):
+        if pem.strip():
+            try:
+                keys.append(serialization.load_pem_public_key(pem))
+            except Exception as exc:
+                logger.error("Embedded server-verify key failed to load: {}", exc)
     path = Path(os.getenv("SERVER_VERIFY_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH)))
-    if not path.exists():
-        return None
-    try:
-        return serialization.load_pem_public_key(path.read_bytes())
-    except Exception as exc:
-        logger.error("Failed to load server_verify_public.pem: {}", exc)
-        return None
+    if path.exists():
+        try:
+            keys.append(serialization.load_pem_public_key(path.read_bytes()))
+        except Exception as exc:
+            logger.error("Failed to load server_verify_public.pem: {}", exc)
+    return keys
 
 
 def _verify_response(payload_b64: str, sig_b64: str) -> Optional[dict]:
     """
     Verify RSA-PSS signature and return decoded payload dict, or None on failure.
 
-    Security: if the public key file is missing or unreadable, the response is
-    REJECTED (returns None) — NOT accepted silently. Accepting unverified responses
-    would allow MITM attacks by anyone who can delete the key file and run a fake server.
+    Security: if no accepted public key is available, the response is REJECTED
+    (returns None) — NOT accepted silently. Accepting unverified responses would
+    allow MITM attacks by anyone who can run a fake server.
     """
-    pub_key = _load_server_pub_key()
-    if pub_key is None:
-        # Hard fail — cannot verify without the public key.
-        # Silently accepting would allow MITM via key deletion + fake server.
+    pub_keys = _load_server_pub_keys()
+    if not pub_keys:
+        # Hard fail — cannot verify without a public key.
         key_path = os.getenv("SERVER_VERIFY_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH))
         logger.error(
-            "TAMPER ALERT: server_verify_public.pem not found at {} — "
+            "TAMPER ALERT: no server-verify public key available (path {}) — "
             "rejecting server response to prevent MITM attack",
             key_path
         )
@@ -345,17 +377,28 @@ def _verify_response(payload_b64: str, sig_b64: str) -> Optional[dict]:
         pad2 = (4 - len(sig_b64) % 4) % 4
         sig_bytes = base64.urlsafe_b64decode(sig_b64 + "=" * pad2)
 
-        pub_key.verify(
-            sig_bytes,
-            payload_b64.encode("ascii"),
-            padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.MAX_LENGTH,
-            ),
-            hashes.SHA256(),
-        )
+        verified = False
+        for pub_key in pub_keys:
+            try:
+                pub_key.verify(
+                    sig_bytes,
+                    payload_b64.encode("ascii"),
+                    padding.PSS(
+                        mgf=padding.MGF1(hashes.SHA256()),
+                        salt_length=padding.PSS.MAX_LENGTH,
+                    ),
+                    hashes.SHA256(),
+                )
+                verified = True
+                break
+            except Exception:
+                continue
+        if not verified:
+            logger.error("License server response signature INVALID (no accepted key verified)")
+            _send_tamper_report_sync("invalid_server_signature", {"error": "no accepted key verified"})
+            return None
     except Exception as exc:
-        logger.error("License server response signature INVALID: {}", exc)
+        logger.error("License server response signature check error: {}", exc)
         _send_tamper_report_sync("invalid_server_signature", {"error": str(exc)})
         return None
 

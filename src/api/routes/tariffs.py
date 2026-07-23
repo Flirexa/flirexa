@@ -61,6 +61,8 @@ class TariffCreate(BaseModel):
     # Corporate VPN: max number of corporate networks (0 = feature disabled)
     corp_networks: int = Field(0, ge=0)
     corp_sites: int = Field(0, ge=0)
+    # Highlight this tariff as "Popular" on the customer checkout / plan cards.
+    popular: bool = False
 
 
 class TariffUpdate(BaseModel):
@@ -78,6 +80,7 @@ class TariffUpdate(BaseModel):
     display_order: Optional[int] = None
     corp_networks: Optional[int] = Field(None, ge=0)
     corp_sites: Optional[int] = Field(None, ge=0)
+    popular: Optional[bool] = None
 
 
 class TariffResponse(BaseModel):
@@ -97,6 +100,7 @@ class TariffResponse(BaseModel):
     display_order: int
     corp_networks: int = 0
     corp_sites: int = 0
+    popular: bool = False
 
     class Config:
         from_attributes = True
@@ -132,6 +136,7 @@ class TariffResponse(BaseModel):
             "display_order": obj.display_order,
             "corp_networks": int((obj.features or {}).get("corp_networks", 0)),
             "corp_sites": int((obj.features or {}).get("corp_sites", 0)),
+            "popular": bool((obj.features or {}).get("popular", False)),
         }
         return cls(**d)
 
@@ -192,11 +197,13 @@ def create_tariff(data: TariffCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"Tariff with tier '{data.tier}' already exists")
 
     features = None
-    if data.corp_networks > 0 or data.corp_sites > 0:
+    if data.corp_networks > 0 or data.corp_sites > 0 or data.popular:
         features = {
             "corp_networks": data.corp_networks,
             "corp_sites": data.corp_sites,
         }
+        if data.popular:
+            features["popular"] = True
 
     tariff = SubscriptionPlan(
         tier=data.tier,
@@ -237,6 +244,7 @@ def update_tariff(tariff_id: int, data: TariffUpdate, db: Session = Depends(get_
     # Handle corp_networks separately — stored in features JSON, not a direct column
     corp_networks = update_data.pop("corp_networks", None)
     corp_sites = update_data.pop("corp_sites", None)
+    popular = update_data.pop("popular", None)
     # pricing_tiers comes through as a list of dicts already; coerce
     # empty list to None so we keep the legacy UI when the operator
     # clears all rows in the admin editor.
@@ -246,13 +254,20 @@ def update_tariff(tariff_id: int, data: TariffUpdate, db: Session = Depends(get_
             update_data["pricing_tiers"] = None
     for field, value in update_data.items():
         setattr(tariff, field, value)
-    if corp_networks is not None or corp_sites is not None:
+    if corp_networks is not None or corp_sites is not None or popular is not None:
         current_features = dict(tariff.features or {})
         if corp_networks is not None:
             current_features["corp_networks"] = corp_networks
         if corp_sites is not None:
             current_features["corp_sites"] = corp_sites
-        if not current_features.get("corp_networks", 0) and not current_features.get("corp_sites", 0):
+        if popular is not None:
+            if popular:
+                current_features["popular"] = True
+            else:
+                current_features.pop("popular", None)
+        if (not current_features.get("corp_networks", 0)
+                and not current_features.get("corp_sites", 0)
+                and not current_features.get("popular")):
             tariff.features = None
         else:
             tariff.features = current_features

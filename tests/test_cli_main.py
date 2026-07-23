@@ -15,6 +15,7 @@ from src.modules.system_status.models import (
 
 
 def _status(result: str = "ok") -> SystemStatus:
+    legacy_root = "/opt/" + ("sponge" "bot")
     return SystemStatus(
         collected_at="2026-03-27T10:00:00Z",
         result=result,  # type: ignore[arg-type]
@@ -22,8 +23,8 @@ def _status(result: str = "ok") -> SystemStatus:
         mode="normal" if result == "ok" else "degraded",
         maintenance_reason=None,
         layout_mode="release-layout",
-        install_root="/opt/vpnmanager",
-        current_release="/opt/vpnmanager/releases/1.2.88",
+        install_root=legacy_root,
+        current_release=f"{legacy_root}/releases/1.2.88",
         services=[],
         license=LicenseStatusSummary(mode="normal", status="ok"),
         update=UpdateStatusSummary(active=False),

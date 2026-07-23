@@ -25,7 +25,7 @@ from ..database.connection import init_db, close_db, SessionLocal, get_db
 from .routes import clients, servers, bots, payments, system, agent, client_portal, tariffs, traffic_rules, internal, admin_auth, portal_users, promo_codes, app_accounts, backup, corporate, health, updates, plugins_admin, segments
 # Register corporate models so Base.metadata.create_all() includes their tables
 from ..modules.corporate import models as _corporate_models  # noqa: F401
-from .middleware.auth import get_current_admin
+from .middleware.auth import get_current_admin, require_permission, require_superadmin
 from ..modules.subscription.cryptopay_adapter import CryptoPayAdapter
 from ..modules.operational_mode import (
     is_request_allowed,
@@ -68,14 +68,54 @@ def _should_run_in_process_background_tasks() -> tuple[bool, str]:
 
 
 
+_primary_lock_fd = None
+
+
+def _acquire_primary_worker_lock() -> bool:
+    """Elect ONE primary among the uvicorn worker processes.
+
+    With API_WORKERS > 1 every worker runs its own lifespan, so anything
+    started there duplicates N×. Some of those tasks are per-worker by
+    design (the handshake cache refresher fills worker-local memory that
+    request handlers read), but the singleton loops — license validator,
+    update auto-check, watchdog (Telegram alerts!), instance heartbeat,
+    in-process scheduler — must run exactly once per panel.
+
+    Election is a non-blocking flock on a per-port lockfile: first worker
+    to boot wins and keeps the fd for its lifetime (kernel releases the
+    lock if the process dies, so a crashed primary is replaced on the
+    next respawn's lifespan). Single-worker installs trivially win the
+    lock → zero behavior change there.
+    """
+    global _primary_lock_fd
+    import fcntl
+    port = os.getenv("API_PORT", "10086")
+    path = f"/tmp/vpnmanager-api-{port}.primary.lock"
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        _primary_lock_fd = fd  # keep open — lock lives as long as the process
+        return True
+    except OSError:
+        try:
+            os.close(fd)  # type: ignore[possibly-undefined]
+        except Exception:
+            pass
+        return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler"""
-    global _monitor_task, _license_validator_task, _heartbeat_task, _start_time
+    global _monitor_task, _backup_task, _license_validator_task, _heartbeat_task, _start_time
 
     # Startup
     _start_time = time.time()
-    logger.info("EVENT:API_START Flirexa API starting")
+    is_primary = _acquire_primary_worker_lock()
+    logger.info("EVENT:API_START Flirexa API starting (worker role: {})",
+                "primary" if is_primary else "secondary")
 
     # Initialize database
     init_db()
@@ -233,17 +273,33 @@ async def lifespan(app: FastAPI):
             logger.warning("Initial online license check timed out after 5s — continuing startup")
         except Exception as e:
             logger.warning("Initial online license check failed during startup: {}", e)
-        _license_validator_task = asyncio.create_task(run_validator_loop())
-        logger.info("Online license validator started")
+        # The periodic revalidation loop is a singleton — N workers hitting the
+        # license server on the same cadence is pointless load. The warm-cache
+        # single check above still runs in EVERY worker (each process keeps its
+        # own in-memory license cache).
+        if is_primary:
+            _license_validator_task = asyncio.create_task(run_validator_loop())
+            logger.info("Online license validator started")
 
     # Periodic auto-check for new product versions (manifest poll, no apply).
     # Populates check_for_update's cache so the panel's "available_update" badge
     # stays fresh without operator clicks. Disabled via AUTO_UPDATE_CHECK_ENABLED=false.
-    try:
-        from ..modules.updates.auto_check import run_auto_update_check_loop
-        _update_autocheck_task = asyncio.create_task(run_auto_update_check_loop())
-    except Exception as e:
-        logger.warning("Could not start update auto-check loop: {}", e)
+    # Primary-only: singleton loop, N workers would just N× the manifest polls.
+    if is_primary:
+        try:
+            from ..modules.updates.auto_check import run_auto_update_check_loop
+            _update_autocheck_task = asyncio.create_task(run_auto_update_check_loop())
+        except Exception as e:
+            logger.warning("Could not start update auto-check loop: {}", e)
+
+        # Fast watcher for MANDATORY (forced) updates — applies a mandatory-flagged
+        # release within ~5 min even when auto-apply is OFF. Separate from the slow
+        # loop above so normal cadence is unchanged. Primary-only singleton.
+        try:
+            from ..modules.updates.auto_check import run_mandatory_watch_loop
+            _mandatory_watch_task = asyncio.create_task(run_mandatory_watch_loop())
+        except Exception as e:
+            logger.warning("Could not start mandatory update-watch loop: {}", e)
 
     # Hot-poll every customer-visible server's WG handshake state in the
     # background so /clients, /clients/online and the slot endpoints don't
@@ -261,31 +317,41 @@ async def lifespan(app: FastAPI):
     # sessions to the admin Telegram chat configured under system_config.
     # Heads the operator off before the panel actually breaks rather than
     # after the customer complaint shows up (the 2026-06-11 outage shape).
-    try:
-        from ..modules.watchdog import start_watchdog
-        start_watchdog()
-    except Exception as e:
-        logger.warning("Could not start watchdog: {}", e)
+    # Primary-only: duplicated watchdogs would double every Telegram alert.
+    if is_primary:
+        try:
+            from ..modules.watchdog import start_watchdog
+            start_watchdog()
+        except Exception as e:
+            logger.warning("Could not start watchdog: {}", e)
 
     # Sync server fleet to current license tier on every startup. Catches the
     # case where a paid subscription expired while the box was off — without
     # this the excess servers would silently come back online next reboot.
-    try:
-        from ..modules.license.enforcement import reconcile as _lic_reconcile
-        _lic_reconcile()
-    except Exception as e:
-        logger.warning("License enforcement reconcile failed at startup: {}", e)
+    # Primary-only: it mutates server rows; N workers racing the same
+    # reconcile at boot buys nothing.
+    if is_primary:
+        try:
+            from ..modules.license.enforcement import reconcile as _lic_reconcile
+            _lic_reconcile()
+        except Exception as e:
+            logger.warning("License enforcement reconcile failed at startup: {}", e)
 
-    # Start instance heartbeat (always — sends status even without a license)
-    try:
-        from ..modules.license.instance_manager import start_heartbeat_task
-        _heartbeat_task = start_heartbeat_task()
-    except Exception as e:
-        logger.warning("Could not start instance heartbeat: {}", e)
+    # Start instance heartbeat (sends status even without a license).
+    # Primary-only: one heartbeat per panel, not one per worker process.
+    if is_primary:
+        try:
+            from ..modules.license.instance_manager import start_heartbeat_task
+            _heartbeat_task = start_heartbeat_task()
+        except Exception as e:
+            logger.warning("Could not start instance heartbeat: {}", e)
 
-    # Start background monitoring (skip if external worker is handling it)
+    # Start background monitoring (skip if external worker is handling it).
+    # Also primary-only under multi-worker for the same singleton reason.
     _bg_tasks = []
     run_in_process, scheduler_reason = _should_run_in_process_background_tasks()
+    if not is_primary:
+        run_in_process, scheduler_reason = False, "Secondary worker — scheduler runs on the primary"
     if not run_in_process:
         logger.info(f"{scheduler_reason} — skipping in-process background tasks")
     else:
@@ -350,6 +416,14 @@ def create_app(
     from .middleware.request_logger import RequestLoggerMiddleware
     app.add_middleware(RequestLoggerMiddleware)
 
+    # Compress JSON responses. The admin Clients tab on a 3000+ client panel
+    # pulls a ~2.7MB /clients payload (repetitive JSON → compresses ~10-15x),
+    # and the Online tab re-pulls it on a 5s cadence. Without gzip the wire
+    # transfer dominates page-load time on any non-local link. minimum_size
+    # skips small responses where the CPU cost isn't worth it.
+    from fastapi.middleware.gzip import GZipMiddleware
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
+
     # Security headers middleware
     @app.middleware("http")
     async def security_headers_middleware(request: Request, call_next):
@@ -400,36 +474,54 @@ def create_app(
         if any(normalized_path.startswith(p) for p in allowed_prefixes) or normalized_path == "/" or not is_api_path:
             return await call_next(request)
 
-        # Skip license checks when explicitly disabled (tests / dev without a key).
-        # This is a sharp tool — log loudly so a leaked .env or typo can't make
-        # the bypass invisible. EVENT:LICENSE_BYPASS is rate-limited to one log
-        # line per 5 minutes per process to avoid log spam under load.
+        # Skip license checks ONLY in a dev build (no signed public key present).
+        # In a customer build license_public.pem is always shipped, so
+        # LICENSE_CHECK_ENABLED=false can no longer disable enforcement by
+        # editing .env — the disable switch is honored only when there is no
+        # public key to enforce against. (security: fail-open close 2026-07)
         if os.getenv("LICENSE_CHECK_ENABLED", "true").lower() == "false":
             global _license_bypass_last_warn
-            try:
-                _now = time.time()
-                if _now - _license_bypass_last_warn > 300:
+            from ..modules.license.manager import _find_public_key as _find_pub
+            if _find_pub():
+                # Customer build: ignore the switch, keep enforcing. Log loudly.
+                try:
+                    _now = time.time()
+                    if _now - _license_bypass_last_warn > 300:
+                        logger.warning(
+                            "EVENT:LICENSE_BYPASS_IGNORED LICENSE_CHECK_ENABLED=false "
+                            "was ignored because a signed license_public.pem is present "
+                            "— enforcement stays ON in customer builds."
+                        )
+                        _license_bypass_last_warn = _now
+                except NameError:
+                    logger.warning("EVENT:LICENSE_BYPASS_IGNORED (customer build)")
+                    _license_bypass_last_warn = time.time()
+            else:
+                # Dev only (no public key): honor the bypass, log loudly.
+                try:
+                    _now = time.time()
+                    if _now - _license_bypass_last_warn > 300:
+                        logger.warning(
+                            "EVENT:LICENSE_BYPASS LICENSE_CHECK_ENABLED=false — "
+                            "license enforcement disabled (dev, no public key)."
+                        )
+                        _license_bypass_last_warn = _now
+                except NameError:
                     logger.warning(
                         "EVENT:LICENSE_BYPASS LICENSE_CHECK_ENABLED=false — "
-                        "license enforcement disabled for this process. "
-                        "If this is production, fix the env file IMMEDIATELY."
+                        "license enforcement disabled (dev, no public key)."
                     )
-                    _license_bypass_last_warn = _now
-            except NameError:
-                logger.warning(
-                    "EVENT:LICENSE_BYPASS LICENSE_CHECK_ENABLED=false — "
-                    "license enforcement disabled for this process."
-                )
-                _license_bypass_last_warn = time.time()
-            return await call_next(request)
+                    _license_bypass_last_warn = time.time()
+                return await call_next(request)
 
         try:
             from ..modules.license.manager import get_license_manager, _find_public_key, LicenseType
 
-            # Dev environment: no license_public.pem + INTERNAL_LICENSE_MODE → pass through
-            if not _find_public_key():
-                if os.getenv("INTERNAL_LICENSE_MODE", "false").lower() == "true":
-                    return await call_next(request)
+            # NOTE: dev-mode unlock (INTERNAL_LICENSE_MODE) is handled inside the
+            # LicenseManager, which build_release.sh neutralises for customer
+            # builds (_DEV_LICENSE_ALLOWED=False). The previous middleware-level
+            # INTERNAL_LICENSE_MODE bypass that lived here was NOT stripped by the
+            # build, so it is removed. (security: dev-unlock close 2026-07)
 
             mgr = get_license_manager()
 
@@ -670,105 +762,108 @@ def create_app(
         clients.router,
         prefix="/api/v1/clients",
         tags=["Clients"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("clients"))]
     )
 
     app.include_router(
         segments.router,
         prefix="/api/v1/segments",
         tags=["segments"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("servers"))]
     )
 
     app.include_router(
         servers.router,
         prefix="/api/v1/servers",
         tags=["Servers"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("servers"))]
     )
 
     app.include_router(
         bots.router,
         prefix="/api/v1/bots",
         tags=["Bots"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("bots"))]
     )
 
     app.include_router(
         payments.router,
         prefix="/api/v1/payments",
         tags=["Payments"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("payments"))]
     )
 
     app.include_router(
         system.router,
         prefix="/api/v1/system",
         tags=["System"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("settings"))]
     )
 
     app.include_router(
         agent.router,
         prefix="/api/v1/agent",
         tags=["Agent"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("servers"))]
     )
 
     app.include_router(
         tariffs.router,
         prefix="/api/v1/tariffs",
         tags=["Tariffs"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("payments"))]
     )
 
     app.include_router(
         traffic_rules.router,
         prefix="/api/v1/traffic",
         tags=["Traffic Rules"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("settings"))]
     )
 
     app.include_router(
         portal_users.router,
         prefix="/api/v1/portal-users",
         tags=["Portal Users"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("clients"))]
     )
 
     app.include_router(
         promo_codes.router,
         prefix="/api/v1/promo-codes",
         tags=["Promo Codes"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("payments"))]
     )
 
     app.include_router(
         app_accounts.router,
         prefix="/api/v1/app-accounts",
         tags=["App Accounts"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("settings"))]
     )
 
     app.include_router(
         backup.router,
         prefix="/api/v1/backup",
         tags=["Backup"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("backup"))]
     )
 
     app.include_router(
         updates.router,
         prefix="/api/v1/updates",
         tags=["Updates"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("updates"))]
     )
 
     # Plugin management — install/uninstall arbitrary user plugins from URL.
-    # Auth is enforced inside the route via Depends(get_current_admin).
+    # A plugin runs as full Python in the API process, so installing one is
+    # effectively remote code execution: restrict to the superadmin (owner),
+    # never a delegated manager. (security: RBAC gap fix 2026-07)
     app.include_router(
         plugins_admin.router,
         tags=["Plugins"],
+        dependencies=admin_auth_dep + [Depends(require_superadmin)],
     )
 
     app.include_router(
@@ -812,7 +907,7 @@ def create_app(
         corporate.admin_router,
         prefix="/api/v1/corporate",
         tags=["Corporate VPN Admin"],
-        dependencies=admin_auth_dep,
+        dependencies=admin_auth_dep + [Depends(require_permission("clients"))],
     )
 
     # Internal API (protected by service token, not admin auth)
@@ -930,29 +1025,54 @@ def create_app(
 app = create_app()
 
 
+def _hardware_auto_workers() -> int:
+    """Pick a worker count from the box's hardware, conservatively.
+
+    Rules (documented for operators in .env.example):
+      - ≤2 cores → 1 worker. Small boxes gain nothing from extra processes
+        (the sync endpoints already run in a per-worker threadpool), and the
+        RAM cost is real — a full worker with plugins is ~300-400 MB.
+      - else min(cores - 1, 4): leave a core for Postgres/nginx/portal,
+        cap at 4 — beyond that the panel is DB-bound, not worker-bound.
+      - RAM clamp: never spawn workers the box can't hold. Reserve ~600 MB
+        for PG/nginx/portal/worker services, budget ~400 MB per API worker.
+    """
+    import multiprocessing as _mp
+    try:
+        cores = _mp.cpu_count()
+    except Exception:
+        return 1
+    if cores <= 2:
+        return 1
+    n = min(cores - 1, 4)
+    try:
+        total_mb = psutil.virtual_memory().total // (1024 * 1024)
+        ram_cap = max(1, int((total_mb - 600) // 400))
+        n = min(n, ram_cap)
+    except Exception:
+        pass
+    return max(1, n)
+
+
 def _resolve_worker_count(explicit: int | None = None) -> int:
     """Pick uvicorn worker count.
 
-    Precedence: explicit arg → API_WORKERS env (literal or "auto") → 1.
-    "auto" → min(4, max(1, cpu_count // 2)).
+    Precedence: explicit arg → API_WORKERS env (literal) → hardware auto.
+    An unset (or "auto") API_WORKERS now auto-sizes from cores+RAM via
+    _hardware_auto_workers() — weak boxes stay at 1 (previous default),
+    beefy ones get up to 4 without the operator having to know the knob.
     Capped at 16 to avoid runaway fanout against the Postgres
     connection pool (each worker keeps its own pool of size
-    DB_POOL_SIZE + DB_MAX_OVERFLOW).
+    DB_POOL_SIZE + DB_MAX_OVERFLOW; see connection.py auto-sizing).
     """
-    import multiprocessing as _mp
     if explicit and explicit > 0:
         n = explicit
     else:
         raw = (os.getenv("API_WORKERS") or "").strip().lower()
-        if raw == "auto":
-            try:
-                n = max(1, min(4, _mp.cpu_count() // 2))
-            except Exception:
-                n = 1
-        elif raw.isdigit() and int(raw) > 0:
+        if raw.isdigit() and int(raw) > 0:
             n = int(raw)
-        else:
-            n = 1
+        else:  # unset or "auto" → hardware-aware default
+            n = _hardware_auto_workers()
     return max(1, min(16, n))
 
 
@@ -982,6 +1102,11 @@ def run_server(
     )
 
     worker_count = _resolve_worker_count(workers)
+    # Publish the resolved count for the worker processes (uvicorn spawns them
+    # with an inherited environment): connection.py reads this to auto-shrink
+    # the per-worker DB pool so N workers stay inside the Postgres
+    # max_connections budget without the operator tuning DB_POOL_SIZE by hand.
+    os.environ["VPNM_RESOLVED_WORKERS"] = str(worker_count)
     logger.info(
         "Starting server on {}:{} with {} worker(s)", host, port, worker_count,
     )

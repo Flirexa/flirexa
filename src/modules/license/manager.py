@@ -200,9 +200,8 @@ LICENSE_TIERS = {
     #   • Dropped flags no code checks: basic_management, wireguard_only,
     #     priority_support, bandwidth_limits, traffic_limits, expiry_timers
     #     (operational features that are functionally free across all tiers).
-    #   • Collapsed telegram bot flags into a single canonical `telegram_bots`
-    #     present on every tier — bot functionality depends on the operator
-    #     supplying a token in `.env`, not on the licence tier.
+    #   • `telegram_bots` covers the built-in bot runtime on every tier;
+    #     `telegram_client_bot` separately gates the paid self-service plugin.
     #   • Split crypto-only NOWPayments from full payment-provider suite:
     #     `nowpayments` is on FREE and every paid tier; `payments` is Pro+
     #     only (card processors are paid plugins from flirexa-pro).
@@ -255,6 +254,7 @@ LICENSE_TIERS = {
             "proxy_protocols",
             "client_portal",
             "telegram_bots",
+            "telegram_client_bot",
             "nowpayments",
             "payments",
             "multi_server",
@@ -293,6 +293,7 @@ LICENSE_TIERS = {
             "proxy_protocols",
             "client_portal",
             "telegram_bots",
+            "telegram_client_bot",
             "nowpayments",
             "payments",
             "multi_server",
@@ -314,6 +315,7 @@ LICENSE_TIERS = {
             "proxy_protocols",
             "client_portal",
             "telegram_bots",
+            "telegram_client_bot",
             "nowpayments",
             "payments",
             "multi_server",
@@ -368,6 +370,24 @@ def _save_trial_env(key: str, value: str) -> None:
             f.write(content)
     except Exception as e:
         logger.warning(f"Failed to persist trial data to .env: {e}")
+
+
+# Pinned license verification key — embedded in code so a customer cannot forge a
+# license by swapping the on-disk license_public.pem for a key of their own
+# (the GitLab .pub-swap hole). The license SIGNING private key is not shipped, so
+# with the public key pinned, forging a valid Enterprise license is infeasible.
+# MUST stay byte-identical to the shipped license_public.pem — verified to
+# validate the live production license before committing. (security: pinning 2026-07)
+_EMBEDDED_LICENSE_PUBKEY = b"""-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuLsf4Rjd8Y16NYPG27Yl
+U5XDc4Ycnw9DuoshQowk8Fto5fOmM8ww7bwZ+ld4sB3DRTTH6ym1/kOspe426IPG
+2w5cnXb989Lkebu/yhNMPprgcOv1uLh2vaNzg/utyZ2MizsC2Uv9yAk9vTv6rMfZ
+DMinKnVemUjMttIxfkHON0BnHiCgoL7vmVEbC1c1ObktOkifz9p6aZCGSyDwpG34
+yB3W1F9ij4mM5tWwlWLYKbLiJT/+yTyTYU1kl9O7Dq6wEyHuhU+VB2GKMIfJf5rE
+zpwBux0uN3ana4sPJoKcz/owJhVGRidL218bgYlnm09e72Ckqs9FIkFfmtqXCbZS
+6wIDAQAB
+-----END PUBLIC KEY-----
+"""
 
 
 def _find_public_key() -> Optional[str]:
@@ -495,17 +515,34 @@ class LicenseManager:
         return hashlib.sha256(combined.encode()).hexdigest()[:32]
 
     def _load_public_key(self):
-        """Load RSA public key for signature verification"""
+        """Load RSA public key for signature verification.
+
+        Prefers the pinned _EMBEDDED_LICENSE_PUBKEY so that swapping the on-disk
+        license_public.pem cannot defeat verification (the customer forge hole).
+        Falls back to the on-disk file only in a bare dev checkout without an
+        embedded key. (security: pinning 2026-07)
+        """
         if self._public_key:
             return self._public_key
 
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
+        # 1) Pinned key — present in every customer build; file swaps can't defeat it.
+        if _EMBEDDED_LICENSE_PUBKEY.strip():
+            try:
+                self._public_key = load_pem_public_key(_EMBEDDED_LICENSE_PUBKEY)
+                return self._public_key
+            except Exception as e:
+                logger.error(f"Embedded license public key failed to load: {e}")
+                # fall through to file — belt-and-suspenders; should never happen
+
+        # 2) Dev fallback: no embedded key → on-disk file.
         key_path = _find_public_key()
         if not key_path:
             logger.warning("License public key not found")
             return None
 
         try:
-            from cryptography.hazmat.primitives.serialization import load_pem_public_key
             with open(key_path, "rb") as f:
                 self._public_key = load_pem_public_key(f.read())
             return self._public_key
@@ -520,9 +557,16 @@ class LicenseManager:
         # 2. A .dev-mode marker file exists in the install root
         # This prevents trivial .env editing attacks in production.
         if os.getenv("INTERNAL_LICENSE_MODE", "false").lower() == "true":
+            # SECURITY: this dev-license shortcut must NEVER be reachable in a
+            # customer build. build_release.sh rewrites the flag below to False
+            # (sed on the exact literal), so a shipped package cannot unlock
+            # Enterprise by deleting license_public.pem + touching .dev-mode.
+            # Your own dev tree keeps it True; prod is inert regardless (the
+            # public key is present, so the branch is skipped anyway).
+            _DEV_LICENSE_ALLOWED = True  # build_release.sh flips this to False
             dev_marker = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
                 os.path.abspath(__file__)))), ".dev-mode")
-            if not _find_public_key() and os.path.exists(dev_marker):
+            if _DEV_LICENSE_ALLOWED and not _find_public_key() and os.path.exists(dev_marker):
                 return self._create_internal_license("Internal developer license mode")
             if _find_public_key():
                 logger.warning(

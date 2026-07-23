@@ -1,0 +1,74 @@
+/* Design tokens — 1:1 from the designer's handoff (VPN Admin Panel.dc.html /
+ * tokens.css). His markup references BARE vars (var(--accent), var(--panel)…).
+ * Scoped under .d2-root so they never leak into the Legacy UI. Dark is driven by
+ * the existing [data-theme="dark"] on <html> (system store). The --d2-* aliases
+ * keep any transitional components working while screens are rebuilt from his file. */
+
+.d2-root {
+  /* surfaces */
+  --bg: #fbfbfc;
+  --panel: #ffffff;
+  --panel-2: #f5f6f8;
+  --panel-3: #eef0f3;
+  --border: #ebedf0;
+  --border-strong: #dfe2e7;
+  /* text */
+  --text: #16181d;
+  --text-2: #5b626c;
+  --text-3: #9097a1;
+  /* accent (indigo) */
+  --accent: #6366f1;
+  --accent-2: #5457e5;
+  --accent-soft: #eef0fe;
+  --accent-ring: rgba(99, 102, 241, .18);
+  /* status */
+  --green: #15a34a;  --green-soft: #e7f6ec;
+  --red: #dc2626;    --red-soft: #fdecec;
+  --amber: #ea580c;  --amber-soft: #fde6d3;
+  --purple: #7c3aed; --purple-soft: #f1ecfe;
+  --blue: #2563eb;   --blue-soft: #e8f0fe;
+  --gray-soft: #eef0f2;
+  /* elevation */
+  --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 1px 3px rgba(16, 24, 40, .05);
+  --shadow-md: 0 4px 12px -2px rgba(16, 24, 40, .08), 0 2px 6px -2px rgba(16, 24, 40, .06);
+  --shadow-lg: 0 24px 48px -12px rgba(16, 24, 40, .22);
+
+  /* --d2-* aliases (transitional; some early components still use them) */
+  --d2-bg: var(--bg); --d2-panel: var(--panel); --d2-panel-2: var(--panel-2);
+  --d2-text: var(--text); --d2-text-2: var(--text-2); --d2-text-3: var(--text-3);
+  --d2-border: var(--border); --d2-border-strong: var(--border-strong);
+  --d2-accent: var(--accent); --d2-accent-soft: var(--accent-soft); --d2-accent-ring: var(--accent-ring);
+  --d2-green: var(--green); --d2-green-soft: var(--green-soft);
+  --d2-red: var(--red); --d2-red-soft: var(--red-soft);
+  --d2-amber: var(--amber); --d2-amber-soft: var(--amber-soft);
+  --d2-purple: var(--purple); --d2-purple-soft: var(--purple-soft);
+  --d2-blue: var(--blue); --d2-blue-soft: var(--blue-soft);
+  --d2-gray-soft: var(--gray-soft);
+  --d2-shadow: var(--shadow); --d2-shadow-md: var(--shadow-md); --d2-shadow-lg: var(--shadow-lg);
+  --d2-font: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+[data-theme="dark"] .d2-root {
+  --bg: #0a0b0e;
+  --panel: #121318;
+  --panel-2: #1a1c22;
+  --panel-3: #22242b;
+  --border: #23252c;
+  --border-strong: #2e313a;
+  --text: #e9ebee;
+  --text-2: #9aa1ab;
+  --text-3: #666d77;
+  --accent: #818cf8;
+  --accent-2: #6c78f0;
+  --accent-soft: rgba(129, 140, 248, .14);
+  --accent-ring: rgba(129, 140, 248, .25);
+  --green: #34d399;  --green-soft: rgba(52, 211, 153, .13);
+  --red: #f87171;    --red-soft: rgba(248, 113, 113, .13);
+  --amber: #fb923c;  --amber-soft: rgba(251, 146, 60, .15);
+  --purple: #a78bfa; --purple-soft: rgba(167, 139, 250, .16);
+  --blue: #60a5fa;   --blue-soft: rgba(96, 165, 250, .15);
+  --gray-soft: #22242b;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-md: 0 6px 18px -4px rgba(0, 0, 0, .45);
+  --shadow-lg: 0 28px 56px -12px rgba(0, 0, 0, .6);
+}

@@ -1,0 +1,99 @@
+/* Designer's shared component classes (components.css), SCOPED under .d2-root
+   so his generic .btn/.card/.table never collide with the global Bootstrap in
+   Legacy. Built only on tokens. Auto-scoped on import — edit the handoff source. */
+
+/* ============================================================
+   Shared component classes — built ONLY on tokens.css variables.
+   Import once globally after tokens.css. Screens reference these
+   so each SFC stays lean; add scoped styles per screen for specifics.
+   ============================================================ */
+
+/* layout ---------------------------------------------------- */
+.d2-root .screen { display: flex; flex-direction: column; gap: 14px; }
+.d2-root .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.d2-root .toolbar .spacer { margin-left: auto; }
+.d2-root .grid { display: grid; gap: 14px; }
+.d2-root .row { display: flex; align-items: center; gap: 10px; }
+.d2-root .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.d2-root .muted { color: var(--text-3); }
+.d2-root .sub { color: var(--text-2); font-size: 12.5px; }
+
+/* card ------------------------------------------------------ */
+.d2-root .card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: var(--shadow);
+}
+.d2-root .card-pad { padding: 18px 20px; }
+
+/* stat cards ------------------------------------------------ */
+.d2-root .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.d2-root .stat { display: flex; align-items: center; gap: 13px; padding: 16px 18px; }
+.d2-root .stat .ic { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex: none; }
+.d2-root .stat .val { font-size: 24px; font-weight: 700; letter-spacing: -.02em; font-family: 'JetBrains Mono', monospace; }
+.d2-root .stat .lbl { font-size: 12px; color: var(--text-3); }
+
+/* buttons --------------------------------------------------- */
+.d2-root .btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 38px; padding: 0 14px; border: 1px solid var(--border-strong);
+  background: var(--panel); color: var(--text-2); border-radius: 10px;
+  font: inherit; font-size: 13px; font-weight: 550; cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.d2-root .btn:hover { background: var(--panel-2); }
+.d2-root .btn-sm { height: 34px; padding: 0 12px; font-size: 12.5px; border-radius: 9px; }
+.d2-root .btn-icon { width: 34px; height: 34px; padding: 0; }
+.d2-root .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.d2-root .btn-primary:hover { background: var(--accent-2); }
+.d2-root .btn-danger { color: var(--red); border-color: var(--red-soft); }
+.d2-root .btn-danger:hover { background: var(--red-soft); }
+.d2-root .btn:disabled { opacity: .55; cursor: not-allowed; }
+
+/* form controls --------------------------------------------- */
+.d2-root .input, .d2-root .select {
+  height: 40px; width: 100%; padding: 0 12px; font: inherit; font-size: 13.5px;
+  color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--border-strong); border-radius: 10px; outline: none;
+}
+.d2-root .input:focus, .d2-root .select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.d2-root .field { display: flex; flex-direction: column; gap: 7px; }
+.d2-root .field > label { font-size: 12.5px; font-weight: 550; }
+
+/* table ----------------------------------------------------- */
+.d2-root .table-wrap { overflow-x: auto; }
+.d2-root .table { width: 100%; border-collapse: collapse; }
+.d2-root .table th {
+  padding: 11px 12px; text-align: left; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+}
+.d2-root .table td { padding: 12px; font-size: 13px; border-top: 1px solid var(--border); }
+.d2-root .table tbody tr:hover { background: var(--panel-2); }
+
+/* badges / pills -------------------------------------------- */
+.d2-root .badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px;
+  font-weight: 600; padding: 2px 8px; border-radius: 6px;
+}
+.d2-root .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+/* toggle ---------------------------------------------------- */
+.d2-root .toggle { position: relative; width: 38px; height: 22px; border-radius: 20px; border: none; cursor: pointer; background: var(--border-strong); transition: background .15s; flex: none; }
+.d2-root .toggle[aria-pressed="true"] { background: var(--accent); }
+.d2-root .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.d2-root .toggle[aria-pressed="true"]::after { transform: translateX(16px); }
+
+/* states ---------------------------------------------------- */
+.d2-root .empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 20px; color: var(--text-3); text-align: center; }
+.d2-root .spinner { width: 22px; height: 22px; border: 2.5px solid var(--border-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+.d2-root .loading { display: flex; align-items: center; justify-content: center; padding: 48px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* modal ----------------------------------------------------- */
+.d2-root .overlay { position: fixed; inset: 0; background: rgba(10,11,14,.5); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.d2-root .modal { width: 440px; max-width: 100%; max-height: 90vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-lg); padding: 24px; }
+.d2-root .modal h3 { font-size: 17px; font-weight: 650; margin-bottom: 16px; }
+.d2-root .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+
+/* page heading ---------------------------------------------- */
+.d2-root .page-title { font-size: 20px; font-weight: 680; letter-spacing: -.02em; }

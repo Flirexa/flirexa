@@ -442,7 +442,7 @@ class TestAWGServerCreation:
         assert server.awg_h1 == 1000001
         assert server.awg_mtu == 1280
         assert server.supports_peer_visibility is True
-        assert server.config_path == "/etc/amneziawg/awg0.conf"
+        assert server.config_path == "/etc/amnezia/amneziawg/awg0.conf"
 
     def test_create_wg_server_defaults(self, db_session):
         """WG servers get wireguard type and no AWG fields."""

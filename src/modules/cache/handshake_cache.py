@@ -176,6 +176,28 @@ class PeerCache:
             # We don't drop the data itself — stale snapshots are still
             # better than nothing while the lazy refetch runs.
 
+    def online_pairs(self, window_seconds: int = 180) -> Dict[tuple, datetime]:
+        """Return ``{(server_id, pubkey): handshake}`` for peers whose last
+        handshake is within ``window_seconds`` of now.
+
+        Powers ``GET /clients/online``: lets the Online Users tab ask the
+        backend for *only* the online subset instead of downloading every
+        client row on each poll. Single pass over the in-memory maps under
+        the lock — no I/O, same locking pattern as ``get_server_peers``.
+        """
+        cutoff = datetime.now(timezone.utc).timestamp() - window_seconds
+        out: Dict[tuple, datetime] = {}
+        with self._lock:
+            for server_id, peers in self._data.items():
+                for pubkey, snap in peers.items():
+                    hs = snap.handshake
+                    if hs is None:
+                        continue
+                    ts = hs.timestamp() if hs.tzinfo else hs.replace(tzinfo=timezone.utc).timestamp()
+                    if ts >= cutoff:
+                        out[(server_id, pubkey)] = hs
+        return out
+
     def stats(self) -> Dict[str, int]:
         """Diagnostic stats used by /debug pages."""
         with self._lock:

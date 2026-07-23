@@ -151,21 +151,31 @@ def _generate_keypair_for(servers: List[Server]) -> Tuple[str, str, str]:
     return priv, pub, psk
 
 
-def _agent_apply(core: ManagementCore, client: Client, action: str) -> None:
+def _agent_apply(core: ManagementCore, client: Client, action: str) -> bool:
     """Push the enable/disable to the node so handshakes flip immediately,
-    not on the next config-sync tick. Soft-fail: the DB write is the
-    source of truth, the live `wg set` is best-effort.
+    not on the next config-sync tick.
+
+    Returns True iff the wg set was actually applied. ``enable_client`` /
+    ``disable_client`` already return a bool (False when the node/agent was
+    unreachable — disable removes the peer FIRST then flips the DB flag, so a
+    False disable means the old peer is STILL LIVE and the DB flag was rolled
+    back). We surface that so the caller can decide whether a failed DISABLE is
+    safe to ignore (dead node — its leftover peer serves nothing) or must block
+    the switch (live node — leaving the peer enabled would leak access to the
+    region the customer just switched off).
     """
     try:
         if action == "enable":
-            core.enable_client(client.id)
-        elif action == "disable":
-            core.disable_client(client.id, reason="device-slot region switch")
+            return bool(core.enable_client(client.id))
+        if action == "disable":
+            return bool(core.disable_client(client.id, reason="device-slot region switch"))
+        return False
     except Exception as exc:
         logger.warning(
             "slot agent push failed (client_id=%s, action=%s): %s",
             client.id, action, exc,
         )
+        return False
 
 
 class SlotManager:
@@ -440,8 +450,10 @@ class SlotManager:
                 http_status=429,
             )
 
-        # Consume one token. Persisted at the end of the function.
-        slot.switch_tokens = stored - 1.0
+        # NB: the token is consumed at the very end, only when the switch
+        # actually proceeds. A switch we refuse below (503 — couldn't release
+        # the old region on a live node) must NOT cost the customer a token,
+        # so they can retry immediately without hitting the cooldown.
 
         # Validate target is one of this slot's peers
         peers = self.get_slot_peers(slot.id)
@@ -477,11 +489,43 @@ class SlotManager:
         # the wg-set call themselves.
         old_peer = next((p for p in peers if p.server_id == slot.active_server_id), None)
         if old_peer and old_peer.enabled:
-            _agent_apply(self.core, old_peer, "disable")
+            disabled_ok = _agent_apply(self.core, old_peer, "disable")
+            if not disabled_ok:
+                # The old peer is still live on its node. Only a leak if that
+                # node is actually up — a peer left enabled on a healthy node
+                # keeps serving the region the customer just switched OFF.
+                # If the old node is down/unreachable, its leftover peer serves
+                # nothing, and blocking would trap the customer on a dead region
+                # (they could never switch away), so we proceed in that case.
+                old_server = (
+                    self.db.query(Server)
+                    .filter(Server.id == slot.active_server_id)
+                    .first()
+                )
+                old_node_live = (
+                    old_server is not None
+                    and getattr(old_server, "effective_lifecycle_status", None) == "online"
+                )
+                if old_node_live:
+                    # Nothing committed yet (token not consumed, pointer not
+                    # flipped) → refuse cleanly so the client can retry; the
+                    # reconciler is the backstop that eventually prunes the peer.
+                    raise SlotManagerError(
+                        "switch_release_failed",
+                        "Couldn't release your current region just now — please try again in a moment.",
+                        http_status=503,
+                    )
+                logger.warning(
+                    "slot %s: old peer %s left enabled (node %s not online) — "
+                    "proceeding with switch; reconcile will prune it",
+                    slot.id, old_peer.id, slot.active_server_id,
+                )
 
         if not target_peer.enabled:
             _agent_apply(self.core, target_peer, "enable")
 
+        # Consume one token now that the switch is actually going through.
+        slot.switch_tokens = stored - 1.0
         slot.active_server_id = target_server_id
         slot.last_switched_at = now
         self.db.add(slot)

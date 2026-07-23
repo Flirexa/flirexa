@@ -9,7 +9,7 @@ If you'd like to see something prioritised, [open a discussion](https://github.c
 ## 2026 Q3 — Formalise the channel + make the project welcoming
 
 - [ ] **Signed plugin distribution**
-  Paid plugins (`extra-protocols`, `multi-server`, `corporate-vpn`, …) ship as RSA-signed `.tar.gz` packages from the license server. The plugin loader downloads and verifies them on startup for licensees. Today they live in the private `flirexa-pro` repo and are baked into the official installer; this formalises the channel.
+  Paid extensions ship as RSA-signed `.tar.gz` packages from the license server. The plugin loader downloads and verifies them on startup for licensees. The protocol and corporate-VPN implementations already live in the MIT tree behind license feature gates; the distribution channel is primarily for closed payment-provider modules and future add-ons.
 - [ ] **Domain consolidation**
   Migrate active workloads onto a single primary host (`flirexa.biz`) with the previous infrastructure as failover. Reduces operational complexity for the launch period.
 
@@ -50,7 +50,7 @@ Items that are interesting but not committed yet:
 To set expectations honestly, these are things Flirexa **will not** become:
 
 - A general-purpose VPN client app for end users (use the WireGuard / AmneziaVPN apps; Flirexa is server-side)
-- A V2Ray / Xray panel (Marzban already does that very well)
+- A general-purpose V2Ray / Xray panel (Flirexa uses Xray for VLESS-Reality, but does not aim to replace Marzban)
 - A CDN or anti-DDoS service (different problem)
 - A cryptocurrency exchange or payment processor (we *integrate* with NOWPayments, Stripe, etc.; we don't compete with them)
 
@@ -67,10 +67,10 @@ Wiring up the commercial loop after the repository went public:
 
 For reference — what shipped in the open-core launch:
 
-- FREE tier: 80 clients on 1 server, MIT-licensed, runs entirely offline, no expiry
+- FREE tier: 80 clients on up to 2 local servers (one WireGuard + one AmneziaWG), MIT-licensed, runs entirely offline, no expiry
 - Generic plugin loader with manifest validation and license-feature gating
 - Nine paid-plugin shells declared (`extra-protocols`, `multi-server`, `corporate-vpn`, …)
-- Hysteria2/TUIC and Corporate VPN implementations extracted to private `flirexa-pro` repo
+- Hysteria2/TUIC and Corporate VPN implementations included in the MIT tree behind license feature gates
 - PyArmor / `integrity` / kill-switch removed from open core
 - MIT license, CONTRIBUTING.md, SECURITY.md, CI workflow
 - 580 passing tests; pre-existing failures documented

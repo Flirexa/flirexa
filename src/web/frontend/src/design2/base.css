@@ -1,0 +1,67 @@
+/* Base for the designer's UI — fonts (Inter + JetBrains Mono) + the resets his
+ * markup relies on. Everything scoped under .d2-root so nothing leaks into Legacy. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+.d2-root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+.d2-root *, .d2-root *::before, .d2-root *::after { box-sizing: border-box; }
+.d2-root h1, .d2-root h2, .d2-root h3, .d2-root h4, .d2-root h5, .d2-root h6, .d2-root p, .d2-root figure { margin: 0; }
+.d2-root ::selection { background: var(--accent-soft); color: var(--accent); }
+.d2-root a { color: var(--accent); text-decoration: none; }
+.d2-root .mono, .d2-root .ff-mono { font-family: 'JetBrains Mono', monospace; }
+
+/* thin token-tinted scrollbars */
+.d2-root ::-webkit-scrollbar { width: 10px; height: 10px; }
+.d2-root ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+.d2-root ::-webkit-scrollbar-track { background: transparent; }
+
+/* His markup uses inline styles + `style-hover`/`style-focus` pseudo-attrs. We
+ * reproduce the common ones via these helper classes where a component opts in. */
+.d2-root .hov-panel2:hover { background: var(--panel-2) !important; }
+.d2-root .hov-text:hover { color: var(--text) !important; }
+
+/* Teleported bubbles/menus (outside .d2-root) still need the tokens: expose a
+ * couple globally-safe ones used by help tooltips. */
+.d2-help-bubble { position: absolute; z-index: 9999; background: #1e2533; color: #e8eaf0; border-radius: 8px; padding: 9px 13px; font-size: 12.5px; line-height: 1.55; box-shadow: 0 4px 20px rgba(0,0,0,.35); pointer-events: none; max-width: 280px; font-family: 'Inter', sans-serif; }
+
+/* ─── Responsive: the screens set fixed multi-column grids via INLINE styles
+ * (grid-template-columns:repeat(4,1fr) / 1fr 1fr / 1.6fr 1fr / 1fr 320px …).
+ * Inline styles can't be overridden by class rules, so we collapse them here
+ * with attribute selectors + !important as the viewport narrows. His standalone
+ * design does the same via reactive column values; this matches the result.
+ * Card grids using auto-fill/minmax already reflow on their own. Tables are
+ * wrapped in overflow-x:auto by the screens, so they scroll instead of squish. */
+@media (max-width: 1024px) {
+  /* two-column content layouts (sidebar+content, main+aside, dashboard split) */
+  .d2-root [style*="1.6fr"], .d2-root [style*="1.7fr"], .d2-root [style*="2fr"],
+  .d2-root [style*="1fr 320px"], .d2-root [style*="1fr 340px"], .d2-root [style*="1fr 300px"],
+  .d2-root [style*="1fr 280px"], .d2-root [style*="320px"], .d2-root [style*="1fr 140px"] { grid-template-columns: 1fr !important; }
+  /* 4-column stat grids → 2-up */
+  .d2-root .d2-grid4, .d2-root [style*="repeat(4"], .d2-root [style*="repeat(4,"] { grid-template-columns: 1fr 1fr !important; }
+  /* 3-column → 2-up */
+  .d2-root .d2-grid3, .d2-root [style*="repeat(3"], .d2-root [style*="1fr 1fr 1fr"] { grid-template-columns: 1fr 1fr !important; }
+}
+@media (max-width: 620px) {
+  /* phones: everything single-column */
+  .d2-root [style*="grid-template-columns"],
+  .d2-root .d2-grid4, .d2-root .d2-grid3, .d2-root .d2-grid2, .d2-root .d2-svgrid { grid-template-columns: 1fr !important; }
+}
+
+/* Global spin keyframe. Inline `animation:d2spin` references in templates are
+   NOT rewritten by Vue's scoped-CSS transform, so a per-component
+   `<style scoped>@keyframes d2spin</style>` gets hashed and never matches.
+   Defining it here (globally, via D2App's plain CSS import) makes every
+   inline spinner across the design2 screens actually animate. */
+@keyframes d2spin { to { transform: rotate(360deg); } }
+
+/* Update-badge pulse (topbar) + install-progress striped bar. Global for the
+   same reason as d2spin: inline `animation:` refs in templates don't resolve
+   scoped keyframe names. */
+@keyframes d2pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.55); opacity: .45; } }
+@keyframes d2stripes { from { background-position: 0 0; } to { background-position: 32px 0; } }
