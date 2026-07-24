@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from src.modules.plugin_loader import (
     Plugin,
@@ -300,9 +301,11 @@ class TestFastAPIRegistration:
             license_manager=FakeLicenseManager(["with_router_feature"]),
             fastapi_app=app,
         )
-        # Verify the route was added
-        routes = [r.path for r in app.routes]
-        assert "/api/v1/with-router/ping" in routes
+        # Verify public behavior instead of FastAPI's internal route storage,
+        # which differs across supported FastAPI/Starlette versions.
+        response = TestClient(app).get("/api/v1/with-router/ping")
+        assert response.status_code == 200
+        assert response.json() == {"plugin": "with-router"}
 
     def test_no_router_no_problem(self, tmp_path):
         _write_plugin(

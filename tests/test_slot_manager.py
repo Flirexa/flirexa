@@ -21,6 +21,8 @@ take seconds to run and catch the regressions we already lived through:
 """
 from __future__ import annotations
 
+import base64
+import itertools
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -204,7 +206,27 @@ def patched_wg(monkeypatch):
     """Stub ``ClientManager._get_wg`` so SlotManager.create_slot doesn't
     try to reach a real WireGuard interface. The mock returns a context
     that pretends ``add_peer`` succeeded — that's enough for the DB
-    accounting we want to test."""
+    accounting we want to test. Key generation is stubbed as well so the
+    suite stays hermetic on CI runners without ``awg`` installed."""
+    from src.core.amneziawg import AmneziaWGManager
+    from src.core.wireguard import WireGuardManager
+
+    key_counter = itertools.count(1)
+
+    def fake_keypair():
+        value = next(key_counter)
+        private = base64.b64encode(value.to_bytes(32, "big")).decode()
+        public = base64.b64encode((value + 1000).to_bytes(32, "big")).decode()
+        return private, public
+
+    def fake_psk():
+        value = next(key_counter) + 2000
+        return base64.b64encode(value.to_bytes(32, "big")).decode()
+
+    for manager in (AmneziaWGManager, WireGuardManager):
+        monkeypatch.setattr(manager, "generate_keypair", staticmethod(fake_keypair))
+        monkeypatch.setattr(manager, "generate_preshared_key", staticmethod(fake_psk))
+
     fake_wg = MagicMock()
     fake_wg.add_peer.return_value = True
     fake_wg.remove_peer.return_value = True

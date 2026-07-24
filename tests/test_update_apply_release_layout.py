@@ -5,6 +5,9 @@ import tarfile
 from pathlib import Path
 
 
+UPDATE_APPLY = Path(__file__).resolve().parents[1] / "update_apply.sh"
+
+
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
@@ -111,7 +114,7 @@ def _run_apply(tmp_path: Path, install_dir: Path, staging_dir: Path, package_pat
         }
     )
     return subprocess.run(
-        ["bash", "/root/" + ("sponge" "bot") + "_new/update_apply.sh"],
+        ["bash", str(UPDATE_APPLY)],
         text=True,
         capture_output=True,
         env=env,
