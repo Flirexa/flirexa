@@ -1,8 +1,14 @@
 # Adding Servers
 
+_Last verified: 2026-07-24._
+
 Flirexa can manage WireGuard on multiple servers. The local server is registered automatically during installation. Additional remote servers are added through the admin panel.
 
-> **Paid feature.** Multi-server orchestration and the remote agent are a **Business-tier** capability, delivered by the `multi-server` plugin from the license server. On the FREE tier you run up to two local servers (one WireGuard + one AmneziaWG) on the install host and this page does not apply. The manual `agent.py` / `distribution` steps below ship inside the paid `multi-server` package — they are not present in the public open-core tree, so public-repo users cannot run them as-is.
+> **Paid feature.** Multi-server orchestration and the remote agent are a
+> **Business-tier** capability. On FREE, one install host can run one WireGuard
+> and one AmneziaWG endpoint. The working agent implementation is delivered
+> separately; similarly named files in this public repository are API-contract
+> stubs, not a standalone agent distribution.
 
 ---
 
@@ -15,7 +21,9 @@ Each remote server runs a lightweight HTTP agent (`vpnmanager-agent`). The main 
 2. The main server connects via SSH, installs the agent, and starts it as a systemd service
 3. After bootstrap, SSH is no longer needed — all ongoing operations go through the agent's HTTP API
 
-If SSH is not available, you can install the agent manually and register it with a pre-shared key.
+If SSH bootstrap is not suitable, follow the manual-agent instructions included
+with the licensed agent package. They are versioned together; do not copy a stub
+from this repository or an agent from a different release.
 
 ---
 
@@ -33,7 +41,9 @@ If SSH is not available, you can install the agent manually and register it with
    - **SSH Password** or **SSH Private Key**
 3. Click **Save**, then click **Install Agent**
 
-The system connects via SSH, uploads the agent, installs dependencies into a dedicated venv at `/opt/vpnmanager-agent/`, creates a systemd service, and verifies the agent is running.
+The system connects via SSH, uploads the licensed agent package, installs
+dependencies into a dedicated venv at `/opt/vpnmanager-agent/`, creates a systemd
+service, and verifies the agent is running.
 
 After successful bootstrap, the server switches to **agent mode** automatically.
 
@@ -42,7 +52,8 @@ After successful bootstrap, the server switches to **agent mode** automatically.
 - The remote server must be reachable from the main server over SSH
 - Root or sudo access required
 - Python 3.10+ must be available on the remote server
-- Ports 8001 (agent) must be accessible from the main server
+- Port 8001 (agent) must be accessible from the main server, preferably through a
+  private network or a firewall rule limited to that source
 
 The bootstrap script checks for WireGuard or AmneziaWG tools and returns an error early if they are missing rather than proceeding with a broken installation.
 
@@ -86,62 +97,12 @@ Discovered clients are imported into the database. Existing WireGuard configurat
 
 ---
 
-## Manual Agent Installation
+## Manual agent installation
 
-If SSH access is not available, install the agent manually on the remote server:
-
-```bash
-# On the remote server
-mkdir -p /opt/vpnmanager-agent
-cd /opt/vpnmanager-agent
-python3 -m venv venv
-venv/bin/pip install fastapi uvicorn httpx
-```
-
-Copy `agent.py` from the main server (or from the distribution package):
-
-```bash
-# From the main server
-scp /opt/vpnmanager/agent.py root@remote-server:/opt/vpnmanager-agent/
-```
-
-Create the environment file:
-
-```bash
-cat > /opt/vpnmanager-agent/.env <<EOF
-AGENT_API_KEY=your-secret-key-here
-WG_INTERFACE=wg0
-WG_CONFIG_PATH=/etc/wireguard/wg0.conf
-AGENT_PORT=8001
-EOF
-```
-
-Create and enable the systemd service:
-
-```bash
-cat > /etc/systemd/system/vpnmanager-agent.service <<EOF
-[Unit]
-Description=Flirexa Agent
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/vpnmanager-agent
-EnvironmentFile=/opt/vpnmanager-agent/.env
-ExecStart=/opt/vpnmanager-agent/venv/bin/python3 agent.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable --now vpnmanager-agent
-```
-
-Then in the admin panel, add the server with:
-- **Agent Mode** enabled
-- **Agent URL**: `http://remote-ip:8001`
-- **Agent API Key**: the same key you set in `.env`
+Use the instructions bundled with the licensed agent package; they match the
+package and panel versions. Generate a unique key for each remote node, restrict
+network access to the control server, and never publish the key in an issue or
+paste it into logs shared with support.
 
 ---
 

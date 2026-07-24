@@ -1,6 +1,10 @@
 # Getting Started
 
-Flirexa is a self-hosted platform for managing WireGuard and AmneziaWG VPN servers. It provides a web admin panel, a client self-service portal, Telegram bots, and a remote agent system — all in a single deployable package.
+_Last verified: 2026-07-24._
+
+Flirexa is a self-hosted platform for managing WireGuard, AmneziaWG, and
+licence-gated proxy protocols. It provides a web admin panel, a client
+self-service portal, Telegram bots, and Business+ remote-node management.
 
 ---
 
@@ -19,14 +23,14 @@ It is designed for:
 
 | Feature | Description |
 |---------|-------------|
-| Multi-server management (paid) | Manage remote WireGuard / AmneziaWG servers from one panel — Business tier; FREE runs up to 2 local servers |
-| Remote agent | Lightweight HTTP agent replaces SSH for day-to-day operations |
+| Multi-server management (paid) | Manage remote nodes from one panel — Business tier; FREE runs two local protocol endpoints on one host |
+| Remote agent (paid) | Separately delivered HTTP agent replaces SSH for day-to-day operations |
 | Client portal | End-user web UI for self-registration, payment, and config download |
 | Telegram bots | Admin bot for operations, client bot for self-service |
 | Traffic & bandwidth | Per-client traffic counters, limits, and `tc`-based bandwidth shaping |
 | Subscriptions | Plan-based billing with built-in NOWPayments (crypto) integration |
-| Automatic updates | Signed update packages with rollback support |
-| Backup and restore | Scheduled database + config backups with one-command restore |
+| Automatic updates | Signed manifest, checksum-verified package, and rollback support |
+| Backup and restore | Manual backup/restore on FREE; scheduled backups on Business+ |
 | Drift detection | Automatic comparison of DB state vs live WireGuard interface with auto-reconcile |
 | AmneziaWG support | Full support for obfuscated WireGuard with obfuscation parameters |
 | White-label | Custom branding: name, logo, colors, domain |
@@ -77,9 +81,13 @@ http://YOUR_SERVER_IP:10090
 
 **4. Activate your license (optional):**
 
-Go to **Settings → License**, paste your license key, click **Activate**.
+Go to **Settings → License**, paste your activation code or licence key, and click
+**Activate**.
 
-No license key is required. Without one the system runs on the **FREE** tier — 80 clients, up to 2 local servers, no expiry, no license-server contact.
+No licence is required. Without one the runtime uses **FREE** — 80 clients, one
+host with WireGuard and AmneziaWG local endpoints, no expiry, and no licence
+heartbeat. The installer and updater still contact official Flirexa services;
+installer diagnostics can be disabled with `INSTALL_TELEMETRY=off`.
 
 **5. Add your first client:**
 

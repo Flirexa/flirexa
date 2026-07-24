@@ -1,8 +1,13 @@
 # Payment Setup
 
-Flirexa supports **7 payment providers** for the client portal. Customers can pay for subscriptions in crypto, cards, bank rails, or local methods. You enable as many as you want from a single admin page.
+_Last verified: 2026-07-24._
 
-> **Free tier:** only NOWPayments is available to your customers. All other providers (CryptoPay, PayPal, Stripe, Mollie, Razorpay, Payme) require a paid Flirexa license. The gating is enforced on both the API and the UI.
+Flirexa supports **8 payment providers** for the client portal. Customers can pay
+for subscriptions in crypto, cards, bank rails, or local methods.
+
+> **Free tier:** only NOWPayments is available to your customers. CryptoPay,
+> PayLio, PayPal, Stripe, Mollie, Razorpay, and Payme require a paid Flirexa
+> licence. The gate is enforced by the API and UI.
 
 ---
 
@@ -12,13 +17,14 @@ Flirexa supports **7 payment providers** for the client portal. Customers can pa
 |---|---|---|---|---|
 | [**NOWPayments**](#nowpayments) | Crypto (100+) | BTC, ETH, USDT, USDC, LTC, XMR, TON, SOL… | Most flexible crypto rail | Free |
 | [**CryptoPay**](#cryptopay-telegram) | Crypto (Telegram bot) | BTC, TON, USDT, USDC, BUSD, ETH | Telegram-centric VPN brands | Paid |
+| [**PayLio**](#paylio) | Cards / bank rails, USDC settlement | USD, EUR, GBP, CAD | Card checkout with Polygon USDC payout | Paid |
 | [**PayPal**](#paypal) | PayPal + cards | USD, EUR, GBP | International cards & PayPal balance | Paid |
 | [**Stripe**](#stripe) | Cards + Apple/Google Pay | USD, EUR, GBP, CAD, AUD, JPY | EU/US card payments | Paid |
 | [**Mollie**](#mollie) | Cards + iDEAL + SEPA + Klarna | EUR, USD, GBP | Europe-focused | Paid |
 | [**Razorpay**](#razorpay) | UPI, NetBanking, cards | INR, USD, EUR | India | Paid |
 | [**Payme**](#payme) | UzCard, Humo, Visa, Mastercard | UZS | Uzbekistan | Paid |
 
-You configure all of them from a single page in the admin panel:
+Most providers are configured from a single page in the admin panel:
 
 > **Settings → Payment Providers → Configure**
 
@@ -26,6 +32,9 @@ Each provider has its own card with:
 - the required fields (API key, secrets, etc. — what to paste comes from the provider dashboard);
 - the exact **webhook URL** to register at the provider's side (auto-generated from your `CLIENT_PORTAL_DOMAIN`, with a one-click Copy button);
 - **Save & Connect**, **Test** (runs a self-check without real charges), **Disconnect**.
+
+PayLio currently uses `.env` configuration as documented below rather than a
+credential card in Settings.
 
 > **About webhook URLs in this guide:** every section below lists `https://YOUR_HOST/client-portal/webhooks/<provider>` for documentation purposes. **Don't copy that template manually.** Open the provider's card in your admin panel — the actual URL with your real domain is shown there with a Copy button. That's the one you paste into the provider's dashboard.
 
@@ -92,6 +101,35 @@ https://YOUR_HOST/client-portal/webhooks/cryptopay
 
 - API docs: <https://help.crypt.bot/crypto-pay-api>
 - Test bot: <https://t.me/CryptoTestnetBot>
+
+---
+
+## PayLio
+
+PayLio presents card/bank checkout to the customer and settles the operator in
+USDC on Polygon.
+
+1. Create a PayLio account and API key.
+2. Choose a Polygon-compatible USDC payout address.
+3. Add the following to `/opt/vpnmanager/.env`:
+
+```dotenv
+PAYLIO_API_KEY=plio_live_REPLACE_ME
+PAYLIO_PAYOUT_ADDRESS=0xREPLACE_WITH_POLYGON_ADDRESS
+PAYLIO_CURRENCIES=USD,EUR
+# Optional upstream rail preference; empty lets PayLio choose.
+PAYLIO_PROVIDER=
+CLIENT_PORTAL_DOMAIN=portal.example.com
+```
+
+4. Restart the API and client portal.
+
+The callback is
+`https://YOUR_HOST/client-portal/webhooks/paylio`. PayLio's GET callback is
+treated only as a notification: Flirexa re-queries PayLio's payment-status API
+before crediting the subscription.
+
+API reference: <https://paylio.org/api-docs>
 
 ---
 
@@ -275,8 +313,8 @@ Same flow for all providers:
 
 1. Customer clicks **Subscribe** → invoice is created on the provider's side, customer is redirected to the provider's checkout page
 2. Customer pays
-3. Provider sends a signed webhook to `https://YOUR_HOST/client-portal/webhooks/<provider>`
-4. We verify the signature using the secret you configured
+3. Provider sends a webhook to `https://YOUR_HOST/client-portal/webhooks/<provider>`
+4. Flirexa verifies the provider signature, or for PayLio re-queries the payment-status API
 5. If valid → subscription is upgraded, WG limits are applied, customer gets email/Telegram notification
 6. If signature is invalid → 401 returned, no credit
 

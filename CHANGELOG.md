@@ -2708,7 +2708,7 @@ End-to-end verified on a clean VM: install → activate FREE → keep auto-WireG
 ### Public mirror (`Flirexa/flirexa`) cleanup
 
 - CI workflow was failing on every push: pytest job didn't install runtime requirements (psutil / python-dotenv / aiocryptopay → `ModuleNotFoundError`) and secrets-scan used an invalid `--base-path` flag. Both fixed; CI green again.
-- Replaced remaining `vpnmanager` / `Flirexa` strings with `Flirexa` in the public mirror: `alembic/env.py` default DSN, `.env.example` header, `backup_manager.py` docstring + version stamp.
+- Replaced remaining legacy product-name strings with `Flirexa` in the public mirror: `alembic/env.py` default DSN, `.env.example` header, `backup_manager.py` docstring + version stamp.
 
 ---
 

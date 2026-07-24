@@ -1,5 +1,7 @@
 # CLI Contract
 
+_Last verified: 2026-07-24._
+
 This document freezes the public operational contract of `vpnmanager` for the commercial line. The baseline began in `1.3.0` and remains in force for the current `2.x` line.
 
 ## Scope

@@ -180,15 +180,11 @@ def list_clients(
     - **enabled_only**: Only return enabled clients
     - **q**: Optional substring search on `name` or `ipv4`. Server-side
       so the admin Clients tab can find peers that fall outside the
-      first page after panels grow past any default cap (operator
-      report 2026-06-01 — 800+ clients across multiple servers +
-      frontend filtering an alphabetically-truncated slice = search
-      came back empty for live, traffic-flowing peers).
+      first page after an installation grows past any default cap.
     - **limit**: Max items to return. **Omit to return all rows.**
       Any positive integer caps the result; otherwise the entire
       filtered set is returned. The previous hard 500-cap silently
-      truncated panels with more clients than that — operator with
-      506 saw "506" on the dashboard but only 500 in the Clients tab.
+      truncated larger installations.
       `_enrich_handshakes` is per-server (uses a shared handshake
       cache populated by a background task), not per-client, so
       returning the full set scales with the server count, not the
@@ -248,8 +244,8 @@ def list_online_clients(
     """
     Only the clients that are online right now (handshake within `window`).
 
-    The Online Users tab used to call GET /clients (every row, ~2.7MB at
-    3000+ clients) on a 5-second poll just to filter down to the handful of
+    The Online Users tab used to call GET /clients (every row) on a
+    5-second poll just to filter down to the handful of
     online peers client-side. This endpoint does the filter server-side
     against the in-memory handshake cache, then loads ONLY the matching
     rows — payload and DB work scale with the online count, not the total

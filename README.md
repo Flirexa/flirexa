@@ -1,7 +1,10 @@
 # Flirexa
 
-**Self-hosted VPN management for WireGuard, AmneziaWG, Hysteria2, and TUIC.**
+**Self-hosted VPN management for WireGuard, AmneziaWG, Hysteria2, TUIC, and VLESS-Reality.**
 Open core under MIT. Paid plugins for the parts that turn it into a real business.
+
+_Repository and product claims last verified: 2026-07-24. Current checkout
+pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
 
 [![Tests](https://github.com/Flirexa/flirexa/actions/workflows/test.yml/badge.svg)](https://github.com/Flirexa/flirexa/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -23,9 +26,9 @@ curl -fsSL https://flirexa.biz/install.sh | sudo bash
 Flirexa is what you'd build if you took Marzban, gave it a working client portal, and made the multi-server / corporate / white-label parts a paid upgrade instead of unfinished issues.
 
 **For yourself or a few friends?** Run the FREE tier and never look at this README again.
-**Selling VPN as a service?** Free tier handles up to 80 clients on one server with crypto payments out of the box. When you outgrow it, you upgrade — the same software, more features unlocked.
+**Selling VPN as a service?** Free tier handles up to 80 clients on one physical host with crypto payments out of the box. When you outgrow it, you upgrade — the same installation, more features unlocked.
 
-No telemetry. No phone-home. No license check on FREE. No kill switch.
+The FREE runtime has no licence heartbeat and no remote kill switch. The installer and updater do contact official Flirexa services: the updater fetches a signed manifest, while the installer reports coarse phase/failure diagnostics by default so broken installs can be supported. The installer may also ask for an optional email address; entering one opts in to a single English help email only if that attempt fails. Set `INSTALL_TELEMETRY=off` to disable installer diagnostics and the optional help flow.
 
 ---
 
@@ -34,15 +37,15 @@ No telemetry. No phone-home. No license check on FREE. No kill switch.
 | | |
 |---|---|
 | **Protocols** | WireGuard + AmneziaWG (DPI-resistant — works in censorship-heavy networks) |
-| **Capacity** | Up to 80 clients on 1 server, no expiry |
+| **Capacity** | Up to 80 clients on one physical host, with one local WireGuard and one local AmneziaWG endpoint |
 | **Admin panel** | Vue 3 SPA on port 10086 — real-time stats, traffic graphs, QR codes |
 | **Client portal** | Separate FastAPI process on port 10090 — self-service signup, plans, config download |
 | **Telegram** | Admin bot for managing the service from your phone |
 | **Payments** | NOWPayments (BTC, ETH, USDT, XMR, +50 cryptocurrencies) out of the box |
 | **Languages** | English, Русский, Deutsch, Français, Español |
-| **Updates** | Auto-pull from GitHub Releases, no phone-home |
+| **Updates** | Signed update manifest, package checksum verification, and rollback |
 | **Backup** | Manual export/restore with full data |
-| **Payment plugins** | Plugin loader is open. NOWPayments ships in the core; Stripe / Mollie / Razorpay / Payme / PayPal are paid plugins (Business+) and live in the closed-source `flirexa-pro` package. |
+| **Payment providers** | NOWPayments ships in FREE. CryptoPay, PayLio, and additional card/local rails are license-gated; see [payment setup](docs/payment-setup.md) for what is included and how each provider is delivered. |
 
 If you can run a VPS, you can run a VPN service.
 
@@ -99,11 +102,11 @@ If you can run a VPS, you can run a VPN service.
 
 ## What's paid
 
-The paid plugins live in `plugins/<name>/` as license-gated declarations. Without a valid license the plugin loader skips them and the corresponding API endpoints return **403** with a clear upgrade hint. With a license they activate automatically — no separate install, no different binary.
+Paid capabilities use feature flags. Several implementations, including the extra VPN protocols and Corporate VPN, are already present in this MIT repository and remain inactive without the matching licence. Some third-party payment-provider and remote-agent components are distributed separately under a commercial licence.
 
 | Tier | Per month | Plugins unlocked |
 |---|---|---|
-| **Starter** | $19 | `extra-protocols` (Hysteria2, TUIC), `promo-codes` (codes + auto-renewal) |
+| **Starter** | $12 | `extra-protocols` (Hysteria2, TUIC, VLESS-Reality), `promo-codes` (codes + auto-renewal) |
 | **Business** | $49 | + `multi-server`, `client-tg-bot`, `traffic-rules`, `white-label-basic`, `auto-backup` |
 | **Enterprise** | $149 | + `corporate-vpn` (site-to-site mesh), `manager-rbac` (multi-admin RBAC) |
 
@@ -117,24 +120,16 @@ Pricing and licensing: [flirexa.biz](https://flirexa.biz)
 
 ## Compared to alternatives
 
-| | **Flirexa FREE** | Marzban | Hiddify | WG-Easy | 3X-UI |
-|---|:---:|:---:|:---:|:---:|:---:|
-| WireGuard | ✓ | ❌ (V2Ray-style) | ✓ | ✓ | ❌ |
-| AmneziaWG | **✓** | ❌ | ✓ | ❌ | ❌ |
-| Hysteria2 | paid | ✓ | ✓ | ❌ | ✓ |
-| TUIC | paid | ✓ | ✓ | ❌ | ✓ |
-| Web admin panel | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Client portal w/ payments | ✓ | ❌ | partial | ❌ | ❌ |
-| Telegram admin bot | ✓ | community plugin | ✓ | ❌ | community plugin |
-| Built-in crypto payments | **✓ (NOWPayments)** | ❌ | ❌ | ❌ | ❌ |
-| Multi-server orchestration | paid | ✓ | ✓ | ❌ | ❌ |
-| Site-to-site Corporate VPN | paid (Enterprise) | ❌ | ❌ | ❌ | ❌ |
-| White-label branding | paid | ❌ | partial | ❌ | ❌ |
-| Auto-updates from upstream | ✓ | manual | ✓ | manual | manual |
-| 5-language UI | **✓** | ✓ | ✓ | partial | ✓ |
-| Open source license | MIT | AGPL-3.0 | GPL-3.0 | MIT | GPL-3.0 |
+Competitor feature sets change too quickly for a static matrix to remain honest.
+Compare current releases in their official repositories:
+[Marzban](https://github.com/Gozargah/Marzban),
+[Hiddify](https://github.com/hiddify/hiddify-app),
+[WG-Easy](https://github.com/wg-easy/wg-easy), and
+[3X-UI](https://github.com/MHSanaei/3x-ui).
 
-The matrix above isn't "we're better than everyone." It's "we made different trade-offs." Marzban is excellent if you live entirely in the V2Ray ecosystem. Hiddify is excellent if you want a polished single-server panel. WG-Easy is excellent if you just want WireGuard for yourself and your family. **Flirexa is what you pick if you want to run VPN as a small business.**
+Flirexa's deliberate trade-off is a useful MIT-licensed FREE service for one
+operator/host, with commercial protocol, orchestration, white-label, and B2B
+features layered on top.
 
 ---
 
@@ -200,6 +195,12 @@ See [docs/plugins.md](docs/plugins.md) for the full plugin authoring guide and [
 
 ---
 
+## Client apps
+
+Android, Windows, and Linux client apps are available to Enterprise customers. They connect end users to an operator's Flirexa installation; iOS remains planned. Current availability and licensing are listed at [flirexa.biz](https://flirexa.biz).
+
+---
+
 ## Documentation
 
 | Topic | Where |
@@ -223,12 +224,12 @@ See [docs/plugins.md](docs/plugins.md) for the full plugin authoring guide and [
 
 Active items, in rough order. See [ROADMAP.md](ROADMAP.md) for the full picture.
 
-- **2026 Q3** — Signed plugin distribution from license server (paid plugins as `.tar.gz` packages)
-- **2026 Q3** — Public demo instance (`demo.flirexa.biz`)
+- **2026 Q3** — Signed distribution for separately delivered commercial extensions
 - **2026 Q3** — Plugin marketplace (community-authored plugins)
-- **2026 Q4** — Mobile app (Android/iOS) for client-side config management
+- **2026 Q3** — Documentation site and additional community plugin examples
+- **2026 Q4** — iOS client app and localisation expansion
 
-Card / fiat (PayLio) and crypto (NOWPayments) subscription billing on `flirexa.biz` shipped in 2026 Q2.
+The public interactive demo and Android, Windows, and Linux client apps are already available from [flirexa.biz](https://flirexa.biz).
 
 ---
 
@@ -246,8 +247,6 @@ If Flirexa saves you time or money, consider:
   | Ethereum (ETH) | Ethereum | `0xc9428847bf4a741c946cfc33a726a293fd97cc07` |
   | USDT | Ethereum (ERC-20) | `0xc9428847bf4a741c946cfc33a726a293fd97cc07` |
   | USDT | Tron (TRC-20) | `TGGQrmJqsjmbnieXhfeRBMyUML3zGWKY3x` |
-
-  > Why no GitHub Sponsors / Patreon / Buy Me a Coffee? They all settle through Stripe or PayPal, neither of which we can use from our jurisdiction. Direct crypto bypasses that entirely. Marzban, Hiddify, and most projects in this niche operate the same way.
 
 - 💼 **Recurring sponsorship via crypto** — email `support@flirexa.biz` if you want to set up a $5/$25/$100/month NOWPayments recurring sponsorship; we'll send a payment link and credit you in the README.
 
@@ -267,4 +266,4 @@ For commercial enquiries (pricing, support contracts, white-label OEM): `support
 
 MIT — see [LICENSE](LICENSE).
 
-The contents of this repository (the open core) are MIT-licensed. The paid plugins distributed by the official Flirexa license server are closed-source and shipped under a separate commercial license tied to your subscription. See [docs/licensing.md](docs/licensing.md) for the full breakdown.
+The contents of this repository are MIT-licensed. Separately delivered commercial extensions are covered by their own licence terms. See [docs/licensing.md](docs/licensing.md) for the full breakdown.

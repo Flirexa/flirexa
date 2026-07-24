@@ -1,5 +1,7 @@
 # Operations Runbook
 
+_Last verified: 2026-07-24._
+
 This is the day-to-day operator and support runbook for the commercial product line.
 
 ## 1. Check System Status
@@ -80,15 +82,13 @@ sudo vpnmanager health
 
 ## 6. Restore On A New Server
 
-1. copy release archive to new server
-2. install product
-3. copy backup archive with original name
-4. run restore
+1. install a supported Flirexa generation from the official channel
+2. copy the backup archive to the new server without renaming it
+3. run restore
 
 ```bash
-tar xzf vpn-manager-v<version>.tar.gz
-cd vpn-manager-v<version>
-sudo bash install.sh --non-interactive
+curl -fsSL https://flirexa.biz/install.sh -o /tmp/flirexa-install.sh
+sudo bash /tmp/flirexa-install.sh --non-interactive
 sudo vpnmanager restore --archive /root/backups/vpnmanager-backup-<id>.tar.gz --yes
 sudo vpnmanager status
 sudo vpnmanager health
@@ -100,7 +100,7 @@ sudo vpnmanager health
 sudo vpnmanager support-bundle --output /root/support --redact-strict
 ```
 
-Send the bundle together with:
+Inspect the redacted bundle before sending it. Send it together with:
 - brief problem description
 - timestamp of failure
 - command output from `status` and `health`
@@ -112,7 +112,10 @@ Keep these outside the running server:
 - DB-only backup archives if used operationally
 - support bundles for incidents
 - commercial license key / activation data
-- release archive used for install if needed for offline recovery
+- a supported release package if your licence provides one for offline recovery
+
+Keep licence/activation data in your own credential store; do not include it in
+support tickets or bundles.
 
 ## 9. Where Logs Are
 

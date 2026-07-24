@@ -1,5 +1,5 @@
 """
-Flirexa Email Service
+Flirexa email service
 SMTP email for client registration verification and notifications
 """
 

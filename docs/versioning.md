@@ -1,59 +1,30 @@
 # Versioning
 
-## Product Version Lines
+_Last verified: 2026-07-24._
 
-- `1.2.x` — pre-release / hardening / test line
-- `1.3.0` — First Commercial Release
-- `1.3.x` — first commercial maintenance line
-- `1.4.x` — earlier commercial line with backward-compatible additive changes
-- `2.0.0` — current major line (shipped; `VERSION` = 2.0.0)
-- `2.x` — current active commercial line
+Flirexa uses semantic versions: `MAJOR.MINOR.PATCH`.
 
-## Line Semantics
+- `PATCH` fixes defects or security/supportability problems without intentionally
+  changing documented interfaces.
+- `MINOR` adds backward-compatible capability.
+- `MAJOR` may change API, CLI, backup, installer, or deployment contracts and
+  requires explicit migration notes.
 
-### `1.3.0`
-Meaning:
-- first stable commercial release
-- commercial baseline for customers and support
+The current source-tree version is the single line in `VERSION`:
 
-### `1.3.x`
-Allowed:
-- bugfixes
-- security fixes
-- small UX improvements
-- supportability improvements
+```bash
+cat VERSION
+```
 
-Not allowed:
-- breaking CLI changes
-- breaking backup/restore changes
-- breaking update/install behavior
-- breaking release-layout contract
+The current public release is available from GitHub without hard-coding a version
+in this document:
 
-### `1.4.x`
-Meaning:
-- earlier commercial line
-- carried forward the commercial baseline introduced in `1.3.0`
+```bash
+git ls-remote --tags --refs https://github.com/Flirexa/flirexa.git \
+  | sed 's#.*refs/tags/##' | sort -V | tail -1
+```
 
-Allowed:
-- new features
-- additive operational capabilities
-- bugfixes, security fixes, UX fixes, and supportability work
-- additions that remain backward compatible
-
-### `2.0.0`
-Marked the major release that carried:
-- architecture changes
-- CLI contract changes
-- backup/restore format changes
-- updated operational contract
-
-### `2.x`
-Meaning:
-- current active commercial line
-- carries forward the baseline established at `2.0.0`
-
-Allowed:
-- new features
-- additive operational capabilities
-- bugfixes, security fixes, UX fixes, and supportability work
-- additions that remain backward compatible
+Release notes are append-only in [CHANGELOG.md](../CHANGELOG.md). Installed
+systems should normally update through the signed manifest channel described in
+[updates.md](updates.md), not by checking out an arbitrary tag over a running
+installation.

@@ -1,36 +1,31 @@
 #!/bin/bash
-# Flirexa — Docker Entrypoint
-# Handles first-run setup, migrations, and startup
+# Flirexa — Docker entrypoint
+# Validates configuration, optionally runs migrations, and starts the service.
 
 set -eo pipefail
 
 echo "=== Flirexa Docker Entrypoint ==="
 
-# Generate .env from template if not exists
-if [ ! -f /app/.env ]; then
-    echo "Creating .env from template..."
-    cp /app/.env.example /app/.env
+require_secret() {
+    local name="$1"
+    local value="${!name:-}"
+    case "$value" in
+        ""|CHANGE_ME|change-this-to-*)
+            echo "ERROR: $name is unset or still uses the example value." >&2
+            echo "Generate it in the host .env before starting Docker Compose." >&2
+            exit 1
+            ;;
+    esac
+}
 
-    # Generate random secret key
-    SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-    sed -i "s/change-this-to-a-random-secret-key/$SECRET/" /app/.env
-
-    # Generate JWT secret
-    JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-    sed -i "s/change-this-to-a-random-secret-key-for-jwt/$JWT_SECRET/" /app/.env
-
-    # Inject LICENSE_KEY from environment if provided
-    if [ -n "${LICENSE_KEY:-}" ]; then
-        sed -i "s|^LICENSE_KEY=.*|LICENSE_KEY=$LICENSE_KEY|" /app/.env
-        sed -i "s|^LICENSE_CHECK_ENABLED=.*|LICENSE_CHECK_ENABLED=true|" /app/.env
-        echo "License key configured from environment"
-    fi
-
-    echo "Generated .env with random secrets"
-fi
+require_secret SECRET_KEY
+require_secret JWT_SECRET
+require_secret SERVICE_API_TOKEN
+require_secret VMS_ENCRYPTION_KEY
 
 # Wait for database
 echo "Waiting for database..."
+database_ready=false
 for i in $(seq 1 30); do
     if python3 -c "
 import psycopg2
@@ -43,20 +38,22 @@ except:
     exit(1)
 " 2>/dev/null; then
         echo "Database ready"
+        database_ready=true
         break
     fi
     echo "  Waiting... ($i/30)"
     sleep 2
 done
 
-# Run database migrations (create tables)
-echo "Initializing database..."
-python3 -c "
-from src.database.connection import engine, Base
-from src.database.models import *
-Base.metadata.create_all(bind=engine)
-print('Database tables created')
-"
+if [ "$database_ready" != "true" ]; then
+    echo "ERROR: database did not become ready within 60 seconds." >&2
+    exit 1
+fi
+
+if [ "${MIGRATE_ON_STARTUP:-false}" = "true" ]; then
+    echo "Applying database migrations..."
+    alembic upgrade head
+fi
 
 echo "Starting application..."
 exec "$@"

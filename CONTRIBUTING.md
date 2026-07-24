@@ -19,7 +19,9 @@ Thanks for taking the time to contribute. This document explains how the reposit
 - **Removing license gates from paid features.** The gates fund development; circumventing them in the public repo defeats the open-core model. If you have a strong case for *moving* a specific feature into the open core, please open an issue first.
 - **Large architectural rewrites** without a design discussion in an issue.
 - **New features that duplicate something a paid plugin already provides.**
-- **Telemetry, analytics, or any phone-home behaviour** in the open core. FREE installs must never make outbound calls beyond what the operator explicitly configures.
+- **New telemetry or analytics without prior design/privacy discussion.** Existing
+  outbound behaviour (optional installer diagnostics, signed update checks, and
+  configured integrations) must remain documented, bounded, and testable.
 
 ---
 
@@ -86,7 +88,9 @@ Thanks for taking the time to contribute. This document explains how the reposit
    pytest tests/
    ```
 
-   The full suite finishes in about a minute on a modest laptop. Some tests in `test_payment_flow.py` are pre-existing failures (they exercise unfinished webhook flows); the CI workflow ignores them by name.
+   The public CI suite finishes in about a minute on a modest laptop. Tests that
+   require separately delivered commercial provider/agent implementations are
+   excluded or skipped in the public mirror and run in private CI.
 
 ### What's actually running
 

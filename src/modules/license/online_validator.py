@@ -712,8 +712,8 @@ async def run_validator_loop():
 # When the lic-server tells us the current key is revoked AND points us at a
 # newly-issued successor (same hardware_id, same owner_email), the panel can
 # verify the offered JWT locally, swap .env, and restart — no operator SSH
-# round-trip required. This is the path that closes the 2026-06-12 incident
-# (operator re-issued, customer's panel kept running on the old tier).
+# round-trip required. This prevents a re-issued key from leaving an
+# installation on stale entitlements.
 #
 # Safety:
 #   1. The offered JWT is signature-verified with license_public.pem before

@@ -1,5 +1,7 @@
 # CLI Reference
 
+_Last verified: 2026-07-24._
+
 `vpnmanager` is the official local operational interface for the product.
 
 Supported operational usage:

@@ -41,3 +41,15 @@ def get_version_file(install_root: Path | None = None) -> Path:
         return runtime_version
     root = install_root or get_install_root()
     return root / "VERSION"
+
+
+def get_app_version(default: str = "0.0.0") -> str:
+    """Return the explicit APP_VERSION override or the runtime VERSION file."""
+    override = os.getenv("APP_VERSION", "").strip()
+    if override:
+        return override
+    try:
+        value = get_version_file().read_text(encoding="utf-8").strip()
+        return value or default
+    except OSError:
+        return default

@@ -66,10 +66,8 @@ def _slot_peer_name(
 
     Format: ``{username}-{hash}``. The server name used to be appended
     here, but every admin-side Clients table already has a separate
-    `Server` column so the suffix was just duplicate noise — operators
-    were complaining that names like ``Phone-b00c-USA-California`` were
-    longer than they needed to be (operator report 2026-05-27). Dropping the
-    server part also frees up room in the column for long usernames.
+    `Server` column, so the suffix was duplicate noise. Dropping the server
+    part also frees up room in the column for long usernames.
 
     Why the 4-char hash stays: ``Client.name`` is unique per server,
     and one user can hold multiple device slots — two slots from the

@@ -395,9 +395,8 @@ class AmneziaWGManager(WireGuardManager):
         h4: Optional[int] = None,
     ) -> str:
         """Generate AmneziaWG client config (.conf for AmneziaVPN app)."""
-        # Sanitize DNS — see wireguard.py generate_client_config for the
-        # operator report this guards against (Windows adapter shows
-        # "no DNS" when server.dns is empty or uses comma-without-space).
+        # Sanitize DNS: the Windows adapter can show "no DNS" when
+        # server.dns is empty or uses comma-without-space.
         if not (dns and dns.strip()):
             dns = "1.1.1.1, 1.0.0.1"
         else:

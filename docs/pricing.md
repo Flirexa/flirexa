@@ -1,14 +1,16 @@
 # Pricing
 
-Flirexa is **open-core**: the FREE tier is a complete, unlimited-time VPN service with no license and no phone-home. Paid tiers are monthly subscriptions that unlock additional features — cancel any time.
+_Last verified: 2026-07-24. The checkout on [flirexa.biz](https://flirexa.biz) is authoritative for current prices and billing periods._
+
+Flirexa is **open-core**: the FREE tier is a complete, unlimited-time VPN service without a paid licence heartbeat. Paid tiers unlock additional features.
 
 ## Plans
 
-| Feature | FREE | Starter — $19/mo | Business — $49/mo | Enterprise — $149/mo |
+| Feature | FREE | Starter — from $12/mo | Business — from $49/mo | Enterprise — from $149/mo |
 |---------|:----:|:--------------:|:----------------:|:------------------:|
 | **Max clients** | 80 | 500 | 2000 | Unlimited |
-| **Max local servers** | 2 (one per protocol) | 2 | 10 (multi-server) | Unlimited |
-| **Protocols** | WireGuard, AmneziaWG | + Hysteria2, TUIC | All | All |
+| **Deployment** | 1 host, 2 local endpoints | 1 host, one endpoint per enabled protocol | Up to 10 managed nodes | Unlimited |
+| **Protocols** | WireGuard, AmneziaWG | + Hysteria2, TUIC, VLESS-Reality | All | All |
 | **Admin panel** | Yes | Yes | Yes | Yes |
 | **Telegram admin bot** | Yes | Yes | Yes | Yes |
 | **Client portal with payments** | Yes | Yes | Yes | Yes |
@@ -23,18 +25,18 @@ Flirexa is **open-core**: the FREE tier is a complete, unlimited-time VPN servic
 | **Manager RBAC (scoped admins)** | — | — | — | Yes |
 | **Priority support** | — | — | — | Yes |
 
-FREE stays free forever — no key, no expiry, no license-server contact. See [free-vs-paid.md](free-vs-paid.md) for the full breakdown.
+FREE stays free forever — no key, no expiry, and no licence heartbeat. Installer diagnostics and update checks are separate network operations; see [free-vs-paid.md](free-vs-paid.md) for the full breakdown.
 
 ## What's included (paid tiers)
 
-- Monthly subscription, cancellable any time
+- The billing period selected at checkout (monthly, annual, or lifetime when offered)
 - Every release published while your subscription is active
 - Access to all supported VPN protocols
 - Email support at [support@flirexa.biz](mailto:support@flirexa.biz)
 
 ## Cancellation
 
-Cancel any time. Your licence stays active until the end of the period you've already paid for; no further billing happens after cancellation. At the end of the period your install reverts to FREE — your clients, servers, and data stay exactly where they are; you simply lose access to the paid features.
+Recurring plans can be cancelled before renewal. Your licence stays active through the paid period; afterwards the installation reverts to FREE limits without deleting local clients, servers, or payment records. Lifetime purchases, when offered, do not renew.
 
 ## Payment
 
@@ -43,11 +45,11 @@ Subscriptions can be paid either way:
 - **Card / fiat** — Visa, Mastercard, Apple Pay, Google Pay, via PayLio.
 - **Cryptocurrency** — via NOWPayments: BTC, ETH, USDT, USDC, LTC, XMR, TON, SOL, and many others.
 
-After payment confirmation you receive your activation code immediately via email and on the thank-you page.
+After payment confirmation, activation details are shown by the checkout and sent to the address supplied there.
 
 ## Upgrade / downgrade
 
-To switch tiers, contact [support@flirexa.biz](mailto:support@flirexa.biz). The new rate applies from the next billing cycle.
+To switch tiers or billing periods, use the account/checkout controls where available or contact [support@flirexa.biz](mailto:support@flirexa.biz).
 
 ## More information
 

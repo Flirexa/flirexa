@@ -1,6 +1,11 @@
 # Client Management
 
-A **client** in Flirexa represents a single WireGuard peer — one device, one IP, one configuration file.
+_Last verified: 2026-07-24._
+
+In the admin data model, a **client** is a protocol credential/peer attached to
+one server. A portal **device slot** can coordinate matching peers across several
+customer-visible WireGuard/AmneziaWG servers. Proxy clients use protocol URIs
+instead of WireGuard IP/key pairs.
 
 ---
 
@@ -15,7 +20,7 @@ A **client** in Flirexa represents a single WireGuard peer — one device, one I
    - **Bandwidth limit** (optional) — rate-limit to N Mbps via `tc`
 3. Click **Create**
 
-The system automatically:
+For WireGuard/AmneziaWG, the system automatically:
 - Assigns the next available IP from the server's address pool
 - Generates a WireGuard key pair
 - Adds the peer to the live WireGuard interface
@@ -25,7 +30,10 @@ The system automatically:
 
 ## Downloading Client Configuration
 
-After creating a client, click **Download Config** to get a `.conf` file. For mobile devices, click **QR Code** to display a QR code that can be scanned directly in the WireGuard app.
+After creating a client, use **Download Config** or **QR Code**. WireGuard and
+AmneziaWG produce their native configuration formats; Hysteria2, TUIC, and
+VLESS-Reality produce proxy URIs/subscriptions when the Starter+ protocol feature
+is active.
 
 ### WireGuard App
 
@@ -105,7 +113,7 @@ Configure on the client edit screen.
 End users can manage their own VPN configs without admin involvement:
 
 1. Open **Client Portal** at `http://YOUR_SERVER_IP:10090`
-2. Register with email and password
+2. Register with the identifier/email policy configured by the operator
 3. Choose a subscription plan and pay
 4. Download VPN config or scan QR code
 5. View traffic usage
@@ -116,7 +124,8 @@ The client portal is configured via **Settings → Subscriptions** in the admin 
 
 ## Telegram Client Bot
 
-Users who prefer Telegram over the web portal can use the client bot:
+The end-user Telegram bot is a Business+ capability. Users who prefer Telegram
+over the web portal can:
 
 1. Start a chat with your client bot
 2. The bot auto-registers them and creates a VPN client

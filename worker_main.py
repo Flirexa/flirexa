@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Flirexa Background Worker
+Flirexa background worker
 Runs monitoring, backups, and scheduled tasks independently from the API process.
 
 Usage:
@@ -199,7 +199,7 @@ def _write_worker_heartbeat(now: datetime) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Flirexa Background Worker")
+    parser = argparse.ArgumentParser(description="Flirexa background worker")
     parser.add_argument("--interval", type=int, default=None,
                         help="Monitoring interval in seconds (default: from MONITOR_INTERVAL env or 60)")
     parser.add_argument("--log-level", default="INFO", help="Log level")

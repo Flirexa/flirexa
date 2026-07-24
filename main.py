@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Flirexa - WireGuard VPN Management Platform
+Flirexa - VPN management platform
 Main entry point
 """
 
@@ -101,7 +101,7 @@ def check_status():
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description="Flirexa - WireGuard VPN Management Platform",
+        description="Flirexa - VPN management platform",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Commands:

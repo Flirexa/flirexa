@@ -1023,10 +1023,8 @@ function showError(msg) {
 const filteredClients = computed(() => {
   // `search` is forwarded to the backend (?q=) via the watcher below — the
   // store only holds the matching slice, so we no longer filter by name/ipv4
-  // client-side. Doing so used to hide rows that fell outside the 500-row
-  // alphabetic page once a panel grew past 500 clients (operator report:
-  // 800+ clients across servers; searching for a live, traffic-flowing
-  // peer came back empty because the loaded slice didn't include it).
+  // client-side. Doing so can hide rows that fall outside the loaded page
+  // on larger installations.
   // Status / server are cheap to apply locally so they stay.
   let result = store.clients
   if (filterStatus.value === 'enabled') result = result.filter((c) => c.enabled)
@@ -1107,9 +1105,8 @@ watch([search, filterStatus, filterServer, filterSegment, sortKey, sortDir], () 
 // Build the params object the store should hit `/clients` with right
 // now. Every code path that refetches must go through this so the
 // active search filter doesn't get wiped by a parallel poll or a bulk-
-// action follow-up call — operator report: typed "test1", saw it for
-// 2 seconds, then the 15s live-poll fired `fetchClients()` with no
-// args and the search results vanished under the full list.
+// action follow-up call; an unfiltered live poll must not replace the
+// active search results.
 function _currentParams() {
   const params = {}
   const q = (search.value || '').trim()

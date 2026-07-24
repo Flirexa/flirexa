@@ -1,5 +1,7 @@
 # Webhook Security & Payment Pipeline
 
+_Last verified: 2026-07-24._
+
 This document describes how Flirexa receives, verifies and processes payment notifications from each provider — and what stops a customer from ever ending up in "I paid, my subscription didn't activate".
 
 If you just want to set up a provider, see [payment-setup.md](payment-setup.md). This page is for understanding the safety guarantees.
@@ -16,16 +18,16 @@ If you just want to set up a provider, see [payment-setup.md](payment-setup.md).
                                               ▼
                                      ┌──────────────────┐
                                      │   Provider       │
-                                     │  (Stripe, …)     │
+                                     │ (Stripe, PayLio…)│
                                      └──────────────────┘
-       3) pay  ▲                              │ 4) signed webhook
+       3) pay  ▲                              │ 4) webhook/callback
                │                              ▼
 ┌──────────────────┐               ┌────────────────────────┐
 │  Provider        │ ◄─── 8) status check ─── │  vpnmanager-api  │
 │  checkout page   │   (recovery poller)      │ /client-portal/  │
 └──────────────────┘                          │  webhooks/X       │
                                               └────────────────────────┘
-                                                     │ 5) verify signature
+                                                     │ 5) verify signature/status
                                                      │ 6) complete_payment (idempotent, row-locked)
                                                      │ 7) upgrade_subscription + sync WG limits
 ```
@@ -35,8 +37,10 @@ If you just want to set up a provider, see [payment-setup.md](payment-setup.md).
 1. **Subscribe** — the customer chooses a provider in the Billing page. Backend filters this list by license tier (free → only NOWPayments).
 2. **create_invoice** — backend posts to the provider's API. Stores a row in `client_portal_payments` with `status='pending'`, our generated `invoice_id`, and the provider's external ID in `provider_invoice_id`.
 3. **Customer pays** at the provider's hosted checkout.
-4. **Webhook** — provider POSTs to `/client-portal/webhooks/<provider>` with a signed body.
-5. **Signature verification** — see the per-provider scheme below. Bad signature → `401 Unauthorized`, no credit.
+4. **Webhook/callback** — providers notify `/client-portal/webhooks/<provider>`;
+   PayLio uses GET while the others use their documented callback method.
+5. **Verification** — see the per-provider scheme below. Invalid authentication
+   or a failed upstream status check means no credit.
 6. **complete_payment()** is idempotent. It uses `SELECT … FOR UPDATE` plus a `status == 'completed'` re-check inside the lock, so duplicate webhooks (providers retry) cannot double-credit.
 7. **Subscription upgrade** — plan, expiry, device limit, traffic counters, WG client lifecycle — all applied atomically.
 8. **Recovery poller** runs every 60 s in the monitoring loop and asks each provider "is this pending invoice paid?". Self-heals dropped webhooks.
@@ -54,6 +58,7 @@ If you just want to set up a provider, see [payment-setup.md](payment-setup.md).
 | **Razorpay** | `X-Razorpay-Signature` | HMAC-SHA256 | raw body | [docs](https://razorpay.com/docs/webhooks/validate-test/) |
 | **Mollie** | (none — by design) | API call-back with payment ID | n/a | [docs](https://docs.mollie.com/payments/webhook) |
 | **Payme** | `Authorization: Basic` | base64("Paycom":secret_key) | header only | [docs](https://developer.help.paycom.uz/protokol-merchant-api/) |
+| **PayLio** | callback `ipn_token` hint | API status re-query | payment ID/status from PayLio API | [docs](https://paylio.org/api-docs) |
 
 A few important properties of these schemes:
 
@@ -62,6 +67,8 @@ A few important properties of these schemes:
 - **PayPal** doesn't sign locally — verification means calling PayPal's `/v1/notifications/verify-webhook-signature` endpoint with all the original headers. This requires you to register a Webhook in the PayPal app and put the resulting Webhook ID into our admin panel.
 - **Mollie** webhooks contain only the payment ID. Verification = we call Mollie's API back ("is this payment paid?"). A forged webhook can't fake a real Mollie payment ID.
 - **Payme** uses HTTP Basic Auth as its sole verification — the merchant secret IS the credential.
+- **PayLio** sends an unsigned GET callback. Flirexa treats it only as a hint
+  and re-queries PayLio's payment-status API before crediting.
 
 If you ever need to add a new provider, mirror one of these patterns. Plugin contract is in `plugins/payments/_template.py`.
 
@@ -142,7 +149,10 @@ journalctl -u vpnmanager-api --since "1 hour ago" | grep -iE 'subscription.*upgr
 
 ## Verifying signature handling
 
-- The **Test** button in the admin panel runs each provider's signature verification in-process against known-good and known-bad inputs. Output renders as a green/red checklist under the provider card. This is the operator-facing way to confirm a provider is wired correctly — no shell access needed.
+- For providers configured in the admin panel, the **Test** button runs the
+  relevant verification/connection checks and renders a green/red checklist.
+  PayLio is currently configured through `.env`; verify it with a low-value
+  sandbox/test checkout and API logs.
 
 > The vendor's internal signature-regression and payment-simulation scripts (under `tools/`) are part of the CI/build tooling and are **not shipped in the public open-core tree**. The admin **Test** button exercises the same security-critical verification path in-process, so you do not need them.
 
@@ -154,9 +164,11 @@ Quick checklist before going live:
 
 - [ ] Each provider you've enabled has its **Webhook URL registered** at the provider's dashboard (not just our admin panel)
 - [ ] Each provider's **Webhook Secret** in admin matches what's set at the provider
-- [ ] **Test** button in admin shows green for every active provider
+- [ ] **Test** button in admin shows green for every active card-configured provider
 - [ ] The webhook endpoint is reachable over HTTPS from the public internet (providers can't POST to a private or HTTP-only URL)
 - [ ] You've made one real low-amount test transaction for each provider you enabled
 - [ ] You've verified the recovery poller works: kill the API service, pay a test invoice, restart the API, wait 60s, see the payment auto-complete
 
-If all six tick, you're safe to take real customer money.
+If all six pass, the documented integration checks are complete. Continue to
+monitor provider dashboards, webhook failures, refunds, and pending-payment
+recovery in production.

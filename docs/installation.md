@@ -1,5 +1,7 @@
 # Installation
 
+_Last verified: 2026-07-24._
+
 ---
 
 ## System Requirements
@@ -15,7 +17,8 @@
 
 Supported distributions: Ubuntu 22.04+, Debian 12+, Linux Mint 21+, Pop!_OS 22.04+.
 
-The installer requires internet access to download packages from apt and pip.
+The installer requires internet access to download system/Python packages and the
+official Flirexa release manifest/package.
 
 ---
 
@@ -38,7 +41,8 @@ The installer runs fully interactive. It will ask for:
 - **Telegram bot tokens** — optional, can be configured later via the admin panel
 - **Admin Telegram user IDs** — who receives admin bot notifications
 - **WireGuard endpoint** — auto-detected, you confirm or override (format: `ip:port`)
-- **License key** — `XXXX-XXXX-XXXX-XXXX` format, or skip to run the FREE tier (80 clients, no expiry, no license needed)
+- **Activation code** — or `N` to run the FREE tier (80 clients, no expiry)
+- **Optional HTTPS setup** — domains and a Let's Encrypt contact email when selected
 
 The installer performs these steps automatically:
 
@@ -53,7 +57,30 @@ The installer performs these steps automatically:
 9. Registers the local server in the admin panel
 10. Runs a post-install health check
 
-When complete, the installer prints your access URL and admin credentials.
+When complete, the installer prints the access URL. The first browser visit creates
+the administrator account.
+
+### Installer diagnostics
+
+By default, the installer sends coarse phase events to the official Flirexa service.
+A failed event can include a bounded tail of the install log; the receiving web
+server also sees the request source IP as it does for any HTTP request. Client
+records, VPN keys, database contents, bot tokens, and generated secrets are not
+part of this event payload.
+
+The interactive installer also offers optional installation assistance. If the
+operator enters an email address, that is explicit consent for Flirexa to send
+one English-language help email only if this installation attempt fails. The
+address is not used for marketing, is deleted after a successful install, and
+otherwise expires after seven days. Failure emails contain the failed stage and
+installation ID, never the diagnostic log.
+
+Disable diagnostics and the optional assistance flow before invoking the script:
+
+```bash
+curl -fsSL https://flirexa.biz/install.sh -o /tmp/flirexa-install.sh
+sudo INSTALL_TELEMETRY=off bash /tmp/flirexa-install.sh
+```
 
 ### Non-Interactive Mode
 
@@ -73,12 +100,15 @@ Set configuration via environment variables before running:
 | `SB_ENDPOINT` | WireGuard endpoint in `ip:port` format |
 | `SB_DB_PASSWORD` | PostgreSQL password (auto-generated if not set) |
 | `SB_ACTIVATION_CODE` | Activation code (`XXXX-XXXX-XXXX-XXXX`) |
+| `SB_SUPPORT_EMAIL` | Opt in to one English help email if installation fails |
+| `INSTALL_TELEMETRY` | Set to `off` to disable diagnostics and optional installation assistance |
 
 Example:
 
 ```bash
 export SB_ENDPOINT="203.0.113.10:51820"
 export SB_ACTIVATION_CODE="ABCD-1234-EFGH-5678"
+export SB_SUPPORT_EMAIL="operator@example.com"
 sudo -E bash install.sh --non-interactive
 ```
 
@@ -108,6 +138,7 @@ Edit `.env`. Required fields:
 | `SECRET_KEY` | `openssl rand -hex 32` |
 | `JWT_SECRET` | `openssl rand -hex 32` |
 | `SERVICE_API_TOKEN` | `openssl rand -hex 32` |
+| `VMS_ENCRYPTION_KEY` | `openssl rand -hex 32` (back this up with the database) |
 | `SERVER_ENDPOINT` | `your-ip:51820` |
 
 Start:
@@ -122,7 +153,13 @@ With Telegram bots:
 docker compose --profile bots up -d
 ```
 
-> **Note:** Docker mode requires the WireGuard kernel module on the host. The `wg` interface is managed on the host, not inside the container.
+The compose stack refuses to start while example secrets remain in `.env`, and only
+the API container runs Alembic migrations.
+
+> **Docker scope:** the compose file is suitable for evaluation and control-plane
+> development. A VPN data-plane deployment still requires the WireGuard kernel
+> module, host networking/routing, and access to `/etc/wireguard`. The systemd
+> installer is the recommended production path.
 
 ---
 
@@ -149,14 +186,18 @@ http://YOUR_SERVER_IP:10090
 3. Paste your activation code or license key
 4. Click **Activate**
 
-Without a license key the system runs on the **FREE** tier — forever, no expiry, no license-server contact:
+Without a licence key the runtime stays on the **FREE** tier — forever, with no
+licence heartbeat. Installer diagnostics and update checks are separate:
 
 | Tier | Price | Clients | Servers | Notes |
 |------|-------|---------|---------|-------|
-| FREE | $0 | 80 | 2 local (WireGuard + AmneziaWG) | Runs offline, no license needed |
-| Starter | $19/mo | 500 | 2 local | + Hysteria2, TUIC, promo codes, auto-renewal |
-| Business | $49/mo | 2000 | up to 10 | + multi-server, client Telegram bot, traffic rules, scheduled backups, basic white-label |
-| Enterprise | $149/mo | Unlimited | Unlimited | + corporate site-to-site VPN, full white-label, manager RBAC |
+| FREE | $0 | 80 | 1 host / 2 local endpoints | WireGuard + AmneziaWG, no licence needed |
+| Starter | from $12/mo | 500 | 1 host | + Hysteria2, TUIC, VLESS-Reality, promo codes, auto-renewal |
+| Business | from $49/mo | 2000 | up to 10 nodes | + multi-server, client Telegram bot, traffic rules, scheduled backups, basic white-label |
+| Enterprise | from $149/mo | Unlimited | Unlimited | + corporate site-to-site VPN, full white-label, manager RBAC |
+
+Current checkout pricing and billing periods are listed on
+[flirexa.biz](https://flirexa.biz).
 
 ### 3. Verify WireGuard
 
@@ -199,9 +240,8 @@ The `.env` file at the install directory holds all settings. Most can also be ch
 
 ### Payments
 
-NOWPayments is the built-in crypto provider available on the FREE tier. Card / fiat
-billing via PayLio and the other card processors are paid plugins delivered by the
-license server.
+NOWPayments is the built-in crypto provider available on FREE. Other providers are
+licence-gated; their delivery/configuration differs by provider.
 
 | Setting | Description |
 |---------|-------------|
@@ -210,6 +250,9 @@ license server.
 | `NOWPAYMENTS_SANDBOX` | `true` for sandbox, `false` for live |
 | `CRYPTOPAY_API_TOKEN` | CryptoPay (@CryptoBot) API token |
 | `CRYPTOPAY_TESTNET` | `true` for sandbox, `false` for live |
+| `PAYLIO_API_KEY` | PayLio API key (paid provider) |
+| `PAYLIO_PAYOUT_ADDRESS` | Polygon USDC payout address |
+| `PAYLIO_CURRENCIES` | Comma-separated customer currencies (default `USD,EUR`) |
 
 ---
 

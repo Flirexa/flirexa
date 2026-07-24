@@ -18,7 +18,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-vpnmanager}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-vpnmanager}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       POSTGRES_DB: ${DB_NAME:-vpnmanager_db}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -35,7 +35,8 @@ services:
       - "${API_PORT:-10086}:10086"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:5432/${DB_NAME:-vpnmanager_db}
+      MIGRATE_ON_STARTUP: "true"
     depends_on:
       db:
         condition: service_healthy
@@ -61,7 +62,7 @@ services:
       - "${CLIENT_PORTAL_PORT:-10090}:10090"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:5432/${DB_NAME:-vpnmanager_db}
     depends_on:
       db:
         condition: service_healthy
@@ -74,7 +75,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:5432/${DB_NAME:-vpnmanager_db}
       WORKER_ENABLED: "true"
     depends_on:
       db:
@@ -88,9 +89,11 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:5432/${DB_NAME:-vpnmanager_db}
     depends_on:
       db:
+        condition: service_healthy
+      api:
         condition: service_healthy
     cap_add:
       - NET_ADMIN
@@ -105,9 +108,11 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:-vpnmanager}@db:5432/${DB_NAME:-vpnmanager_db}
+      DATABASE_URL: postgresql://${DB_USER:-vpnmanager}:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:5432/${DB_NAME:-vpnmanager_db}
     depends_on:
       db:
+        condition: service_healthy
+      api:
         condition: service_healthy
     command: python main.py client-bot
     profiles:

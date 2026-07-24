@@ -191,7 +191,6 @@ CLIENT_BOT_SVC="${SVC_PREFIX}-client-bot"
 PORTAL_SVC="${SVC_PREFIX}-client-portal"
 ALL_SVCS=("$API_SVC" "$WORKER_SVC" "$ADMIN_BOT_SVC" "$CLIENT_BOT_SVC" "$PORTAL_SVC")
 STARTUP_LOG_SINCE=""
-LEGACY_PRODUCT_LABEL="Flirexa"
 
 MAINTENANCE_FLAG="${INSTALL_DIR}/data/maintenance.flag"
 
@@ -321,7 +320,6 @@ install_service_units_from_release() {
             sed -i \
                 -e "s|/opt/vpnmanager|$INSTALL_DIR|g" \
                 -e "s|vpnmanager-|${SVC_PREFIX}-|g" \
-                -e "s|Flirexa|${LEGACY_PRODUCT_LABEL}|g" \
                 "$dst"
         fi
     done
@@ -336,7 +334,6 @@ install_service_units_from_release() {
         sed -i \
             -e "s|/opt/vpnmanager|$INSTALL_DIR|g" \
             -e "s|vpnmanager-|${SVC_PREFIX}-|g" \
-            -e "s|Flirexa|${LEGACY_PRODUCT_LABEL}|g" \
             "$dst"
     fi
 

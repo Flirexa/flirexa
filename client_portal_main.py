@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Flirexa Client Portal - Standalone Server
+Flirexa client portal - standalone server
 Separate web server for client dashboard on port 10090.
 Communicates with Admin API via internal endpoints (SERVICE_API_TOKEN).
 """
@@ -24,9 +24,11 @@ from src.database.connection import engine, Base
 from src.api.routes import client_portal, corporate
 from src.modules.subscription.cryptopay_adapter import CryptoPayAdapter
 from src.modules.subscription.admin_api_client import AdminAPIClient
+from src.utils.runtime_paths import get_app_version
 
 import logging
 logger = logging.getLogger(__name__)
+APP_VERSION = get_app_version()
 
 
 @asynccontextmanager
@@ -172,7 +174,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Flirexa Client Portal",
     description="VPN Client Dashboard & Subscription Management",
-    version="2.0.0",
+    version=APP_VERSION,
     lifespan=lifespan
 )
 
@@ -263,7 +265,7 @@ async def health_check():
     return {
         "status": "ok",
         "service": "vpnmanager-client-portal",
-        "version": "2.0.0"
+        "version": APP_VERSION
     }
 
 
@@ -430,7 +432,7 @@ def run_server():
 
     print(f"""
 ╔═══════════════════════════════════════════════════════════╗
-║         Flirexa Client Portal v2.0                      ║
+║         Flirexa Client Portal v{APP_VERSION:<27}║
 ║         http://{host}:{port}                              ║
 ╚═══════════════════════════════════════════════════════════╝
 """)

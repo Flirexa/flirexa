@@ -1,5 +1,5 @@
 """
-Flirexa Configuration Module
+Flirexa configuration module
 """
 
 from .default import Settings, settings, get_settings, reload_settings

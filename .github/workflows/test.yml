@@ -36,12 +36,9 @@ jobs:
         env:
           DATABASE_URL: "sqlite:///:memory:"
         run: |
-          # The public mirror ships gates for paid features; the actual
-          # implementations live in the closed-source flirexa-pro package.
-          # Tests that depend on those implementations (agent installer,
-          # multi-server bootstrap, payment-provider plugins, real
-          # CryptoPay/NOWPayments calls) cannot pass here — they're run
-          # against flirexa-pro in a separate private CI.
+          # The public mirror intentionally omits the working remote agent
+          # and some commercial payment-provider modules. Tests that depend
+          # on those components or real provider calls run in private CI.
           pytest tests/ \
             --ignore tests/test_payment_flow.py \
             --ignore tests/test_bootstrap.py \
@@ -79,7 +76,7 @@ jobs:
             --exclude-files '\.lock$|package-lock\.json|node_modules|\.git/' \
             --exclude-files 'tests/.*test_.*\.py' \
             --exclude-files 'src/web/static/dist/.*' \
-            --exclude-files 'src/web/(frontend|client-portal)/src/i18n/locales/.*\.js'
+            --exclude-files 'src/web/(frontend|client-portal)/src/i18n/(locales|design2)/.*\.(js|ts)'
           # detect-secrets rewrites the file with bookkeeping (timestamps,
           # filter ordering). What matters is whether `results` grew —
           # i.e. a real new candidate showed up.

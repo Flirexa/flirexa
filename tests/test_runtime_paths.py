@@ -29,3 +29,25 @@ def test_version_file_falls_back_to_install_root(tmp_path, monkeypatch):
 
     assert get_runtime_root() == install_root
     assert get_version_file() == install_root / "VERSION"
+
+
+def test_app_version_reads_runtime_version(tmp_path, monkeypatch):
+    install_root = tmp_path / "install"
+    current = install_root / "current"
+    current.mkdir(parents=True)
+    (current / "VERSION").write_text("2.2.52\n")
+    monkeypatch.setenv("INSTALL_DIR", str(install_root))
+    monkeypatch.delenv("APP_VERSION", raising=False)
+
+    from src.utils.runtime_paths import get_app_version
+
+    assert get_app_version() == "2.2.52"
+
+
+def test_app_version_honors_explicit_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("INSTALL_DIR", str(tmp_path))
+    monkeypatch.setenv("APP_VERSION", "9.9.9-test")
+
+    from src.utils.runtime_paths import get_app_version
+
+    assert get_app_version() == "9.9.9-test"

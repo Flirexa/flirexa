@@ -1,5 +1,7 @@
 # FREE vs paid
 
+_Last verified: 2026-07-24. Current checkout pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
+
 Honest, unhedged answer to "what do I get for free and what do I have to pay for?"
 
 If you're choosing between Flirexa and an alternative, this page is the comparison ammunition. If you're already running Flirexa and wondering whether to upgrade, this page tells you what unlocks at each tier.
@@ -8,13 +10,13 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 
 ## TL;DR
 
-**FREE** is a complete VPN service for one operator on one server with up to 80 clients. WireGuard + AmneziaWG, panel, client portal, crypto payments via NOWPayments, Telegram admin bot, manual backups. MIT-licensed, install once, run forever — no payment, no expiry.
+**FREE** is a complete VPN service for one operator on one physical host with up to 80 clients. WireGuard + AmneziaWG, panel, client portal, crypto payments via NOWPayments, Telegram admin bot, manual backups. MIT-licensed, install once, run forever — no payment, no expiry.
 
-**Starter ($19/mo)** adds Hysteria2, TUIC, promo codes, auto-renewal.
+**Starter (from $12/mo)** adds Hysteria2, TUIC, VLESS-Reality, promo codes, and auto-renewal.
 
-**Business ($49/mo)** adds multi-server, white-label, traffic rules, scheduled backups, full client Telegram bot.
+**Business (from $49/mo)** adds multi-server, white-label, traffic rules, scheduled backups, full client Telegram bot.
 
-**Enterprise ($149/mo)** adds site-to-site corporate VPN, full white-label (custom domain, custom email sender), and multi-admin RBAC.
+**Enterprise (from $149/mo)** adds site-to-site corporate VPN, full white-label (custom domain, custom email sender), and multi-admin RBAC.
 
 ---
 
@@ -24,29 +26,29 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 |---|---|
 | **Protocols** | WireGuard, AmneziaWG |
 | **Clients** | up to 80 |
-| **Servers** | up to 2 local (one WireGuard + one AmneziaWG) |
+| **Servers** | one physical host, up to 2 local endpoints (one WireGuard + one AmneziaWG) |
 | **Admin panel** | full Vue 3 SPA on port 10086 |
 | **Client portal** | full Vue 3 SPA on port 10090 with self-service signup, plans, payment, config download |
 | **Telegram admin bot** | full functionality |
 | **Telegram client bot** | not available (Business+ feature) |
 | **Crypto payments** | NOWPayments built-in (BTC, ETH, USDT, XMR, +50 more) |
-| **Other payment providers** | not in FREE — Stripe / Mollie / Razorpay / Payme / PayPal ship as paid plugins (Business tier or higher) |
+| **Other payment providers** | not in FREE — CryptoPay, PayLio, and additional card/local rails require a paid licence |
 | **Languages** | EN, RU, DE, FR, ES |
 | **Manual backup / restore** | yes |
 | **Scheduled backups** | not available (Business+ feature) |
-| **Auto-updates** | yes, from GitHub Releases |
-| **License check** | none — FREE installs never contact a license server, never expire, and cannot be remotely disabled |
-| **Source code** | all of it, MIT-licensed |
+| **Auto-updates** | yes, from the signed official update manifest |
+| **Licence heartbeat** | none — FREE runtime licences never expire and cannot be remotely disabled |
+| **Source code** | the public open core is MIT-licensed; explicitly documented commercial extensions are separate |
 
 ### Limits in numbers
 
 - **80 clients per install**: enforced by the API, not just a soft suggestion. If you hit 80, you cannot add a 81st without upgrading or deleting an existing one.
-- **Up to 2 local servers**: one per protocol type — a single WireGuard server and a single AmneziaWG server. Adding a third server (or a second of the same protocol) needs the multi-server plugin; the API returns `403` until then.
+- **Up to 2 local endpoints**: one per protocol type — a single WireGuard endpoint and a single AmneziaWG endpoint on the install host. Remote nodes or another endpoint of the same protocol need the multi-server feature.
 - **WireGuard endpoint count**: a single WireGuard interface can host all 80 clients comfortably.
 
 ---
 
-## Starter — $19 / month
+## Starter — from $12 / month
 
 For solo operators who started monetizing and outgrew the FREE protocol set or want acquisition tools.
 
@@ -54,17 +56,16 @@ For solo operators who started monetizing and outgrew the FREE protocol set or w
 
 - **Hysteria2** support — QUIC-based proxy, censorship-resistant
 - **TUIC** support — alternative QUIC proxy, useful when Hysteria2 is fingerprinted
+- **VLESS-Reality** support — Xray-based HTTPS camouflage
 - **Promo codes** — percent-off, free-day extensions, tier-restricted, expiring
 - **Auto-renewal** — reminder emails N days before expiry, optional auto-charge
 - **Up to 500 clients** (vs 80 on FREE)
 
-Stays on **1 server**.
-
-**Why $19:** that's less than a single day's revenue from a small VPN operator. It's the smallest amount that filters "doing this seriously" from "running this for fun."
+Runs the enabled protocols on the install host. Remote-node orchestration starts at Business.
 
 ---
 
-## Business — $49 / month
+## Business — from $49 / month
 
 The headline-feature tier. This is what serious commercial operators actually pay for.
 
@@ -77,11 +78,9 @@ The headline-feature tier. This is what serious commercial operators actually pa
 - **Scheduled backups** — daily automatic backups; mount remote storage (S3, FTP, NFS, SMB); retain N revisions
 - **Up to 2,000 clients** across up to 10 servers
 
-**Why $49:** for a Business-tier customer the price is ~1–2% of monthly revenue. It pays for itself within hours of automatic billing reminders alone.
-
 ---
 
-## Enterprise — $149 / month
+## Enterprise — from $149 / month
 
 For ISPs, MSPs, and companies who don't run an end-user VPN service but need site-to-site connectivity.
 
@@ -92,18 +91,16 @@ For ISPs, MSPs, and companies who don't run an end-user VPN service but need sit
 - **Manager RBAC** — additional admin accounts with permission scopes (clients-only, servers-only, support-only), audit log of who did what
 - **Unlimited clients and servers**
 
-**Why $149:** the corporate-VPN feature alone replaces commercial products like OpenVPN Cloud / ZeroTier / Pritunl that charge $200–$500/month for equivalent capability.
-
 ---
 
 ## How the gating works in practice
 
-You don't need a separate installer. Every Flirexa install ships with the same code — the difference is whether the license server granted you specific feature flags.
+The core installer is the same for every tier. Public implementations are activated by licence feature flags; separately delivered commercial components are installed through the official package channel.
 
 **On a FREE install:**
 
 - `LICENSE_KEY` env var is empty.
-- `LicenseManager` returns FREE tier with no network call.
+- `LicenseManager` returns FREE tier without a licence-server heartbeat.
 - Plugin loader scans `plugins/`, sees that none of the paid plugins' required features are granted, skips them all.
 - The Vue admin panel hides paid-feature UI (or shows it locked, depending on which screen).
 - API endpoints behind paid features return `403` with a clear upgrade hint.
@@ -114,7 +111,7 @@ You don't need a separate installer. Every Flirexa install ships with the same c
 - `LicenseManager` validates the RSA-signed key against the local public key, then heartbeats with the license server to check for revocation. Local cache + 72-hour grace period mean a license-server outage doesn't break paid customers' running installs.
 - Plugin loader picks up the matching plugin manifests and mounts their routers.
 - Paid feature endpoints return real responses.
-- For `extra-protocols` (Hysteria2/TUIC) and `corporate-vpn`, the implementation ships in this public MIT tree but stays inert until the matching license feature-flag is granted — the plugin manifest plus the middleware gate in `main.py`/`servers.py` keep it disabled on FREE and enable it on a valid paid license.
+- For `extra-protocols` (Hysteria2/TUIC/VLESS-Reality) and `corporate-vpn`, the implementation ships in this public MIT tree but stays inert until the matching licence feature flag is granted.
 
 If your subscription expires or is cancelled, the paid plugins refuse to load on the next restart. Your FREE-tier features keep working unchanged.
 
@@ -129,7 +126,7 @@ A few things people sometimes ask about that are FREE forever:
 - ✅ **Fork the public repository** and modify it for your own use (MIT license)
 - ✅ **Write community plugins** that extend Flirexa with new features unrelated to the paid plugins
 - ✅ **Embed Flirexa in your own product** as long as you preserve the MIT copyright notice
-- ✅ **Self-host without contacting Flirexa servers** — FREE makes zero network calls
+- ✅ **Run without a paid licence heartbeat** — installer diagnostics can be disabled with `INSTALL_TELEMETRY=off`; update checks still use the signed official update service
 
 ---
 
@@ -138,8 +135,8 @@ A few things people sometimes ask about that are FREE forever:
 A few things to know up front:
 
 - **Paid features rely on the license server.** If you lose connection to `flirexa.biz` for more than 72 hours, paid plugins disable themselves. This is intentional — it's how subscription validation works. FREE installs are not affected.
-- **Most paid features are gates over public code, not obfuscated binaries.** The Hysteria2/TUIC and corporate-VPN implementations live in this MIT repo; the license feature-flag is what activates them at runtime. What you pay for is maintained, supported, license-managed capability — not secret code. The genuine exception is the third-party **card-processor providers** (Stripe / Mollie / Razorpay / Payme / PayPal): those provider modules are delivered separately via the licence server and are not in the public tree. NOWPayments (crypto) is built in and free.
-- **One-time / lifetime licenses are not offered.** All paid tiers are monthly subscriptions. If recurring billing isn't an option for you, contact `support@flirexa.biz` — case-by-case annual upfront pricing is available.
+- **Most paid product features are gates over public code.** Hysteria2, TUIC, VLESS-Reality, and Corporate VPN live in this MIT repository. Remote-agent code and some third-party payment-provider modules are genuine separately delivered exceptions. NOWPayments is built in and free.
+- **Billing periods vary.** Monthly, annual, and lifetime options can be offered by the current checkout. Consult [flirexa.biz](https://flirexa.biz) for the combinations available for each tier.
 
 ---
 
@@ -148,14 +145,14 @@ A few things to know up front:
 **Why open-core instead of fully open / fully closed?**
 Fully open (like 3X-UI) means donations as the only revenue, which doesn't fund full-time development for serious commercial features. Fully closed has no community and no distribution. Open-core lets the FREE core thrive on community contributions while paid plugins fund maintenance.
 
-**Why these prices?**
-Calibrated against operator revenue: Starter is less than a day of a small operator's earnings; Business is ~1–2% of MRR for a 500-client service; Enterprise is dramatically cheaper than commercial site-to-site VPN alternatives.
+**Which price is current?**
+The website checkout is authoritative. This document records the feature model but may lag a price promotion or billing-period change.
 
 **Can I downgrade?**
 Yes. Cancel any time. At the end of the current billing period your install reverts to FREE — clients and servers stay where they are; you just lose access to the paid features. No data loss.
 
 **Do you offer non-profit / educational discounts?**
-Yes — email `support@flirexa.biz`. We've handled this case-by-case successfully before.
+Email `support@flirexa.biz` to ask about eligibility.
 
 **What happens to my data if I stop paying?**
-Nothing — Flirexa never had your data. Your clients, servers, and payment records all live on your install. The license server only knows your hardware ID and active feature set. Cancel and your data stays exactly where it is, you just can't use the paid features anymore.
+Your clients, VPN configurations, traffic, and payment records stay on your installation. Paid licence validation sends licence/activation identifiers, a derived hardware and instance identifier, product version, status/uptime metadata, and normal request metadata such as source IP; it does not upload your client list or VPN traffic. Cancelling does not delete local data.

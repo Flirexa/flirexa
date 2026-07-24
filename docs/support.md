@@ -1,14 +1,17 @@
 # Support
 
+_Last verified: 2026-07-24._
+
 ## Contact
 
 - **Email:** [support@flirexa.biz](mailto:support@flirexa.biz)
 - **Website chat:** Support widget in the bottom-right corner at [flirexa.biz](https://flirexa.biz)
 
-## Response time
+## Response handling
 
-- **Standard support** (Starter, Business): within 24 hours on business days
-- **Priority support** (Enterprise): prioritized response queue
+Enterprise requests receive priority handling. Current support terms and any
+response-time commitments are the ones shown with the selected plan or support
+contract on [flirexa.biz](https://flirexa.biz).
 
 ## What to include in a support request
 
@@ -25,10 +28,12 @@ To help us resolve your issue quickly, include the following:
 The `support-bundle` command collects diagnostic information including logs, system status, and configuration (with secrets automatically redacted):
 
 ```bash
-vpnmanager support-bundle
+sudo vpnmanager support-bundle --output /tmp --redact-strict
 ```
 
-Attach the generated archive to your support email.
+Inspect the generated archive before attaching it. Never attach a backup,
+database dump, `.env`, licence/activation key, VPN configuration, or unredacted
+log unless a secure transfer has been agreed separately.
 
 ## Self-help resources
 

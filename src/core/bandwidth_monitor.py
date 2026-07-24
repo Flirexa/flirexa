@@ -114,10 +114,8 @@ class BandwidthMonitor:
         # background refresher armed in api lifespan. If a server is
         # cold (just added, refresher hasn't ticked yet) we return zero
         # rates rather than fall back to a synchronous SSH/agent fetch —
-        # that fallback used to bury the single api worker when the
-        # Servers tab polled bandwidth for every server every 5s
-        # (2026-06-11 incident), and indirectly broke customer config
-        # fetches that share the same worker. Worst case the live Mbps
+        # that fallback can block the single API worker when the
+        # Servers tab polls bandwidth for every server. Worst case the live Mbps
         # gauge reads 0 for one ~8s refresh tick after a panel reboot.
         from ..modules.cache.handshake_cache import get_cache
         cache = get_cache()
@@ -152,10 +150,8 @@ class BandwidthMonitor:
         # ORM objects auto-decrypt EncryptedText columns (private_key,
         # preshared_key, proxy_password) through Fernet on every fetch,
         # which on a server with hundreds of peers and panel polling
-        # every 5s burns one full CPU core just on AES + HMAC. The
-        # 2026-06-11 second incident was this exact path — py-spy
-        # showed cryptography.fernet.decrypt at 100% CPU on every
-        # bandwidth tick. with_entities skips the encrypted columns
+        # every 5s can spend a full CPU core on AES + HMAC.
+        # with_entities skips the encrypted columns
         # entirely so the result rows are plain tuples.
         pks = list(peer_snapshots.keys())
         if pks:

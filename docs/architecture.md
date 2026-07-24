@@ -1,5 +1,7 @@
 # Architecture
 
+_Last verified: 2026-07-24._
+
 ---
 
 ## Overview
@@ -62,7 +64,7 @@ Handles:
 - Client user registration and login
 - Subscription purchase and management
 - VPN config download
-- NOWPayments webhook processing
+- Payment-provider checkout and webhook processing
 
 Communicates with the main API internally via `SERVICE_API_TOKEN`.
 
@@ -106,7 +108,8 @@ A Telegram bot for end users. Provides:
 
 ### Remote Agent (`vpnmanager-agent`)
 
-Runs on each remote WireGuard server. A minimal FastAPI app that:
+Runs on each remote VPN node. This is a separately delivered Business+ component,
+not an implementation contained in the public stub files. It:
 - Executes `wg` / `awg` / `tc` / `ip` commands locally
 - Exposes a REST API for peer management
 - Runs in an isolated venv at `/opt/vpnmanager-agent/`
@@ -139,7 +142,8 @@ PostgreSQL 15+. All state is stored in the database, including:
 | `system_config` | Key/value store for admin panel settings |
 | `audit_logs` | Admin action audit trail |
 
-Migrations are managed with Alembic. The migration chain runs automatically on startup.
+Migrations are managed with Alembic and applied by the installer/updater. In the
+Docker Compose stack, only the API container applies them at startup.
 
 ---
 
@@ -249,12 +253,9 @@ Admin panel → POST /api/v1/updates/apply
 - License server URL signed separately — cannot be tampered with in a distributed package
 
 **Update integrity:**
-- Update packages signed with RSA-PSS
-- SHA-256 checksum verified after download
-- Package URL embedded in the signed manifest — URL injection is not possible
-
-**Code integrity:**
-- License module protected with PyArmor obfuscation in production builds
+- Manifest signed with RSA-PSS-SHA256
+- Package URL and expected SHA-256 are bound by that signed manifest
+- Download host is restricted and the package checksum is verified before apply
 
 ---
 
@@ -271,5 +272,5 @@ Admin panel → POST /api/v1/updates/apply
 | SSH | Paramiko |
 | Telegram | python-telegram-bot |
 | Process manager | systemd |
-| VPN | WireGuard / AmneziaWG |
+| VPN / proxy | WireGuard, AmneziaWG, Hysteria2, TUIC, VLESS-Reality (tier-dependent) |
 | Traffic shaping | `tc` (Linux traffic control) |

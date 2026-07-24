@@ -39,9 +39,9 @@ _UPDATE_SERVER_URL = os.getenv(
 # Separate connect and read timeouts for better diagnostics
 # Keep combined timeout well under the frontend's 15s axios timeout
 # Connect/read timeouts for the manifest fetch. The pre-1.5.77 values
-# (5s/8s) were too tight for cross-region paths to flirexa.biz/global-
-# connection.site — DNS + TLS handshake on a cold connection from some
-# DCs can spike past 5s during transient route flaps, surfacing as
+# (5s/8s) were too tight for cross-region update origins. DNS + TLS
+# handshake on a cold connection from some data centers can spike past
+# 5s during transient route flaps, surfacing as
 # "Update server connection timeout — check network connectivity" in the
 # panel even though everything is healthy a moment later. Bumped to give
 # the connection a realistic margin while still keeping total fail-fast

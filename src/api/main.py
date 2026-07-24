@@ -190,13 +190,12 @@ async def lifespan(app: FastAPI):
     # Load payment plugins from plugins/payments/
     #
     # Must go through `importlib.import_module` (not the older
-    # `spec_from_file_location` path), otherwise pyarmor-protected plugin
-    # bundles import as no-op stubs on customer installs: `spec_from_file_location`
+    # `spec_from_file_location` path), otherwise protected plugin bundles
+    # can import as no-op stubs: `spec_from_file_location`
     # bypasses Python's package import hooks, so the pyarmor runtime never
     # initializes and the module body executes without ever setting
-    # PROVIDER_CLASS. The plain-source dev tree happens to work either way,
-    # which is how the bug shipped to production undetected until a customer
-    # tried to add Stripe and got "no providers" in the client portal.
+    # PROVIDER_CLASS. The plain-source development tree works either way,
+    # which can hide the packaging-specific failure.
     try:
         import importlib
         from pathlib import Path as _P
@@ -315,8 +314,7 @@ async def lifespan(app: FastAPI):
 
     # Operator health watchdog: alerts on CPU / fd / memory / PG zombie
     # sessions to the admin Telegram chat configured under system_config.
-    # Heads the operator off before the panel actually breaks rather than
-    # after the customer complaint shows up (the 2026-06-11 outage shape).
+    # Alerts before resource exhaustion affects the panel.
     # Primary-only: duplicated watchdogs would double every Telegram alert.
     if is_primary:
         try:
@@ -1122,10 +1120,8 @@ def run_server(
         # concurrency cap that matters for backpressure is below.
         limit_concurrency=int(os.getenv("API_LIMIT_CONCURRENCY", "0") or 0) or None,
         # Worker recycle: bounded request lifetime guards against the
-        # slow leak shapes (fds, memory, dangling sockets to dead
-        # agents) we observed during the 2026-06-11 incident — no
-        # single worker stays alive long enough for an unbounded leak
-        # to take the panel down.
+        # slow leak shapes (fds, memory, dangling sockets to dead agents);
+        # no single worker stays alive indefinitely.
         limit_max_requests=int(os.getenv("API_MAX_REQUESTS", "50000")) or None,
     )
 

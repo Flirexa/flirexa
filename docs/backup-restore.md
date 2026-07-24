@@ -1,10 +1,14 @@
 # Backup and Restore
 
+_Last verified: 2026-07-24._
+
 ---
 
 ## Built-in Backup System
 
-Flirexa includes a scheduled backup system that runs in the background.
+Manual full/database backups and restores are available on FREE. Scheduled
+backups, retention settings, and managed network storage require the Business+
+`auto-backup` feature.
 
 You can also run backups and restores from the CLI: `vpnmanager backup --full` (or `--db-only`) and `vpnmanager restore --archive <path> --yes`. See [cli.md](cli.md).
 
@@ -31,73 +35,35 @@ Each backup includes:
 
 ---
 
-## Manual Backup
+## Manual backup
 
-### Database
-
-```bash
-sudo -u postgres pg_dump vpnmanager_db > backup_$(date +%Y%m%d_%H%M).sql
-```
-
-The default database name is `vpnmanager_db`. If yours differs, check `DATABASE_URL` in `.env`:
+Use the product CLI so metadata and checksums are included:
 
 ```bash
-grep DATABASE_URL /opt/vpnmanager/.env
+sudo vpnmanager backup --full --output /var/backups/flirexa
+sudo vpnmanager backup --db-only --output /var/backups/flirexa
 ```
 
-### WireGuard Configuration
+A current full archive is named `vpnmanager-backup-<backup_id>.tar.gz` and uses
+the `tar.gz/v2` format. It includes a compressed PostgreSQL dump, `.env`, local
+WireGuard/AmneziaWG configuration, per-server exports, product version, metadata,
+and checksums. Store a copy off the application host.
+
+## Restore
+
+Restore is destructive. Confirm that you have the intended archive and a separate
+copy before running:
 
 ```bash
-sudo cp -r /etc/wireguard/ ~/wg_backup_$(date +%Y%m%d)/
-sudo cp -r /etc/amneziawg/ ~/awg_backup_$(date +%Y%m%d)/   # if using AmneziaWG
+sudo vpnmanager restore \
+  --archive /var/backups/flirexa/vpnmanager-backup-<backup_id>.tar.gz \
+  --yes
 ```
 
-### Application Configuration
-
-```bash
-cp /opt/vpnmanager/.env ~/env_backup_$(date +%Y%m%d)
-```
-
-### Full Application Directory
-
-```bash
-sudo tar czf ~/vpnmanager_full_backup_$(date +%Y%m%d).tar.gz \
-  --exclude=/opt/vpnmanager/venv \
-  --exclude=/opt/vpnmanager/src/web/frontend/node_modules \
-  /opt/vpnmanager/
-```
-
----
-
-## Restore from Manual Backup
-
-### Restore Database
-
-```bash
-sudo -u postgres psql -c "DROP DATABASE IF EXISTS vpnmanager_db;"
-sudo -u postgres psql -c "CREATE DATABASE vpnmanager_db OWNER vpnmanager;"
-sudo -u postgres psql vpnmanager_db < backup_20260101_0300.sql
-```
-
-### Restore Application Config
-
-```bash
-cp ~/env_backup_20260101 /opt/vpnmanager/.env
-```
-
-### Restart Services
-
-```bash
-systemctl restart vpnmanager-api
-systemctl restart vpnmanager-worker
-systemctl restart vpnmanager-client-portal
-```
-
-### Verify
-
-```bash
-curl http://localhost:10086/health
-```
+The restore command verifies the archive, restores the database, `.env`, and local
+VPN configuration, restarts product services, and evaluates health. It does not
+restore TLS certificates, custom reverse-proxy configuration, remote agent
+installations, or out-of-band system customizations.
 
 ---
 
@@ -137,10 +103,11 @@ curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
   http://localhost:10086/api/v1/backup/create
 
-# Download backup archive
+# List and verify archives already stored on the server
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:10086/api/v1/backup/download \
-  -o backup.tar.gz
+  http://localhost:10086/api/v1/backup/list
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  http://localhost:10086/api/v1/backup/verify/BACKUP_ID
 ```
 
 ---
@@ -160,14 +127,10 @@ Remote server WireGuard configs are stored in the database and can be re-pushed 
 If the server is lost and you need to rebuild from scratch:
 
 1. Provision a new server with the same OS
-2. Extract the Flirexa distribution package
-3. Restore `.env` from backup to the new install directory
-4. Run the installer — it detects the existing `.env` and uses those credentials:
-   ```bash
-   sudo bash install.sh --non-interactive
-   ```
-5. Restore the database from the latest dump
-6. Restart all services
-7. Verify via the admin panel
+2. Install the same supported Flirexa product generation
+3. Copy the full backup archive to the new host
+4. Run `sudo vpnmanager restore --archive <archive> --yes`
+5. Re-provision TLS/reverse-proxy configuration and any remote agents
+6. Verify `/health`, the admin panel, VPN interfaces, and a test client
 
 For remote servers: the agent will be reinstalled automatically when you next click **Install Agent** in the admin panel. The database already contains all peer configurations.

@@ -1,6 +1,9 @@
 # Updates
 
-Flirexa has a built-in update system with cryptographically signed packages, channel-based distribution, and automatic rollback on failure.
+_Last verified: 2026-07-24._
+
+Flirexa has a built-in update system with signed manifests, checksum-verified
+packages, channel-based distribution, and rollback on failure.
 
 ---
 
@@ -12,9 +15,9 @@ Flirexa has a built-in update system with cryptographically signed packages, cha
 4. The system downloads the package, verifies its SHA-256 checksum, creates a backup, applies the update, runs migrations, restarts services, and runs a smoke check
 5. If anything fails, it automatically rolls back from the backup
 
-All update packages are signed with an RSA-PSS key. The corresponding public key ships with the distribution. A package with an invalid signature is rejected before download.
-
-On the **FREE tier** updates are pulled from public GitHub Releases — no license key, no phone-home (see below). On the **paid update channel**, package downloads require a valid license key and unauthorized access is rejected with HTTP 403.
+The manifest is signed with RSA-PSS-SHA256. It binds the release version, package
+URL, and expected SHA-256 digest. Flirexa verifies the manifest before download and
+the package digest afterwards; the package does not carry a second RSA signature.
 
 ---
 
@@ -34,17 +37,17 @@ POST /api/v1/updates/channel
 
 ---
 
-## FREE-Tier Updates (GitHub Releases)
+## FREE-tier updates
 
-On the FREE tier there is **no phone-home and no license check**. New versions are
-published as public **GitHub Releases** at
-[github.com/Flirexa/flirexa/releases](https://github.com/Flirexa/flirexa/releases).
+FREE installations fetch the signed manifest from the official update origin
+(`https://flirexa.biz` by default). They do not send a paid licence heartbeat, but
+an update check is still an outbound request and the server sees ordinary request
+metadata such as source IP. When `LICENSE_KEY` is empty, the downloader does not
+send the `X-License-Key` header.
 
-The admin panel checks the Releases feed, shows the latest available version and its
-changelog, and lets you apply it with one click. The apply flow is identical to the
-one described above — download, checksum verification, backup, migrate, restart,
-smoke check, and automatic rollback on failure. Nothing is sent to any Flirexa
-server during a FREE-tier update.
+[GitHub Releases](https://github.com/Flirexa/flirexa/releases) provide public
+version notes and tags; the in-product updater uses the signed manifest/package
+channel described here.
 
 You can also update from the command line at any time:
 
@@ -162,7 +165,10 @@ If the server restarts mid-update (power loss, OOM), the database record stays i
 
 ### Package Download Protection
 
-Update packages are not publicly downloadable. The download endpoint requires the instance's license key (`X-License-Key` header). The key is sent automatically by the update manager — no manual configuration needed.
+When `LICENSE_KEY` is configured, the package request includes it in the
+`X-License-Key` header so the official service can authorize a licensed package.
+FREE package policy is controlled by the signed manifest and official download
+endpoint.
 
 The `package_url` field is present in the signed manifest (it is part of the cryptographic payload and cannot be tampered with), but it is never displayed in the admin panel or progress logs. Progress logs show only human-readable status messages.
 

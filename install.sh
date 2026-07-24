@@ -21,6 +21,7 @@
 #   SB_CLIENT_TOKEN     — Telegram client bot token (optional)
 #   SB_ENDPOINT         — WireGuard server endpoint ip:port (auto-detected)
 #   SB_DB_PASSWORD      — PostgreSQL password (generated if empty)
+#   SB_SUPPORT_EMAIL    — Opt in to one help email if installation fails
 #===============================================================================
 
 set -euo pipefail
@@ -29,9 +30,9 @@ set -euo pipefail
 #
 # The outer landing/install.sh exports INSTALL_ID / UPDATE_SERVER /
 # UPDATE_SERVER_PRIMARY / CHANNEL / INSTALL_LOG / INSTALL_TELEMETRY so we
-# can fire our own beacons from each major install step. Without these we
-# only ever see "inner_start → silence" in the funnel when something
-# dies — which was 100% of the 3 free-version installs on 2026-05-30.
+# can fire our own beacons from each major install step. Without these a
+# failed attempt can end at "inner_start" with no indication of the phase
+# that failed.
 # Best-effort: any failure to beacon is silently dropped, never blocks
 # the install. `INSTALL_TELEMETRY=off` skips entirely (privacy opt-out).
 INSTALL_ID="${INSTALL_ID:-no-id}"
@@ -43,6 +44,9 @@ INSTALL_TELEMETRY="${INSTALL_TELEMETRY:-on}"
 UPDATE_SERVER="${UPDATE_SERVER:-https://flirexa.biz}"
 CHANNEL="${CHANNEL:-stable}"
 INSTALL_LOG="${INSTALL_LOG:-/tmp/vpnmanager-install-${INSTALL_ID}.log}"
+INSTALL_SUPPORT_EMAIL="${INSTALL_SUPPORT_EMAIL:-}"
+INSTALL_SUPPORT_OPT_IN="${INSTALL_SUPPORT_OPT_IN:-0}"
+INSTALL_SUPPORT_PROMPTED="${INSTALL_SUPPORT_PROMPTED:-0}"
 
 # Track which phase we're in so the EXIT trap can label an unexpected death.
 CURRENT_PHASE="boot"
@@ -58,6 +62,8 @@ _inner_beacon() {
         STEP="$step" STATUS="$status" EXIT_CODE="$exit_code" \
         LOG_TAIL_FILE="$tail_file" INSTALL_ID="$INSTALL_ID" \
         CHANNEL="$CHANNEL" PHASE="$CURRENT_PHASE" \
+        SUPPORT_EMAIL="$INSTALL_SUPPORT_EMAIL" \
+        SUPPORT_OPT_IN="$INSTALL_SUPPORT_OPT_IN" \
         python3 - <<'PY' 2>/dev/null
 import json, os, pathlib
 tail = ""
@@ -78,6 +84,9 @@ out = {
     "status":     os.environ.get("STATUS", ""),
     "channel":    os.environ.get("CHANNEL", ""),
 }
+if os.environ.get("SUPPORT_OPT_IN") == "1" and os.environ.get("SUPPORT_EMAIL"):
+    out["support_opt_in"] = True
+    out["support_email"] = os.environ["SUPPORT_EMAIL"]
 ec = os.environ.get("EXIT_CODE", "")
 if ec:
     try: out["exit_code"] = int(ec)
@@ -171,6 +180,61 @@ log_warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
 die() { log_error "$1"; exit 1; }
+
+
+_valid_support_email() {
+    local value="$1"
+    [[ ${#value} -le 254 ]] || return 1
+    [[ "$value" != *".."* ]] || return 1
+    [[ "$value" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,63}$ ]]
+}
+
+
+_collect_support_contact() {
+    [[ "$INSTALL_SUPPORT_PROMPTED" == "1" ]] && return 0
+    INSTALL_SUPPORT_PROMPTED=1
+    export INSTALL_SUPPORT_PROMPTED
+
+    [[ "$INSTALL_TELEMETRY" == "off" ]] && return 0
+
+    local candidate="${SB_SUPPORT_EMAIL:-}"
+    if [[ -n "$candidate" ]]; then
+        if _valid_support_email "$candidate"; then
+            INSTALL_SUPPORT_EMAIL="$candidate"
+            INSTALL_SUPPORT_OPT_IN=1
+            export INSTALL_SUPPORT_EMAIL INSTALL_SUPPORT_OPT_IN
+            log_success "Installation help enabled for the provided email."
+        else
+            log_warn "SB_SUPPORT_EMAIL is invalid; automatic help email disabled."
+        fi
+        return 0
+    fi
+
+    [[ "$NON_INTERACTIVE" == "true" ]] && return 0
+    if ! exec 9</dev/tty 2>/dev/null; then
+        return 0
+    fi
+
+    echo -e "${BOLD}Optional installation help${NC}"
+    echo "  Enter your email if you want us to contact you once if this install fails."
+    echo "  No marketing messages. Press Enter to skip."
+    while true; do
+        read -r -p "  Support email (optional): " candidate <&9 || candidate=""
+        if [[ -z "$candidate" ]]; then
+            break
+        fi
+        if _valid_support_email "$candidate"; then
+            INSTALL_SUPPORT_EMAIL="$candidate"
+            INSTALL_SUPPORT_OPT_IN=1
+            log_success "We will send one help email only if this installation fails."
+            break
+        fi
+        log_warn "Please enter a valid email address or press Enter to skip."
+    done
+    exec 9<&- || true
+    export INSTALL_SUPPORT_EMAIL INSTALL_SUPPORT_OPT_IN
+    echo ""
+}
 
 # ────────────────────────────────────────────────────────────────────────────
 # Progress / ETA helpers
@@ -1306,10 +1370,9 @@ configure_web_access_preferences() {
     elif [[ ! -t 0 ]]; then
         # Piped installer (curl … | bash) has no controlling tty, so the
         # read prompts below would silently default to "n" and the operator
-        # would end up with services running but no nginx in front. That's
-        # exactly the support ticket we saw on 2026-06-12 — install
-        # "stuck" from the customer's perspective because the panel was
-        # only on port 10086 plain HTTP. Default to `auto_selfsigned_ip`:
+        # would end up with services running but no nginx in front, making
+        # the panel appear unavailable on its expected HTTPS URL. Default
+        # to `auto_selfsigned_ip`:
         # nginx + self-signed cert bound to the public IP, so the panel
         # works the moment the install finishes. Operators with a real
         # domain can re-run scripts/configure-web-access.sh later.
@@ -2093,11 +2156,12 @@ main() {
     echo ""
 
     parse_args "$@"
+    _collect_support_contact
 
     # Each phase is wrapped in _phase so the license server sees a per-step
     # ok / fail beacon and, on a mid-phase death (OOM, SIGHUP, network drop
     # mid-pip), the EXIT trap labels which step we were in. The funnel
-    # then shows exactly where free-version installs are bouncing instead
+    # then shows exactly where install attempts are failing instead
     # of "inner_start → silence".
     _phase preflight                          preflight
     _phase detect_existing                    detect_existing

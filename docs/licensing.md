@@ -1,5 +1,7 @@
 # Licensing
 
+_Last verified: 2026-07-24._
+
 ## Obtaining your activation code
 
 After completing your purchase, you will receive your activation code:
@@ -28,7 +30,7 @@ The license is activated immediately upon successful verification.
 
 ## Hardware binding
 
-Your license is bound to the server's hardware identifier. This means:
+Most paid licences are bound to a derived server hardware identifier. This means:
 
 - The license is valid only on the specific server where it was activated
 - Moving to a different server requires a license transfer (see below)
@@ -36,18 +38,27 @@ Your license is bound to the server's hardware identifier. This means:
 
 ## Grace period
 
-The software has a **72-hour offline tolerance**. If your server temporarily loses connectivity to the license server, the software will continue to operate normally for up to 72 hours. Normal operation resumes automatically once connectivity is restored.
+Subscription licences normally have a **72-hour offline tolerance** backed by a
+locally cached signed status. Exact enforcement and heartbeat cadence depend on
+the licence type: protected lifetime licences use a slower clone-detection
+heartbeat, while pure offline lifetime licences do not heartbeat.
 
 ## License verification
 
-The software periodically contacts the license server at `flirexa.biz` to verify license validity. This check transmits only:
+Activated subscription/protected licences periodically contact the official
+licence service. Validation and heartbeat requests can include:
 
-- Hostname and IP address
-- Application version
-- Instance identifier
-- License status
+- the licence key or a one-way licence identifier, plus a masked activation-code prefix;
+- derived hardware and persistent instance identifiers;
+- hostname, application version, licence status, uptime, and timestamps;
+- migration receipts when a licensed installation is being moved;
+- normal HTTP request metadata, including source IP.
 
-No VPN traffic or user data is transmitted during verification.
+These requests do **not** include the VPN client list, VPN keys/configurations,
+traffic contents, traffic counters, payment records, or portal user data. An
+unactivated FREE runtime has no licence heartbeat. Installer diagnostics and
+update checks are separate and documented in [installation.md](installation.md)
+and [updates.md](updates.md).
 
 ## License transfer
 

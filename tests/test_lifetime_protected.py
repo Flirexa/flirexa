@@ -10,6 +10,7 @@ Tests for the 1.5.64 lifetime_protected license type:
 """
 
 import base64
+import importlib.util
 import json
 import os
 import time
@@ -18,6 +19,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+_HAS_LICENSE_SERVER = importlib.util.find_spec("license_server") is not None
+_requires_license_server = pytest.mark.skipif(
+    not _HAS_LICENSE_SERVER,
+    reason="seller-side license_server is not part of the public open-core tree",
+)
 
 # Modules under test
 from src.modules.license import migration_code as mc
@@ -225,6 +232,7 @@ def test_cancel_migration_clears_record(monkeypatch, tmp_path):
 
 # ── license_generator payload roundtrip ──────────────────────────────────────
 
+@_requires_license_server
 def test_license_generator_emits_protected_fields(tmp_path):
     """Round-trip through generate_license_key — verify new fields are signed."""
     from license_server.services.license_generator import generate_license_key
@@ -265,6 +273,7 @@ def test_license_generator_emits_protected_fields(tmp_path):
     assert decoded["migration_secret"] == payload["migration_secret"]
 
 
+@_requires_license_server
 def test_license_generator_omits_migration_secret_for_subscription(tmp_path):
     from license_server.services.license_generator import generate_license_key
     from cryptography.hazmat.primitives import serialization
@@ -291,6 +300,7 @@ def test_license_generator_omits_migration_secret_for_subscription(tmp_path):
     assert "migration_secret" not in payload  # subscription doesn't need one
 
 
+@_requires_license_server
 def test_license_generator_rejects_unknown_type(tmp_path):
     from license_server.services.license_generator import generate_license_key
     keyfile = tmp_path / "priv.pem"

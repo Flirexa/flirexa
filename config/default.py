@@ -1,5 +1,5 @@
 """
-Flirexa Default Configuration
+Flirexa default configuration
 """
 
 import os
@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional, List
 from pydantic_settings import BaseSettings
 from pydantic import Field
+from src.utils.runtime_paths import get_app_version
 
 
 def _parse_comma_list_str(val: str) -> List[str]:
@@ -30,7 +31,7 @@ class Settings(BaseSettings):
     # General
     # ========================================================================
     APP_NAME: str = "Flirexa"
-    APP_VERSION: str = "5.0.0"
+    APP_VERSION: str = get_app_version()
     DEBUG: bool = False
     ENV: str = "development"  # development, staging, production
 

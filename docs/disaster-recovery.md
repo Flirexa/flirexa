@@ -1,5 +1,7 @@
 # Disaster Recovery Runbook
 
+_Last verified: 2026-07-24._
+
 This is the supported administrator runbook for restoring the product without developer intervention.
 
 Supported flow:
@@ -44,7 +46,6 @@ Not guaranteed automatically by current restore:
 
 Before disaster recovery, prepare:
 - latest full backup archive
-- current release archive
 - root access to the new server
 - DNS / domain access if public URLs are used
 - saved license key / activation data
@@ -77,7 +78,6 @@ sudo vpnmanager support-bundle --output /root/dr --redact-strict
 Copy these to safe storage or directly to the new server:
 - the full backup archive
 - the support bundle (recommended)
-- the release archive used for install
 
 ## Step 3. Prepare New Server
 
@@ -92,10 +92,12 @@ Verify:
 
 On the new server:
 
+Install a supported Flirexa generation using the official installer/package
+available to your licence:
+
 ```bash
-tar xzf vpn-manager-v<version>.tar.gz
-cd vpn-manager-v<version>
-sudo bash install.sh --non-interactive
+curl -fsSL https://flirexa.biz/install.sh -o /tmp/flirexa-install.sh
+sudo bash /tmp/flirexa-install.sh --non-interactive
 ```
 
 This prepares:
@@ -206,5 +208,9 @@ When contacting support, provide:
 1. backup archive id
 2. `sudo vpnmanager status`
 3. `sudo vpnmanager health`
-4. support bundle archive
+4. redacted support bundle archive
 5. brief symptom description
+
+Do not send the backup archive, `.env`, licence key, activation code, VPN
+configuration, or database dump unless support explicitly establishes a secure
+transfer and explains why it is required.

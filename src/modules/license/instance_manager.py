@@ -1,8 +1,8 @@
 """
 Instance Manager — persistent registration and periodic heartbeat.
 
-Sends POST /instance/heartbeat to the license server every 5 minutes,
-regardless of license status (none / trial / active / expired / revoked).
+Sends POST /instance/heartbeat for activated licenses. Unactivated FREE
+installs remain dormant and do not start the heartbeat flow.
 
 Each installation gets a permanent instance_id (UUID4) stored in .env.
 The heartbeat is HMAC-SHA256 signed with a key derived from machine_id + instance_id.
@@ -25,12 +25,13 @@ from typing import Optional
 
 import httpx
 import certifi
+from src.utils.runtime_paths import get_app_version
 
 
 _HEARTBEAT_INTERVAL = 300   # 5 minutes
 _REQUEST_TIMEOUT    = 10    # seconds per server attempt
 
-APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
+APP_VERSION = get_app_version()
 
 # Module-level start time (uptime counter)
 _start_time = time.time()

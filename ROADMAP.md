@@ -1,20 +1,17 @@
 # Roadmap
 
+_Last verified: 2026-07-24_
+
 What's next for Flirexa, organised by quarter. Items higher in each section are higher priority. Dates are aspirational; items move when reality intervenes.
 
 If you'd like to see something prioritised, [open a discussion](https://github.com/Flirexa/flirexa/discussions) or vote on existing ones with 👍.
 
 ---
 
-## 2026 Q3 — Formalise the channel + make the project welcoming
+## 2026 Q3 — Distribution and community
 
 - [ ] **Signed plugin distribution**
-  Paid extensions ship as RSA-signed `.tar.gz` packages from the license server. The plugin loader downloads and verifies them on startup for licensees. The protocol and corporate-VPN implementations already live in the MIT tree behind license feature gates; the distribution channel is primarily for closed payment-provider modules and future add-ons.
-- [ ] **Domain consolidation**
-  Migrate active workloads onto a single primary host (`flirexa.biz`) with the previous infrastructure as failover. Reduces operational complexity for the launch period.
-
-- [ ] **Public demo instance**
-  `demo.flirexa.biz` with the admin panel and client portal pre-populated with realistic fake data and a 6-hour automatic reset. Lets evaluators try the product before they install.
+  Separately delivered commercial extensions use an authenticated, integrity-checked distribution channel. Protocol and Corporate VPN implementations that already live in the MIT tree remain licence-gated in place.
 - [ ] **Plugin marketplace**
   A community-curated list of third-party plugins (notification integrations, custom payment providers, monitoring exporters, etc.). Submission via PR.
 - [ ] **First community plugin examples**
@@ -24,16 +21,16 @@ If you'd like to see something prioritised, [open a discussion](https://github.c
 - [ ] **Comparison content**
   In-depth blog posts and YouTube walkthroughs comparing Flirexa with Marzban, Hiddify, WG-Easy on real workloads.
 
-## 2026 Q4 — Mobile + ecosystem
+## 2026 Q4 — Apps and ecosystem
 
-- [ ] **Mobile client app**
-  Native Android (and probably iOS) app that pairs with a Flirexa install via QR, fetches configs, manages multiple endpoints. Closed-source, distributed via Play Store / TestFlight, free for end users of any Flirexa install.
+- [ ] **iOS client app**
+  An iOS companion to the Android, Windows, and Linux apps already distributed to Enterprise customers.
 - [ ] **Localisation expansion**
   Persian (Farsi), Chinese, Turkish, and Portuguese for LATAM. Driven by where the user base ends up actually being. (English, Русский, Deutsch, Français, and Español already ship.)
 - [ ] **Backup-to-cloud presets**
   S3, Backblaze B2, Hetzner Storage Box — one-click destinations for the `auto-backup` plugin.
 
-## 2027 — Beyond v1
+## 2027 — Longer-term ideas
 
 Items that are interesting but not committed yet:
 
@@ -62,15 +59,17 @@ Wiring up the commercial loop after the repository went public:
 
 - **Subscription billing on flirexa.biz** — recurring subscriptions for all paid tiers, payable by **card / fiat** (Visa/Mastercard, Apple Pay, Google Pay, bank transfer in USD/EUR via PayLio) *or* in **crypto** via NOWPayments (BTC, USDT, Monero, ETH, and 50+ currencies). Webhooks for renewal / cancellation / past-due, plus email notifications.
 - **Pre-commit hooks** — `detect-secrets`, `ruff`, `mypy` so contributors catch problems locally before CI does.
+- **Public interactive demo** — realistic fake data lets evaluators try the admin and client experiences before installing.
+- **Client apps** — Android, Windows, and Linux apps are available to Enterprise customers.
 
 ## Done in 1.5.0 (initial public release)
 
 For reference — what shipped in the open-core launch:
 
-- FREE tier: 80 clients on up to 2 local servers (one WireGuard + one AmneziaWG), MIT-licensed, runs entirely offline, no expiry
+- FREE tier: 80 clients on one host with WireGuard + AmneziaWG local endpoints, MIT-licensed, no licence expiry or heartbeat
 - Generic plugin loader with manifest validation and license-feature gating
 - Nine paid-plugin shells declared (`extra-protocols`, `multi-server`, `corporate-vpn`, …)
 - Hysteria2/TUIC and Corporate VPN implementations included in the MIT tree behind license feature gates
 - PyArmor / `integrity` / kill-switch removed from open core
 - MIT license, CONTRIBUTING.md, SECURITY.md, CI workflow
-- 580 passing tests; pre-existing failures documented
+- Automated tests and secret scanning in public CI

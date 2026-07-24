@@ -1,5 +1,8 @@
 # API Reference
 
+_Last verified: 2026-07-24. Example identifiers, versions, addresses, and tokens
+below are illustrative._
+
 The admin panel exposes a REST API at `http://YOUR_SERVER:10086/api/v1/`. All endpoints (except auth and a few public ones) require a Bearer token in the `Authorization` header.
 
 Interactive API documentation is available at:
@@ -227,10 +230,10 @@ Response:
 
 ```json
 {
-  "current_version": "2.0.0",
+  "current_version": "2.2.52",
   "channel": "stable",
   "available_update": {
-    "version": "2.1.0",
+    "version": "2.3.0",
     "update_type": "minor",
     "changelog": "...",
     "has_db_migrations": true
@@ -245,7 +248,7 @@ Response:
 POST /api/v1/updates/apply
 Content-Type: application/json
 
-{"version": "2.1.0"}
+{"version": "2.3.0"}
 ```
 
 ### Check Progress

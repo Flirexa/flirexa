@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from tools.lint_migrations import check_autocommit_with_enum_use
+import pytest
+
+_lint_migrations = pytest.importorskip(
+    "tools.lint_migrations",
+    reason="internal release linters are not part of the public open-core tree",
+)
+check_autocommit_with_enum_use = _lint_migrations.check_autocommit_with_enum_use
 
 
 def test_autocommit_lint_ignores_historical_comment():

@@ -1,7 +1,8 @@
 FROM python:3.12-slim AS base
 
-LABEL maintainer="Flirexa"
-LABEL version="1.0.0"
+LABEL org.opencontainers.image.title="Flirexa"
+LABEL org.opencontainers.image.source="https://github.com/Flirexa/flirexa"
+LABEL org.opencontainers.image.licenses="MIT"
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -36,9 +37,6 @@ ENV PYTHONUNBUFFERED=1
 # modprobe (kernel modules). Running as a non-root user would break all
 # WireGuard and bandwidth-limiting functionality.
 # If you only run the API/portal without WireGuard, consider overriding USER.
-
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD curl -f http://localhost:10090/health || curl -f http://localhost:10086/health || exit 1
 
 # Default: API server
 EXPOSE 10086

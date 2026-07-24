@@ -1,5 +1,7 @@
 # Known Issues
 
+_Last verified: 2026-07-24._
+
 This document lists currently known product issues for the commercial baseline line.
 
 ## 1. Early Installer Portal Warning

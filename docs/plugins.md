@@ -1,5 +1,7 @@
 # Plugins
 
+_Last verified: 2026-07-24._
+
 How the plugin system works, how to write your own community plugin, and what makes paid plugins different.
 
 ---
@@ -42,15 +44,21 @@ Example: a community plugin that POSTs every new client signup to a Discord webh
 
 ### 2. Drop-in payment providers (`plugins/payments/`)
 
-A separate, simpler plugin format dating back from before the generic loader existed. Each `.py` file in `plugins/payments/` defining a `PROVIDER_CLASS` is auto-registered as a payment provider. The free tier ships with NOWPayments only; Stripe, Mollie, Razorpay, Payme, and PayPal are paid plugins delivered via the licence server.
+A separate, simpler plugin format dating from before the generic loader. Each
+`.py` file in `plugins/payments/` defining a `PROVIDER_CLASS` is auto-registered.
+NOWPayments is the FREE provider in the core. CryptoPay and the public PayLio
+provider are licence-gated; additional card/local provider modules can be
+delivered separately under the commercial licence.
 
 To add a new payment provider, copy `plugins/payments/_template.py`, fill in the `create_invoice` / `check_payment` methods, configure credentials in `.env`, restart.
 
 ### 3. Paid plugins (license-gated)
 
-Distributed by the official Flirexa licence server to paying subscribers. From the loader's point of view they look identical to community plugins — same manifest format, same `Plugin` base class — they just declare a non-`community` `requires_license_feature` and only load on installs whose licence grants that feature.
-
-For most paid plugins, the source lives in this repository (the gate is the protection). For two especially fork-sensitive ones (`extra-protocols`, `corporate-vpn`), the implementation lives in the closed `Flirexa/flirexa-pro` repo and reaches paying users through signed plugin packages.
+Paid capabilities declare a non-`community` `requires_license_feature` and only
+load when that feature is granted. Hysteria2, TUIC, VLESS-Reality, Corporate VPN,
+and most other gated implementations are present in this MIT repository.
+Separately delivered exceptions include the working remote agent and some
+third-party payment-provider modules.
 
 ---
 
@@ -310,8 +318,8 @@ Tracked in [ROADMAP.md](../ROADMAP.md):
 
 - **Done in 1.4.61** — install / uninstall plugins by URL from the admin
   panel, with SHA-256 integrity check.
-- **2026 Q3:** signed plugin distribution from the licence server (paid
-  plugins as `.tar.gz` packages with author signatures).
+- **2026 Q3:** authenticated, integrity-checked distribution for separately
+  delivered commercial extensions.
 - **2026 Q3:** curated plugin catalog at `flirexa.biz/plugins` —
   author submission form + manual review + listing.
 - **2026 Q4:** frontend chunk lazy-loading polished.

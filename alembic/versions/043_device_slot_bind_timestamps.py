@@ -4,9 +4,9 @@ Revision ID: 043_device_slot_bind_timestamps
 Revises: 042_app_features_batch
 Create Date: 2026-05-31
 
-Background — operator report (2026-05-31): customers got locked out
-after force-closing the app or after a panel update. Root cause:
-the v1.9.33+ device-bind was binary — once the slot's ``device_id``
+Background: device slots could remain locked after the app lost its local
+identifier or after an update. The original device-bind was binary — once
+the slot's ``device_id``
 was set, any other device id was hard-403'd forever, with no path
 to recover other than the admin clicking Release. expo-secure-store
 losing the cached UUID on Android (force-close mid-write,

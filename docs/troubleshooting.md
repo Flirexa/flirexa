@@ -1,5 +1,7 @@
 # Troubleshooting
 
+_Last verified: 2026-07-24._
+
 ---
 
 ## API Not Starting
@@ -29,21 +31,13 @@ journalctl -u vpnmanager-api -n 50 --no-pager
 # Check PostgreSQL status
 systemctl status postgresql
 
-# Check the connection string
-grep DATABASE_URL /opt/vpnmanager/.env
-
-# Test connection manually
-psql "$(grep DATABASE_URL /opt/vpnmanager/.env | cut -d= -f2-)"
+sudo vpnmanager health --json
 ```
 
-If the database user or name is wrong, recreate it:
-
-```bash
-sudo -u postgres psql << 'SQL'
-CREATE USER vpnmanager WITH PASSWORD 'your-password';
-CREATE DATABASE vpnmanager_db OWNER vpnmanager;
-SQL
-```
+Do not paste `DATABASE_URL` into an issue or terminal transcript; it contains the
+database password. If credentials drifted, use the installer/restore recovery
+path or collect a strict-redaction support bundle before changing PostgreSQL
+users manually.
 
 ---
 
@@ -64,8 +58,8 @@ sudo wg-quick up wg0
 ```bash
 sysctl net.ipv4.ip_forward
 # Should be 1. If not:
-echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
-sysctl -p
+printf '%s\n' 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/99-flirexa-ip-forward.conf
+sudo sysctl --system
 ```
 
 **NAT rules missing:**
@@ -141,10 +135,6 @@ If clients get stale configs with incorrect obfuscation parameters, have them re
 # On the remote server
 systemctl status vpnmanager-agent
 journalctl -u vpnmanager-agent -n 30 --no-pager
-
-# Test manually
-curl -H "X-Api-Key: $(grep AGENT_API_KEY /opt/vpnmanager-agent/.env | cut -d= -f2)" \
-  http://localhost:8001/health
 ```
 
 **Wrong API key:**
@@ -157,10 +147,10 @@ The API key in the agent's `.env` on the remote server must match the key stored
 ```bash
 # Check port is open on the remote server
 ss -tlnp | grep 8001
-
-# From the main server
-curl -H "X-Api-Key: key" http://REMOTE_IP:8001/health
 ```
+
+From the main server, prefer the panel's Verify/health action so the agent key
+is not placed in shell history or a process argument.
 
 Firewall on the remote server may be blocking port 8001. Allow only the main server:
 
@@ -269,35 +259,32 @@ If the worker is not installed, the API handles background tasks internally, but
 **"License validation failed":**
 - Check `Settings → License` for the current status
 - Verify your server has internet access to reach the license server
-- Grace period is 72 hours — the system continues working without internet for up to 72 hours
+- Subscription licences normally have a 72-hour cached grace period; lifetime
+  licence behaviour differs by enforcement type
 
 **"Activation required":**
 - The license key does not match this server's ID
-- Get your Server ID from `Settings → License` and contact your vendor
+- Get your Server ID from `Settings → License` and contact
+  [Flirexa support](mailto:support@flirexa.biz)
 
 ---
 
 ## Verify Installation
 
 ```bash
-cd /opt/vpnmanager
-source venv/bin/activate
-python3 -c "from src.api.main import app; print(f'{len(app.routes)} routes loaded')"
+sudo vpnmanager status
+sudo vpnmanager health
+sudo vpnmanager services status
 ```
-
-Expected output: a number like `85 routes loaded`. Any import error points to a missing dependency or broken environment.
 
 ---
 
 ## Collect Diagnostic Information for Support
 
 ```bash
-echo "=== OS ===" && cat /etc/os-release
-echo "=== Python ===" && python3 --version
-echo "=== Services ===" && systemctl is-active vpnmanager-api vpnmanager-worker wg-quick@wg0
-echo "=== WireGuard ===" && wg show 2>/dev/null || echo "not running"
-echo "=== API logs ===" && journalctl -u vpnmanager-api -n 30 --no-pager
-echo "=== License ===" && grep LICENSE_KEY /opt/vpnmanager/.env 2>/dev/null || echo "check Settings > License"
+sudo vpnmanager support-bundle --output /tmp --redact-strict
 ```
 
-Include this output when contacting support.
+Review the archive before sharing it. Do not send `.env`, `DATABASE_URL`,
+`LICENSE_KEY`, bot tokens, agent keys, VPN configuration, client exports, or a
+database/backup archive in a normal support ticket.
