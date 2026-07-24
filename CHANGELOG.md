@@ -632,8 +632,8 @@ to a customer report; all are pre-emptive hardening.
   500-row cap once a panel grew past that many clients across its
   servers. A live, traffic-flowing peer would show up in the server
   card's TOP CONSUMERS list (agent-side data) while the Clients tab
-  returned "No clients found" for the same name — operator report
-  from the field with 800+ clients.
+  returned "No clients found" for the same name on larger
+  installations.
 
   Backend: `/clients` accepts `?q=` and filters by `name` / `ipv4`
   ILIKE substring in SQL. Frontend: debounces the search box (250ms),
@@ -747,8 +747,8 @@ to a customer report; all are pre-emptive hardening.
 
 ## v1.9.51 — 2026-06-01
 
-First fiat-acquirer payment provider plus a few rollout fixes that came
-out of the first end-to-end test on a real customer flow.
+First fiat-acquirer payment provider plus several end-to-end rollout
+fixes.
 
 ### Added
 
@@ -1305,7 +1305,8 @@ This release rolls 1.9.9 + 1.9.10 + 1.9.11 into one stable promote — the test-
 
 ## v1.7.6 — 2026-05-19
 
-Three fixes for the device-slot system caught by an operator testing multi-server toggling against a production panel.
+Three fixes for the device-slot system found during multi-server
+toggle testing.
 
 ### Fixed
 
@@ -2088,15 +2089,21 @@ Breaker state changes log only on threshold crossings (fails=3, 6, 9, 15) instea
 
 Expand-pool validation relaxed: pool overlap is now only blocked between servers on the **same physical machine** (same `ssh_host` value, or both panel-local). Two WireGuard servers on different boxes don't share a kernel routing table, so their pools can overlap without breaking anything — each box NATs its own range to the internet independently.
 
-The previous strict check was treating any two servers with overlapping pools as a conflict, even when the servers were on completely separate VPS instances. Surfaced when a real prod had three servers with identical /24 pools across three different machines, all of which the operator wanted to expand — validation refused all of them. With this relax, the check now only fires for true same-machine collisions where both interfaces would compete for the same kernel routes.
+The previous strict check treated any two servers with overlapping
+pools as a conflict, even when they were on separate VPS instances.
+With this relaxation, the check now only fires for true same-machine
+collisions where both interfaces would compete for the same kernel
+routes.
 
-End-to-end re-tested on a production setup: a remote agent-mode server, /24 → /20, peers reconnected on the next handshake cycle, no client disconnects beyond the brief expected window.
+End-to-end testing covered a remote agent-mode server, a /24 → /20
+expansion, and peer reconnection on the next handshake cycle.
 
 ---
 
 ## v1.5.77 — 2026-05-07
 
-A bundle of operator-facing additions and a stack of bug fixes shaken out of a real prod incident on the new Expand Address Pool feature.
+Operator-facing additions and fixes for the new Expand Address Pool
+feature.
 
 ### Added — Servers
 
@@ -2137,7 +2144,8 @@ A bundle of operator-facing additions and a stack of bug fixes shaken out of a r
 
 ## v1.5.70 — 2026-05-07
 
-A bundle of operator-facing polish for the Clients page and Online Users page, plus a critical update-pipeline fix flushed out by a prod incident on 1.5.67.
+Operator-facing polish for the Clients and Online Users pages, plus a
+critical update-pipeline fix.
 
 ### Added — Clients page
 
@@ -2147,7 +2155,7 @@ A bundle of operator-facing polish for the Clients page and Online Users page, p
 
 ### Fixed
 
-- **Update pipeline no longer auto-rolls-back on idempotent failures.** Migrations now skip `CREATE TABLE` / `CREATE INDEX` operations when the target already exists, so a partially-applied previous attempt doesn't trap the next install in a permanent rollback loop. Surfaced by a real prod incident: a transient migration crash left an orphan table behind, every subsequent `apply` hit the same crash, the post-update health check saw the Alembic revision mismatch, and triggered a rollback that didn't fully clean up. The cycle stopped being self-healing.
+- **Update pipeline no longer auto-rolls-back on idempotent failures.** Migrations now skip `CREATE TABLE` / `CREATE INDEX` operations when the target already exists, so a partially-applied previous attempt doesn't trap the next install in a permanent rollback loop. A transient migration crash can leave an orphan table behind; previously, every subsequent `apply` hit the same crash, the post-update health check saw the Alembic revision mismatch, and triggered a rollback that didn't fully clean up. The cycle stopped being self-healing.
 - **Auto-update silent-failure fixed.** The auto-apply path in `auto_check.py` was importing a function from the wrong module (`is_newer` from `.manager` instead of `.checker`), which silently broke every auto-apply attempt for who-knows-how-long. Manual "Apply update" was unaffected, which is why nobody had noticed.
 - **Alembic migration failures now log a full traceback at ERROR level** instead of a one-line WARNING that swallowed the root cause. The next failure will tell you exactly which migration choked and on which row.
 - **Dark theme contrast pass** on the new Online Users page, the Live indicator pill + interval picker, and the share-link modal. The previous dark CSS was gated on `prefers-color-scheme`, but the panel uses a manual `[data-theme="dark"]` attribute toggle instead — the OS-dark gate never fired, so muted text was rendering at light-mode contrast on a dark background and ended up effectively invisible. All dark variants now ship via the actual selector the panel uses.
