@@ -7,21 +7,30 @@ from typing import Optional, List
 from datetime import datetime, timedelta, timezone
 import io
 import csv
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
 from loguru import logger
 
 from ...database.connection import get_db
-from ...database.models import Client, Server, ClientStatus, TrafficDaily
+from ...database.models import (
+    AuditAction,
+    AuditLog,
+    Client,
+    Server,
+    ClientStatus,
+    TrafficDaily,
+)
 from ...modules.subscription.subscription_models import (
     ClientUser, ClientPortalSubscription, ClientPortalPayment,
     SubscriptionPlan, SubscriptionStatus, ClientUserClients,
     SupportMessage, DeviceSlot,
 )
 from ...modules.subscription.subscription_manager import SubscriptionManager
+from ..middleware.auth import get_current_admin
 
 router = APIRouter()
 
@@ -162,6 +171,20 @@ class UserUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
     is_banned: Optional[bool] = None
     ban_reason: Optional[str] = None
+
+
+class SetPasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_bcrypt_length(cls, password: str) -> str:
+        # bcrypt 5 rejects inputs longer than 72 bytes. Check the encoded
+        # length here so Unicode passwords receive a clean 422 instead of a
+        # server error (a character can occupy more than one UTF-8 byte).
+        if len(password.encode("utf-8")) > 72:
+            raise ValueError("Password must not exceed 72 UTF-8 bytes")
+        return password
 
 
 class GrantSubscriptionRequest(BaseModel):
@@ -1235,6 +1258,53 @@ def update_portal_user(user_id: int, data: UserUpdateRequest, db: Session = Depe
 
     logger.info(f"Updated portal user {user.username}: active={user.is_active}, banned={user.is_banned}, wg_disabled={disabled_count}, wg_enabled={enabled_count}")
     return {"message": "User updated", "id": user.id}
+
+
+@router.post("/{user_id}/password")
+def set_portal_user_password(
+    user_id: int,
+    data: SetPasswordRequest,
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Set a portal user's password from the admin panel.
+
+    The router-level ``clients`` permission remains authoritative. Any pending
+    self-service reset link is revoked so it cannot overwrite the password
+    immediately after an administrator changes it.
+    """
+    user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    reset_token_revoked = bool(user.password_reset_token)
+    user.password_hash = bcrypt.hashpw(
+        data.new_password.encode("utf-8"),
+        bcrypt.gensalt(),
+    ).decode("utf-8")
+    user.password_reset_token = None
+    user.password_reset_token_created_at = None
+
+    db.add(AuditLog(
+        user_id=current_admin.get("user_id"),
+        user_type="admin",
+        action=AuditAction.CONFIG_CHANGE,
+        target_type="portal_user",
+        target_id=user.id,
+        target_name=user.username,
+        details={
+            "action": "admin_password_reset",
+            "reset_token_revoked": reset_token_revoked,
+        },
+    ))
+    db.commit()
+
+    logger.info(
+        "Admin user_id={} changed password for portal user_id={}",
+        current_admin.get("user_id"),
+        user.id,
+    )
+    return {"message": "Password updated successfully", "id": user.id}
 
 
 # ============================================================================

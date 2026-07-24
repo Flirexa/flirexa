@@ -4,6 +4,44 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.54 — 2026-07-24
+
+### Security
+
+- Portal registration and other abuse-sensitive actions now use persistent,
+  database-backed rate limits that remain effective across service restarts
+  and multiple workers.
+- Rate-limit identities are stored as keyed hashes rather than raw network
+  addresses.
+- Customer-portal API schemas and interactive documentation are disabled by
+  default in production.
+
+### Fixed
+
+- Push-notification token registration now rejects malformed short values
+  before they reach persistent storage.
+
+---
+
+## v2.2.53 — 2026-07-24
+
+### Added
+
+- Administrators using the redesigned interface can securely reset a customer
+  portal password. The action uses role-based authorization, revokes any
+  outstanding password-reset token, and records a secret-free audit event.
+- The installer can optionally collect an operator email address and offer
+  assistance after a failed installation.
+
+### Changed
+
+- Release packaging now fails closed when seller-only files are detected in
+  public artifacts.
+- Repository metadata, automated checks, and product naming were aligned with
+  the current Flirexa project structure.
+
+---
+
 ## v2.2.52 — 2026-07-23
 
 ### Added

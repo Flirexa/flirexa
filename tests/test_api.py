@@ -4,6 +4,10 @@ Uses TestClient with SQLite in-memory database
 """
 
 import os
+import importlib
+from datetime import datetime, timezone
+
+import bcrypt
 import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
@@ -20,6 +24,8 @@ os.environ["LICENSE_CHECK_ENABLED"] = "false"
 
 from src.database.models import (
     AdminUser,
+    AuditAction,
+    AuditLog,
     Base,
     Client,
     ClientStatus,
@@ -33,6 +39,8 @@ from src.api.routes import admin_auth, client_portal
 from src.modules.subscription.subscription_models import (
     ClientUser,
     ClientPortalSubscription,
+    PortalRateLimit,
+    SupportMessage,
     SubscriptionPlan,
     SubscriptionStatus,
 )
@@ -217,6 +225,200 @@ class TestClientIpHandling:
     def test_admin_auth_does_not_trust_forwarded_header_from_public_client(self):
         request = self._request("203.0.113.10", "198.51.100.5")
         assert admin_auth._get_client_ip(request) == "203.0.113.10"
+
+
+class TestClientPortalAbuseControls:
+    @staticmethod
+    def _registration_payload(index: int) -> dict:
+        return {
+            "email": f"rate-{index}@example.com",
+            "password": "strong-password-123",
+            "username": f"rateuser{index}",
+        }
+
+    def test_registration_limit_is_persistent_and_does_not_store_raw_ip(
+        self,
+        client,
+        db_for_test,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(client_portal, "_REGISTER_RATE_MAX", 2)
+        monkeypatch.setattr(client_portal, "_REGISTER_RATE_WINDOW", 3600)
+
+        first = client.post(
+            "/client-portal/auth/register",
+            json=self._registration_payload(1),
+        )
+        second = client.post(
+            "/client-portal/auth/register",
+            json=self._registration_payload(2),
+        )
+        blocked = client.post(
+            "/client-portal/auth/register",
+            json=self._registration_payload(3),
+        )
+
+        assert first.status_code == 201
+        assert second.status_code == 201
+        assert blocked.status_code == 429
+        assert int(blocked.headers["retry-after"]) > 0
+        assert blocked.json()["detail"] == (
+            "Too many registrations. Please try again later."
+        )
+
+        bucket = db_for_test.query(PortalRateLimit).one()
+        assert bucket.request_count == 2
+        assert "testclient" not in bucket.bucket_key
+
+    def test_support_limit_caps_authenticated_db_amplification(
+        self,
+        client,
+        db_for_test,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(client_portal, "_SUPPORT_USER_RATE_MAX", 2)
+        monkeypatch.setattr(client_portal, "_SUPPORT_IP_RATE_MAX", 100)
+
+        registered = client.post(
+            "/client-portal/auth/register",
+            json=self._registration_payload(10),
+        )
+        assert registered.status_code == 201
+        token = registered.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        for index in (1, 2):
+            response = client.post(
+                "/client-portal/support/send",
+                headers=headers,
+                json={"subject": f"Question {index}", "message": "Please help"},
+            )
+            assert response.status_code == 200
+
+        blocked = client.post(
+            "/client-portal/support/send",
+            headers=headers,
+            json={"subject": "Question 3", "message": "Please help again"},
+        )
+        assert blocked.status_code == 429
+        assert db_for_test.query(SupportMessage).count() == 2
+
+    def test_limiter_survives_a_new_database_session(self, app_with_db):
+        _, TestSession, _ = app_with_db
+        first_session = TestSession()
+        try:
+            assert client_portal._consume_persistent_rate_limit(
+                first_session,
+                scope="persistence_test",
+                identity="198.51.100.10",
+                maximum=1,
+                window_seconds=3600,
+            ) is None
+        finally:
+            first_session.close()
+
+        second_session = TestSession()
+        try:
+            retry_after = client_portal._consume_persistent_rate_limit(
+                second_session,
+                scope="persistence_test",
+                identity="198.51.100.10",
+                maximum=1,
+                window_seconds=3600,
+            )
+        finally:
+            second_session.close()
+
+        assert retry_after is not None
+        assert retry_after > 0
+
+    def test_public_portal_api_docs_are_disabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("CLIENT_PORTAL_API_DOCS_ENABLED", raising=False)
+        import client_portal_main
+
+        portal_module = importlib.reload(client_portal_main)
+        assert portal_module.app.openapi_url is None
+        route_paths = {route.path for route in portal_module.app.routes}
+        assert {"/docs", "/redoc", "/openapi.json"} <= route_paths
+
+
+class TestAdminPortalUserPassword:
+    @staticmethod
+    def _create_user(db, *, username: str = "passworduser") -> ClientUser:
+        user = ClientUser(
+            email=f"{username}@example.com",
+            username=username,
+            password_hash=bcrypt.hashpw(b"old-password-123", bcrypt.gensalt()).decode("utf-8"),
+            password_reset_token="pending-reset-token",
+            password_reset_token_created_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+
+    def test_admin_can_set_password_and_revoke_reset_token(self, client, db_for_test):
+        user = self._create_user(db_for_test)
+
+        response = client.post(
+            f"/api/v1/portal-users/{user.id}/password",
+            json={"new_password": "new-password-456"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "message": "Password updated successfully",
+            "id": user.id,
+        }
+        assert "new-password-456" not in response.text
+
+        db_for_test.expire_all()
+        updated = db_for_test.get(ClientUser, user.id)
+        assert bcrypt.checkpw(b"new-password-456", updated.password_hash.encode("utf-8"))
+        assert not bcrypt.checkpw(b"old-password-123", updated.password_hash.encode("utf-8"))
+        assert updated.password_reset_token is None
+        assert updated.password_reset_token_created_at is None
+
+        audit = (
+            db_for_test.query(AuditLog)
+            .filter(
+                AuditLog.action == AuditAction.CONFIG_CHANGE,
+                AuditLog.target_type == "portal_user",
+                AuditLog.target_id == user.id,
+            )
+            .one()
+        )
+        assert audit.user_id == 1
+        assert audit.details == {
+            "action": "admin_password_reset",
+            "reset_token_revoked": True,
+        }
+        assert "new_password" not in audit.details
+        assert "new-password-456" not in str(audit.details)
+
+    @pytest.mark.parametrize("new_password", ["short7", "я" * 40])
+    def test_admin_password_validation_rejects_unsafe_lengths(
+        self,
+        client,
+        db_for_test,
+        new_password,
+    ):
+        user = self._create_user(db_for_test, username=f"validation{len(new_password)}")
+
+        response = client.post(
+            f"/api/v1/portal-users/{user.id}/password",
+            json={"new_password": new_password},
+        )
+
+        assert response.status_code == 422
+
+    def test_admin_password_update_returns_404_for_unknown_user(self, client):
+        response = client.post(
+            "/api/v1/portal-users/999999/password",
+            json={"new_password": "new-password-456"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "User not found"
 
 
 class TestClientPortalAuthFlows:

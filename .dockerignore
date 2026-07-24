@@ -17,5 +17,6 @@ tests/
 # SECURITY (2026-07): seller-only — never bake the vendor signing keys or the
 # license-server app into a customer image (panel verifies with public keys only).
 license_server/
+vendor/license_server/
 tools/license_private.pem
 tools/generate_license.py

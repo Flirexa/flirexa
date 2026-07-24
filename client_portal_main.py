@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 APP_VERSION = get_app_version()
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
@@ -171,11 +178,15 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI app
+_api_docs_enabled = _env_flag("CLIENT_PORTAL_API_DOCS_ENABLED", False)
 app = FastAPI(
     title="Flirexa Client Portal",
     description="VPN Client Dashboard & Subscription Management",
     version=APP_VERSION,
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs" if _api_docs_enabled else None,
+    redoc_url="/redoc" if _api_docs_enabled else None,
+    openapi_url="/openapi.json" if _api_docs_enabled else None,
 )
 
 # CORS middleware
@@ -293,6 +304,17 @@ async def public_branding():
         from loguru import logger as _log
         _log.warning("public_branding read failed: {}", exc)
         return JSONResponse({}, status_code=200)
+
+
+# The public portal must not advertise its entire route surface in production.
+# Explicit 404 handlers keep the SPA catch-all below from returning index.html
+# with a misleading 200 for the well-known documentation paths.
+if not _api_docs_enabled:
+    @app.get("/docs", include_in_schema=False)
+    @app.get("/redoc", include_in_schema=False)
+    @app.get("/openapi.json", include_in_schema=False)
+    async def api_documentation_disabled():
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
 
 
 # IMPORTANT: Catch-all route must remain LAST,

@@ -6,7 +6,8 @@
     <input
       class="d2f-input" :class="{ err: !!error }"
       :type="type" :value="modelValue" :placeholder="placeholder" :disabled="disabled"
-      :min="min" :max="max"
+      :min="min" :max="max" :minlength="minlength" :maxlength="maxlength"
+      :autocomplete="autocomplete"
       @input="$emit('update:modelValue', type === 'number' ? ($event.target.value === '' ? null : Number($event.target.value)) : $event.target.value)" />
     <div v-if="error" class="d2f-err">{{ error }}</div>
     <div v-else-if="hint" class="d2f-hint">{{ hint }}</div>
@@ -24,6 +25,9 @@ defineProps({
   disabled: { type: Boolean, default: false },
   min: { type: [String, Number], default: undefined },
   max: { type: [String, Number], default: undefined },
+  minlength: { type: [String, Number], default: undefined },
+  maxlength: { type: [String, Number], default: undefined },
+  autocomplete: { type: String, default: undefined },
 })
 defineEmits(['update:modelValue'])
 </script>

@@ -110,6 +110,7 @@
           <div style="display:flex;flex-wrap:wrap;gap:8px">
             <button @click="toggleActive" class="d2-mbtn">{{ detail.is_active ? (tr('portalUsers.deactivate') || 'Deactivate') : (tr('portalUsers.activate') || 'Activate') }}</button>
             <button @click="toggleBan" :style="{ height:'36px', padding:'0 13px', border:'1px solid var(--border-strong)', background:'var(--panel)', color: detail.is_banned ? 'var(--green)' : 'var(--red)', borderRadius:'9px', font:'inherit', fontSize:'12.5px', fontWeight:550, cursor:'pointer' }" class="d2-mbtn-plain">{{ detail.is_banned ? (tr('portalUsers.unban') || 'Unban') : (tr('portalUsers.ban') || 'Ban') }}</button>
+            <button @click="openPasswordModal" class="d2-mbtn">{{ tr('portalUsers.changePassword') || 'Change password' }}</button>
             <button @click="openAddSlot" class="d2-mbtn">{{ tr('portalUsers.addSlot') || 'Add device' }}</button>
             <button @click="openMessage" class="d2-mbtn">{{ tr('portalUsers.sendMessage') || 'Send message' }}</button>
             <button @click="deleteUser" style="height:36px;padding:0 13px;border:none;background:var(--red-soft);color:var(--red);border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer">{{ tr('portalUsers.deleteUser') || 'Delete user' }}</button>
@@ -219,6 +220,50 @@
       </template>
     </D2Modal>
 
+    <!-- ===== CHANGE PASSWORD MODAL ===== -->
+    <D2Modal :open="showPassword" size="sm" @close="closePasswordModal">
+      <template #header><div style="font-weight:650;font-size:17px">{{ tr('portalUsers.changePassword') || 'Change password' }}</div></template>
+      <div v-if="passwordSuccess" style="padding:12px 14px;border:1px solid var(--green);border-radius:10px;background:var(--green-soft);color:var(--green);font-size:13px;font-weight:550">
+        {{ passwordSuccess }}
+      </div>
+      <div v-else style="display:flex;flex-direction:column;gap:14px">
+        <div style="font-size:12.5px;color:var(--text-3)">
+          {{ passwordTarget }}
+        </div>
+        <D2Field
+          v-model="passwordForm.new_password"
+          type="password"
+          autocomplete="new-password"
+          :minlength="8"
+          :maxlength="72"
+          :label="tr('portalUsers.newPassword') || 'New password'"
+          :hint="tr('portalUsers.passwordHint') || 'At least 8 characters and no more than 72 UTF-8 bytes.'"
+          :error="newPasswordError"
+          placeholder="••••••••"
+        />
+        <D2Field
+          v-model="passwordForm.confirm_password"
+          type="password"
+          autocomplete="new-password"
+          :minlength="8"
+          :maxlength="72"
+          :label="tr('portalUsers.confirmPassword') || 'Confirm password'"
+          :error="confirmPasswordError"
+          placeholder="••••••••"
+        />
+        <div style="font-size:12px;color:var(--text-3)">
+          {{ tr('portalUsers.passwordNotice') || 'The customer is not notified automatically, and existing sessions stay signed in. Share the new password through a secure channel.' }}
+        </div>
+        <div v-if="passwordApiError" style="font-size:12px;color:var(--red)">{{ passwordApiError }}</div>
+      </div>
+      <template #footer>
+        <D2Button variant="secondary" @click="closePasswordModal">{{ passwordSuccess ? (tr('common.close') || 'Close') : (tr('common.cancel') || 'Cancel') }}</D2Button>
+        <D2Button v-if="!passwordSuccess" :loading="passwordBusy" :disabled="!passwordFormValid" @click="submitPassword">
+          {{ tr('portalUsers.setPassword') || 'Set password' }}
+        </D2Button>
+      </template>
+    </D2Modal>
+
     <!-- ===== SEND MESSAGE MODAL ===== -->
     <D2Modal :open="showMessage" size="md" @close="showMessage = false">
       <template #header><div style="font-weight:650;font-size:16px">{{ tr('portalUsers.sendMessage') || 'Send message' }}</div></template>
@@ -322,6 +367,70 @@ const grantForm = ref({ tier: 'basic', duration_days: 30 })
 const extendDays = ref(30)
 const showSetExpiry = ref(false)
 const setExpiryDate = ref('')
+
+// admin password reset modal
+const showPassword = ref(false)
+const passwordBusy = ref(false)
+const passwordSubmitted = ref(false)
+const passwordSuccess = ref('')
+const passwordApiError = ref('')
+const passwordForm = ref({ new_password: '', confirm_password: '' })
+const passwordTarget = computed(() => detailAdapter.value.name + ' · ' + detailAdapter.value.username)
+function passwordByteLength(value) { return new TextEncoder().encode(value || '').length }
+const newPasswordError = computed(() => {
+  const password = passwordForm.value.new_password
+  if (!password && passwordSubmitted.value) return tr('portalUsers.passwordRequired') || 'Enter a new password.'
+  if (password && password.length < 8) return tr('portalUsers.passwordTooShort') || 'Password must be at least 8 characters.'
+  if (password && passwordByteLength(password) > 72) return tr('portalUsers.passwordTooLong') || 'Password must not exceed 72 UTF-8 bytes.'
+  return ''
+})
+const confirmPasswordError = computed(() => {
+  const confirmation = passwordForm.value.confirm_password
+  if (!confirmation && passwordSubmitted.value) return tr('portalUsers.confirmPasswordRequired') || 'Confirm the new password.'
+  if (confirmation && confirmation !== passwordForm.value.new_password) return tr('portalUsers.passwordsDoNotMatch') || 'Passwords do not match.'
+  return ''
+})
+const passwordFormValid = computed(() => {
+  const password = passwordForm.value.new_password
+  return password.length >= 8
+    && passwordByteLength(password) <= 72
+    && passwordForm.value.confirm_password === password
+})
+function openPasswordModal() {
+  passwordForm.value = { new_password: '', confirm_password: '' }
+  passwordSubmitted.value = false
+  passwordSuccess.value = ''
+  passwordApiError.value = ''
+  showPassword.value = true
+}
+function closePasswordModal() {
+  showPassword.value = false
+  passwordForm.value = { new_password: '', confirm_password: '' }
+  passwordSubmitted.value = false
+  passwordSuccess.value = ''
+  passwordApiError.value = ''
+}
+function passwordErrorMessage(error) {
+  const detail = error.response?.data?.detail
+  if (Array.isArray(detail)) return detail.map(item => item.msg || String(item)).join(' ')
+  return typeof detail === 'string' ? detail : (tr('portalUsers.passwordUpdateFailed') || 'Could not update the password.')
+}
+async function submitPassword() {
+  passwordSubmitted.value = true
+  passwordApiError.value = ''
+  if (!passwordFormValid.value || !detail.value) return
+  passwordBusy.value = true
+  try {
+    await portalUsersApi.setPassword(detail.value.id, { new_password: passwordForm.value.new_password })
+    passwordForm.value = { new_password: '', confirm_password: '' }
+    passwordSubmitted.value = false
+    passwordSuccess.value = tr('portalUsers.passwordUpdated') || 'Password updated successfully.'
+  } catch (error) {
+    passwordApiError.value = passwordErrorMessage(error)
+  } finally {
+    passwordBusy.value = false
+  }
+}
 
 // create-account modal
 const showCreate = ref(false)

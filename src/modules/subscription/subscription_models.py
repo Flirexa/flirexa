@@ -638,3 +638,26 @@ class SupportMessage(Base):
 
     def __repr__(self):
         return f"<SupportMessage id={self.id} user={self.user_id} dir={self.direction} status={self.status}>"
+
+
+class PortalRateLimit(Base):
+    """Persistent fixed-window counters for client-portal abuse controls.
+
+    The bucket key contains a scope plus a keyed one-way hash of the actor
+    identity, never a raw client IP address. Keeping counters in PostgreSQL
+    makes the limits survive service restarts and apply consistently across
+    workers.
+    """
+    __tablename__ = "portal_rate_limits"
+
+    bucket_key = Column(String(128), primary_key=True)
+    window_started_at = Column(DateTime(timezone=True), nullable=False)
+    request_count = Column(Integer, nullable=False, default=1, server_default="1")
+    updated_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_portal_rate_limits_updated_at", "updated_at"),
+    )
+
+    def __repr__(self):
+        return f"<PortalRateLimit bucket={self.bucket_key} count={self.request_count}>"
