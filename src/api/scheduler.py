@@ -1,0 +1,675 @@
+"""
+Flirexa — Background Task Scheduler
+
+Extracted from main.py to keep the FastAPI app file thin.
+Contains monitoring cycle, backup scheduler, and task start/stop helpers.
+
+Usage from main.py lifespan:
+    from .scheduler import start_background_tasks, stop_background_tasks
+    tasks = start_background_tasks()
+    yield
+    await stop_background_tasks(tasks)
+"""
+
+import asyncio
+import os
+import threading
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from loguru import logger
+
+from ..database.connection import SessionLocal
+
+
+def _send_expiry_email_for_subscription(db, sub, days_left: int) -> None:
+    """Look up the user, the panel's SMTP + branding config, and shoot
+    off the expiry-warning email. Wrapped in try/except by the caller so
+    SMTP misconfiguration / missing email never blocks the rest of the
+    scheduler cycle.
+
+    Returns silently on any of:
+      * SMTP not configured (no host set)
+      * user has no email on file
+      * EmailService failed (returns False internally)
+    """
+    import os as _os
+    from ..modules.email.email_service import EmailService
+    from ..modules.subscription.subscription_models import ClientUser
+
+    user = db.query(ClientUser).filter(ClientUser.id == sub.user_id).first()
+    if not user or not user.email:
+        return
+
+    smtp_host = _os.getenv("SMTP_HOST", "").strip()
+    if not smtp_host:
+        return
+    smtp_enabled = _os.getenv("SMTP_ENABLED", "false").lower() == "true"
+    if not smtp_enabled:
+        return
+
+    service = EmailService(
+        host=smtp_host,
+        port=int(_os.getenv("SMTP_PORT", "587")),
+        username=_os.getenv("SMTP_USERNAME", ""),
+        password=_os.getenv("SMTP_PASSWORD", ""),
+        tls=_os.getenv("SMTP_TLS", "true").lower() == "true",
+        from_address=_os.getenv("SMTP_FROM", smtp_host),
+    )
+
+    expiry_str = sub.expiry_date.strftime("%Y-%m-%d") if sub.expiry_date else ""
+    service.send_expiry_warning_email(
+        to=user.email,
+        username=user.username or (user.email or "user").split("@")[0],
+        tier=sub.tier,
+        days_left=days_left,
+        expiry_date=expiry_str,
+        portal_url=_os.getenv("CLIENT_PORTAL_URL", ""),
+        app_name=_os.getenv("APP_NAME", "Flirexa"),
+        support_email=_os.getenv("SUPPORT_EMAIL", ""),
+        lang=(user.language or "en"),
+    )
+
+
+MONITOR_INTERVAL = int(os.getenv("MONITOR_INTERVAL", "60"))
+_MONITOR_TIMEOUT = int(os.getenv("MONITOR_TIMEOUT", str(max(10, int(MONITOR_INTERVAL * 0.9)))))
+_RECONCILE_TIMEOUT = int(os.getenv("RECONCILE_TIMEOUT", "120"))
+_monitor_cycle_lock = threading.Lock()
+_reconcile_cycle_lock = threading.Lock()
+_health_stamp_lock = threading.Lock()
+# Health-stamp cadence: must stay well under client_portal's
+# AUTO_HIDE_THRESHOLD_SECONDS (300) or visible servers would flap.
+_HEALTH_STAMP_TIMEOUT = int(os.getenv("HEALTH_STAMP_TIMEOUT", "120"))
+
+
+# ─── Pending payment recovery ────────────────────────────────────────────────
+
+def _try_recover_pending_payments(db) -> None:
+    """
+    Pull each not-yet-expired pending payment up to 4h old and re-check its
+    status with the provider directly. Self-healing for dropped webhooks.
+
+    We ONLY recover payments that:
+    - status == 'pending'
+    - created within the last 4h (older ones are also tried, but with backoff)
+    - have a known provider with a working check_payment()
+
+    On a "completed" answer we call SubscriptionManager.complete_payment(),
+    which is idempotent and will activate the subscription + sync WG.
+    """
+    import asyncio as _asyncio
+    from ..modules.subscription.subscription_models import ClientPortalPayment
+    from ..modules.subscription.subscription_manager import SubscriptionManager
+    from ..modules.payment.base import PaymentStatus
+
+    try:
+        from ..api.routes import client_portal as _portal
+    except ImportError:
+        from ..api.routes.client_portal import (  # type: ignore[no-redef]
+            cryptopay_adapter, paypal_provider, nowpayments_provider,
+        )
+        _portal = None
+
+    now = datetime.now(timezone.utc)
+    # Don't try to recover the absolute newest invoices — give the webhook
+    # a head start (15s) so we don't race normal completion.
+    young = now - timedelta(seconds=15)
+    candidates = db.query(ClientPortalPayment).filter(
+        ClientPortalPayment.status == "pending",
+        ClientPortalPayment.created_at <= young,
+    ).order_by(ClientPortalPayment.created_at.asc()).limit(50).all()
+    if not candidates:
+        return
+
+    manager = SubscriptionManager(db)
+    recovered = 0
+
+    for p in candidates:
+        provider_name = (p.provider_name or "").lower()
+        provider_invoice = p.provider_invoice_id or p.invoice_id
+        if not provider_name or not provider_invoice:
+            continue
+
+        # Pick the right provider object (built-in or plugin).
+        if _portal is not None:
+            prov_obj = (
+                getattr(_portal, "cryptopay_adapter", None) if provider_name == "cryptopay" else
+                getattr(_portal, f"{provider_name}_provider", None)
+            )
+        else:
+            prov_obj = None
+        if not prov_obj or not hasattr(prov_obj, "check_payment"):
+            continue
+
+        try:
+            status = _asyncio.run(prov_obj.check_payment(provider_invoice))
+        except RuntimeError:
+            # asyncio.run() can't nest inside an existing loop — fall back.
+            try:
+                loop = _asyncio.new_event_loop()
+                status = loop.run_until_complete(prov_obj.check_payment(provider_invoice))
+                loop.close()
+            except Exception as _e:
+                logger.debug("Recovery check_payment({}) inner failed: {}", p.invoice_id, _e)
+                continue
+        except Exception as _e:
+            logger.debug("Recovery check_payment({}) failed: {}", p.invoice_id, _e)
+            continue
+
+        completed = (
+            status == PaymentStatus.COMPLETED
+            if isinstance(status, PaymentStatus)
+            else str(status).lower() in ("completed", "paid", "finished", "success")
+        )
+        if not completed:
+            continue
+
+        try:
+            manager.complete_payment(p.invoice_id, sync_wg=True)
+            recovered += 1
+            logger.warning(
+                "Recovered dropped-webhook payment: invoice={} provider={} user={}",
+                p.invoice_id, provider_name, p.user_id,
+            )
+        except Exception as _ce:
+            logger.error("Recovery complete_payment failed for {}: {}", p.invoice_id, _ce)
+
+    if recovered:
+        logger.info("Pending-payment recovery: {} invoice(s) self-healed this cycle", recovered)
+
+
+# ─── Monitoring ───────────────────────────────────────────────────────────────
+
+def monitoring_cycle():
+    """Single monitoring cycle — runs synchronous DB/SSH work in a thread."""
+    from ..core.management import ManagementCore
+    from ..modules.subscription.subscription_manager import SubscriptionManager
+
+    db = SessionLocal()
+    try:
+        # Portal traffic sync first (WG → subscription counters)
+        mgr = SubscriptionManager(db)
+        synced = mgr.sync_traffic_from_wg_clients()
+        if synced > 0:
+            logger.debug(f"Monitoring: synced traffic for {synced} portal subscriptions")
+
+        # ── Auto-renewal MUST run before check_and_expire_subscriptions ──
+        try:
+            import math as _math
+            from ..modules.notifications import NotificationService
+            from ..modules.subscription.subscription_models import ClientUser, ClientPortalSubscription, SubscriptionStatus
+            from ..database.models import AuditLog, AuditAction
+            ns = NotificationService(db)
+            now = datetime.now(timezone.utc)
+            now_naive = now.replace(tzinfo=None)
+
+            auto_renew_subs = db.query(ClientPortalSubscription).filter(
+                ClientPortalSubscription.auto_renew == True,
+                ClientPortalSubscription.tier != "free",
+                ClientPortalSubscription.expiry_date != None,
+                ClientPortalSubscription.expiry_date <= now_naive,
+            ).all()
+            for sub in auto_renew_subs:
+                if sub.last_renewal:
+                    last = sub.last_renewal
+                    if last.tzinfo is None:
+                        last = last.replace(tzinfo=timezone.utc)
+                    if (now - last).total_seconds() < 86400:
+                        continue
+
+                if (sub.auto_renew_failures or 0) >= 3:
+                    sub.auto_renew = False
+                    ns.notify_user(sub.user_id,
+                        f"<b>Auto-renewal disabled</b>\n\n"
+                        f"After 3 failed attempts, auto-renewal has been disabled for your <b>{sub.tier}</b> subscription.\n"
+                        f"Please renew manually."
+                    )
+                    ns.create_portal_notification(sub.user_id, "Auto-renewal disabled", "Auto-renewal disabled after 3 failures")
+                    db.commit()
+                    continue
+
+                try:
+                    tier_before = sub.tier
+                    renewed, err = mgr.renew_subscription(sub.user_id, sub.billing_cycle_days or 30)
+                    if renewed:
+                        mgr.apply_subscription_limits(sub.user_id, reset_traffic=True)
+                        sub.auto_renew_failures = 0
+                        user = db.query(ClientUser).filter(ClientUser.id == sub.user_id).first()
+                        if user:
+                            ns.notify_user(sub.user_id,
+                                f"<b>Subscription renewed!</b>\n\n"
+                                f"Your <b>{tier_before}</b> subscription has been auto-renewed for {sub.billing_cycle_days or 30} days."
+                            )
+                            ns.create_portal_notification(sub.user_id, "Subscription renewed", f"Your {tier_before} plan was auto-renewed")
+                            logger.info(f"Auto-renewed subscription for {user.username} ({tier_before}, {sub.billing_cycle_days or 30}d)")
+                        db.add(AuditLog(
+                            user_type="system",
+                            action=AuditAction.SUBSCRIPTION_RENEW,
+                            target_type="subscription",
+                            target_id=sub.id,
+                            target_name=f"auto-renew user {sub.user_id}",
+                            details={"tier": tier_before, "days": sub.billing_cycle_days or 30},
+                        ))
+                    else:
+                        sub.auto_renew_failures = (sub.auto_renew_failures or 0) + 1
+                        logger.warning(f"Auto-renewal failed for user {sub.user_id}: {err}")
+                except Exception as e:
+                    sub.auto_renew_failures = (sub.auto_renew_failures or 0) + 1
+                    logger.error(f"Auto-renewal exception for user {sub.user_id}: {e}")
+            db.commit()
+        except Exception as e:
+            logger.error(f"Auto-renewal cycle error: {e}")
+
+        # Expire subscriptions (after auto-renewal so successfully renewed subs are not expired)
+        expired = mgr.check_and_expire_subscriptions()
+        if expired > 0:
+            logger.info(f"Monitoring: expired {expired} portal subscriptions")
+
+        exceeded = mgr.check_traffic_exceeded()
+        if exceeded > 0:
+            logger.info(f"Monitoring: {exceeded} portal subscriptions exceeded traffic limit")
+
+        # Proactive notifications with dedup (multi-stage: 3d, 1d, 0d)
+        try:
+            from ..modules.notifications import NotificationService
+            from ..modules.subscription.subscription_models import ClientUser, ClientPortalSubscription, SubscriptionStatus
+            import math as _math
+            ns = NotificationService(db)
+            now = datetime.now(timezone.utc)
+            now_naive = now.replace(tzinfo=None)
+            warn_date_naive = now_naive + timedelta(days=7)
+
+            expiring_subs = db.query(ClientPortalSubscription).filter(
+                ClientPortalSubscription.status == SubscriptionStatus.ACTIVE,
+                ClientPortalSubscription.tier != "free",
+                ClientPortalSubscription.expiry_date != None,
+                ClientPortalSubscription.expiry_date <= warn_date_naive,
+                ClientPortalSubscription.expiry_date > now_naive,
+            ).all()
+            for sub in expiring_subs:
+                expiry = sub._aware_expiry()
+                secs_left = (expiry - now).total_seconds()
+                days_left = _math.ceil(secs_left / 86400) if secs_left > 0 else 0
+                sent = sub.notification_sent_at or {}
+
+                # Email-side notification is best-effort. Fires alongside
+                # Telegram / portal-push so customers who only gave us
+                # an email still hear about expiry. SMTP failures / missing
+                # config silently fall through to no-op.
+                def _email_expiry(days):
+                    try:
+                        _send_expiry_email_for_subscription(db, sub, days)
+                    except Exception as _ee:
+                        logger.warning(
+                            f"expiry email at {days}d for user {sub.user_id} failed: {_ee}"
+                        )
+
+                if days_left >= 6 and days_left <= 7 and "7day" not in sent:
+                    ns.notify_user_expiry_warning(sub.user_id, "", 7, sub.tier)
+                    ns.create_portal_notification(sub.user_id, "Subscription expiring soon", f"Your {sub.tier} plan expires in {days_left} days")
+                    _email_expiry(days_left)
+                    sent["7day"] = now.isoformat()
+                elif days_left > 1 and days_left <= 3 and "3day" not in sent:
+                    ns.notify_user_expiry_warning(sub.user_id, "", 3, sub.tier)
+                    ns.create_portal_notification(sub.user_id, "Subscription expiring", f"Your {sub.tier} plan expires in {days_left} days")
+                    _email_expiry(days_left)
+                    sent["3day"] = now.isoformat()
+                elif days_left == 1 and "1day" not in sent:
+                    ns.notify_user_expiry_warning(sub.user_id, "", 1, sub.tier)
+                    ns.create_portal_notification(sub.user_id, "Subscription expiring tomorrow", f"Your {sub.tier} plan expires tomorrow")
+                    _email_expiry(1)
+                    sent["1day"] = now.isoformat()
+
+                if sent != (sub.notification_sent_at or {}):
+                    sub.notification_sent_at = sent
+            db.commit()
+
+            active_subs = db.query(ClientPortalSubscription).filter(
+                ClientPortalSubscription.status == SubscriptionStatus.ACTIVE,
+                ClientPortalSubscription.traffic_limit_gb != None,
+                ClientPortalSubscription.traffic_limit_gb > 0,
+            ).all()
+            for sub in active_subs:
+                pct = sub.traffic_percentage_used
+                sent = sub.notification_sent_at or {}
+                if pct and pct >= 90 and "traffic_90" not in sent:
+                    ns.notify_user_traffic_warning(sub.user_id, "", pct, sub.tier)
+                    ns.create_portal_notification(sub.user_id, "Traffic limit warning", f"You've used {pct}% of your traffic limit")
+                    sent["traffic_90"] = now.isoformat()
+                    sub.notification_sent_at = sent
+                elif pct and pct >= 80 and "traffic_80" not in sent:
+                    ns.notify_user_traffic_warning(sub.user_id, "", pct, sub.tier)
+                    ns.create_portal_notification(sub.user_id, "Traffic limit warning", f"You've used {pct}% of your traffic limit")
+                    sent["traffic_80"] = now.isoformat()
+                    sub.notification_sent_at = sent
+            db.commit()
+
+            if expired > 0:
+                for sub in db.query(ClientPortalSubscription).filter(
+                    ClientPortalSubscription.status == SubscriptionStatus.EXPIRED
+                ).order_by(ClientPortalSubscription.updated_at.desc()).limit(expired).all():
+                    user = db.query(ClientUser).filter(ClientUser.id == sub.user_id).first()
+                    if user:
+                        ns.notify_admin_subscription_expired(user.username, sub.tier)
+        except Exception as e:
+            logger.debug(f"Notification check error (non-critical): {e}")
+
+        # Expire stale pending payments
+        from ..modules.subscription.subscription_models import ClientPortalPayment
+        stale_payments = db.query(ClientPortalPayment).filter(
+            ClientPortalPayment.status == "pending",
+            ClientPortalPayment.expires_at != None,
+            ClientPortalPayment.expires_at <= datetime.now(timezone.utc)
+        ).all()
+        if stale_payments:
+            for p in stale_payments:
+                p.status = "expired"
+            db.commit()
+            logger.info(f"Monitoring: expired {len(stale_payments)} stale pending payments")
+
+        # Active recovery for stuck pending payments.
+        #
+        # If a webhook is dropped (provider downtime, network blip, our process
+        # restarted between webhook arrival and DB commit), the payment row
+        # stays "pending" forever and the customer never gets their subscription.
+        #
+        # We poll every "young-but-not-yet-expired" pending payment by asking
+        # the provider directly via check_payment(). If the provider says
+        # "completed", we run the same complete_payment() path that the webhook
+        # would have. complete_payment() is idempotent (row lock + status check
+        # inside lock), so a delayed webhook arriving later won't double-credit.
+        #
+        # Also — once a payment's hard expiry has passed and it was just expired
+        # above, we DON'T retry it. That row is dead.
+        try:
+            _try_recover_pending_payments(db)
+        except Exception as _rerr:
+            logger.error("Pending-payment recovery failed: {}", _rerr)
+
+        # Older bucket: still pending after 6h with no recovery → louder warning
+        # so admins can chase the provider directly.
+        stuck_cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+        stuck_payments = db.query(ClientPortalPayment).filter(
+            ClientPortalPayment.status == "pending",
+            ClientPortalPayment.created_at <= stuck_cutoff,
+        ).all()
+        if stuck_payments:
+            ids = [p.invoice_id for p in stuck_payments]
+            logger.warning(
+                f"Monitoring: {len(stuck_payments)} payment(s) STILL stuck in 'pending' for >6h "
+                f"after recovery attempts — invoice IDs: {ids}. "
+                f"Check provider dashboards or confirm manually in admin panel."
+            )
+
+        # Core WG limits check (expiry, traffic for non-portal clients)
+        core = ManagementCore(db)
+        result = core.check_all_limits()
+        if result["total_disabled"] > 0:
+            logger.info(
+                f"Monitoring: disabled {result['total_disabled']} clients "
+                f"(expired: {result['expired_clients']}, "
+                f"traffic: {result['traffic_exceeded_clients']})"
+            )
+    except Exception as e:
+        logger.error(f"Monitoring cycle error: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _monitoring_cycle_guarded() -> bool:
+    """Prevent overlapping monitoring cycles when a previous one is stuck."""
+    if not _monitor_cycle_lock.acquire(blocking=False):
+        logger.warning("Monitoring cycle still running — skipping overlapping run")
+        return False
+    try:
+        monitoring_cycle()
+        return True
+    finally:
+        _monitor_cycle_lock.release()
+
+
+def _reconciliation_cycle_guarded() -> bool:
+    """Prevent overlapping reconciliation cycles when a previous one is stuck."""
+    if not _reconcile_cycle_lock.acquire(blocking=False):
+        logger.warning("Reconciliation cycle still running — skipping overlapping run")
+        return False
+    try:
+        from ..modules.state_reconciler import run_reconciliation
+        run_reconciliation()
+        return True
+    finally:
+        _reconcile_cycle_lock.release()
+
+
+def _health_stamp_cycle_guarded() -> bool:
+    """Run the server health checker from the WORKER on a fixed cadence.
+
+    `last_good_health_at` (the input to the customer-facing auto-hide filter,
+    see client_portal._server_auto_hidden) used to be stamped ONLY when the
+    admin UI polled /health/servers — the checker had no scheduled runner. An
+    operator who closes the dashboard (or a dashboard that stops calling the
+    health endpoints) starves the stamp, and the auto-hide threshold can then
+    hide healthy servers from portals and apps.
+
+    quick=True keeps it cheap (no network pings beyond the health probe);
+    the checker stamps each reachable server via its own thread-safe session.
+    """
+    if not _health_stamp_lock.acquire(blocking=False):
+        logger.warning("Health-stamp cycle still running — skipping overlapping run")
+        return False
+    try:
+        from ..modules.health.server_checker import ServerHealthChecker
+        from ..database.models import Server
+        db = SessionLocal()
+        try:
+            servers = db.query(Server).all()
+            if servers:
+                ServerHealthChecker(db_session=db).check_all(servers, quick=True)
+        finally:
+            db.close()
+        return True
+    finally:
+        _health_stamp_lock.release()
+
+
+async def monitoring_loop():
+    """Background loop that runs monitoring_cycle in a thread."""
+    logger.info(f"Monitoring started (interval: {MONITOR_INTERVAL}s)")
+    _reconcile_counter = 0
+    _RECONCILE_EVERY = max(1, 300 // MONITOR_INTERVAL)
+    _health_counter = 0
+    _HEALTH_EVERY = max(1, 120 // MONITOR_INTERVAL)
+    while True:
+        try:
+            await asyncio.sleep(MONITOR_INTERVAL)
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(_monitoring_cycle_guarded),
+                    timeout=_MONITOR_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Monitoring cycle exceeded timeout ({}s) — continuing without blocking API loop",
+                    _MONITOR_TIMEOUT,
+                )
+            _health_counter += 1
+            if _health_counter >= _HEALTH_EVERY:
+                _health_counter = 0
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(_health_stamp_cycle_guarded),
+                        timeout=_HEALTH_STAMP_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "Health-stamp cycle exceeded timeout ({}s) — continuing",
+                        _HEALTH_STAMP_TIMEOUT,
+                    )
+                except Exception as _he:
+                    logger.error(f"Health-stamp error: {_he}")
+            _reconcile_counter += 1
+            if _reconcile_counter >= _RECONCILE_EVERY:
+                _reconcile_counter = 0
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(_reconciliation_cycle_guarded),
+                        timeout=_RECONCILE_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        "Reconciliation cycle exceeded timeout ({}s) — continuing without blocking API loop",
+                        _RECONCILE_TIMEOUT,
+                    )
+                except Exception as _re:
+                    logger.error(f"Reconciliation error: {_re}")
+        except asyncio.CancelledError:
+            logger.info("Monitoring stopped")
+            break
+        except Exception as e:
+            logger.error(f"Monitoring error: {e}")
+
+
+# ─── Backup ───────────────────────────────────────────────────────────────────
+
+def _get_backup_config() -> dict:
+    """Read backup config from SystemConfig DB."""
+    from ..database.models import SystemConfig
+    defaults = {
+        "backup_enabled": "true",
+        "backup_interval_hours": "24",
+        "backup_hour_utc": "3",
+        "backup_retention_count": "7",
+        "backup_auto_cleanup": "true",
+        "backup_storage_type": "local",
+        "backup_path": str(Path(__file__).parent.parent.parent / "backups"),
+        "backup_mount_point": "/mnt/vpnmanager-backup",
+    }
+    db = SessionLocal()
+    try:
+        rows = db.query(SystemConfig).filter(
+            SystemConfig.key.in_(list(defaults.keys()))
+        ).all()
+        config = {r.key: r.value for r in rows}
+    except Exception:
+        config = {}
+    finally:
+        db.close()
+
+    return {key: config.get(key, default) for key, default in defaults.items()}
+
+
+def backup_cycle():
+    """Single backup cycle — runs in thread, uses DB config."""
+    from ..modules.backup_manager import BackupManager
+
+    config = _get_backup_config()
+    storage_type = config.get("backup_storage_type", "local")
+    if storage_type == "network":
+        backup_dir = config.get("backup_mount_point", "/mnt/vpnmanager-backup")
+    else:
+        backup_dir = config.get("backup_path", str(Path(__file__).parent.parent.parent / "backups"))
+
+    retention = int(config.get("backup_retention_count", "7"))
+    auto_cleanup = config.get("backup_auto_cleanup", "true").lower() == "true"
+
+    db = SessionLocal()
+    try:
+        mgr = BackupManager(db, backup_dir=backup_dir)
+        manifest = mgr.create_full_backup()
+        if auto_cleanup:
+            mgr.cleanup_old_backups(keep=retention)
+        logger.info(f"Scheduled backup completed: {manifest.get('backup_size_mb', 0)} MB")
+
+        try:
+            from ..modules.notifications import NotificationService
+            ns = NotificationService(db)
+            ns.notify_admin(
+                f"<b>Backup completed</b>\n"
+                f"Servers: {manifest.get('server_count', 0)}\n"
+                f"Clients: {manifest.get('client_count', 0)}\n"
+                f"Size: {manifest.get('backup_size_mb', 0)} MB"
+            )
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"Scheduled backup failed: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        try:
+            from ..modules.notifications import NotificationService
+            ns = NotificationService(db)
+            ns.notify_admin(f"<b>Backup FAILED</b>\n{str(e)[:200]}")
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+async def backup_loop():
+    """Background loop that creates backups using DB-configured schedule."""
+    logger.info("Backup scheduler started")
+    last_backup_hour = None
+    while True:
+        try:
+            await asyncio.sleep(60)
+
+            config = _get_backup_config()
+            enabled = config.get("backup_enabled", "true").lower() == "true"
+            if not enabled:
+                continue
+
+            interval_hours = int(config.get("backup_interval_hours", "24"))
+            backup_hour = int(config.get("backup_hour_utc", "3"))
+
+            now = datetime.now(timezone.utc)
+            current_slot = (now.date(), now.hour)
+
+            if current_slot == last_backup_hour:
+                continue
+
+            if interval_hours <= 24:
+                hours_step = interval_hours
+                if now.hour % hours_step == backup_hour % hours_step:
+                    last_backup_hour = current_slot
+                    await asyncio.to_thread(backup_cycle)
+            else:
+                if now.hour == backup_hour:
+                    days_interval = interval_hours // 24
+                    last_date = last_backup_hour[0] if last_backup_hour else None
+                    if last_date is None or (now.date() - last_date).days >= days_interval:
+                        last_backup_hour = current_slot
+                        await asyncio.to_thread(backup_cycle)
+        except asyncio.CancelledError:
+            logger.info("Backup scheduler stopped")
+            break
+        except Exception as e:
+            logger.error(f"Backup scheduler error: {e}")
+
+
+# ─── Start / stop ─────────────────────────────────────────────────────────────
+
+def start_background_tasks() -> list:
+    """
+    Start monitoring and backup asyncio tasks.
+    Returns list of tasks for later cancellation via stop_background_tasks().
+    """
+    monitor = asyncio.create_task(monitoring_loop())
+    backup  = asyncio.create_task(backup_loop())
+    return [monitor, backup]
+
+
+async def stop_background_tasks(tasks: list) -> None:
+    """Cancel and await background tasks started by start_background_tasks()."""
+    for task in tasks:
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass

@@ -1,0 +1,3658 @@
+"""
+Flirexa API - Server Routes
+WireGuard server management
+"""
+
+from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.orm import Session, defer
+from loguru import logger
+import asyncio
+import ipaddress
+import json
+import os
+import re
+from datetime import datetime, timezone
+
+from ...database.connection import get_db
+from ...database.models import Server, Client, ServerStatus, ServerLifecycleStatus, ClientStatus
+from ...core.management import ManagementCore
+from ...core.wireguard import WireGuardManager
+from ..middleware.license_gate import require_license_feature
+
+
+router = APIRouter()
+
+# Multi-server orchestration gate (remote-server discovery, agent install).
+# Server creation has its own inline check (it also needs to count existing
+# servers against the per-tier max), so we don't gate the create endpoint here.
+_multi_server_gate = Depends(require_license_feature("multi_server"))
+
+
+def _safe_filename(name: str) -> str:
+    """Sanitize name for Content-Disposition header (ASCII-safe)."""
+    return re.sub(r'[^\w\-.]', '_', name) or "server"
+
+
+# security: shared constraints for operator-supplied fields that are later
+# interpolated into root shell commands (iptables/PostUp, openssl, certbot).
+# Rejecting bad values with 422 at the API boundary is defense-in-depth on top
+# of the shlex.quote() applied at each shell sink.
+_HOSTNAME_PATTERN = r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+_TLS_PATH_PATTERN = r"^/[A-Za-z0-9._/-]{1,200}$"
+
+
+def _validate_ipv4_pool(v):
+    """Reject any address_pool_ipv4 that isn't a parseable IPv4 network (→422)."""
+    if v is None:
+        return v
+    try:
+        ipaddress.ip_network(v, strict=False)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid IPv4 network for address_pool_ipv4: {v!r}") from e
+    return v
+
+
+# ============================================================================
+# SCHEMAS
+# ============================================================================
+
+class ServerCreate(BaseModel):
+    """Schema for creating a new server"""
+    name: str = Field(..., min_length=1, max_length=100)
+    endpoint: str = Field(..., description="Public endpoint (ip:port)")
+    public_key: Optional[str] = Field(None, min_length=44, max_length=44)
+    private_key: Optional[str] = Field(None, min_length=44, max_length=44)
+    interface: str = Field("wg0", pattern=r"^(wg|awg)\d+$")
+    listen_port: int = Field(51820, ge=1, le=65535)
+    address_pool_ipv4: str = Field("10.66.0.0/19")
+    address_pool_ipv6: Optional[str] = Field("fd42:42:42::/64")
+    dns: str = Field("1.1.1.1,1.0.0.1")
+    max_clients: int = Field(8000, ge=1)
+    description: Optional[str] = None
+    location: Optional[str] = None
+    ssh_host: Optional[str] = Field(None, description="SSH host for remote management")
+    ssh_port: int = Field(22, ge=1, le=65535)
+    ssh_user: str = Field("root")
+    ssh_password: Optional[str] = Field(None, description="SSH password")
+    ssh_private_key: Optional[str] = Field(None, description="SSH private key content (PEM). Use instead of password.")
+    # Protocol type: vpn or proxy
+    server_type: str = Field(
+        "wireguard",
+        pattern=r"^(wireguard|amneziawg|hysteria2|tuic|vless-reality)$",
+        description="Protocol: wireguard | amneziawg | hysteria2 | tuic | vless-reality",
+    )
+    # AmneziaWG obfuscation params (VPN only)
+    awg_jc: Optional[int] = Field(None, ge=1, le=128)
+    awg_jmin: Optional[int] = Field(None, ge=0, le=65535)
+    awg_jmax: Optional[int] = Field(None, ge=0, le=65535)
+    awg_s1: Optional[int] = Field(None, ge=0, le=65535)
+    awg_s2: Optional[int] = Field(None, ge=0, le=65535)
+    awg_h1: Optional[int] = Field(None, ge=1)
+    awg_h2: Optional[int] = Field(None, ge=1)
+    awg_h3: Optional[int] = Field(None, ge=1)
+    awg_h4: Optional[int] = Field(None, ge=1)
+    awg_mtu: Optional[int] = Field(None, ge=576, le=9000, description="MTU for AWG (default 1280 if not set)")
+    supports_peer_visibility: bool = Field(True, description="Whether this server supports peer visibility")
+    split_tunnel_support: bool = Field(False, description="Use VPN subnet AllowedIPs to enable AmneziaVPN split tunneling")
+    ipv4_only: bool = Field(False, description="Strip IPv6 from generated client configs (DNS-leak hygiene)")
+    customer_visible: bool = Field(True, description="Show this server in /client-portal/servers (set False for test boxes)")
+    for_app_only: bool = Field(False, description="Only surface to the official mobile/desktop app — router/openVPN clients and web users never see it")
+    force_visible: bool = Field(False, description="Bypass the auto-hide-after-N-minutes-unreachable filter for this server")
+    provision: bool = Field(False, description="Provision a fresh server: install protocol, generate keys/certs, start service")
+    task_id: Optional[str] = Field(None, description="Bootstrap task ID for progress tracking (generated by frontend)")
+    # Proxy protocol fields (hysteria2 / tuic)
+    # security: hostname-only / absolute-path-only so $(...)/;/backticks can't
+    # reach the certbot/openssl shell commands built from these values.
+    proxy_domain: Optional[str] = Field(
+        None, max_length=253, pattern=_HOSTNAME_PATTERN,
+        description="Domain name for TLS SNI (proxy only)",
+    )
+    proxy_tls_mode: str = Field("self_signed", description="TLS mode: self_signed | acme | manual (proxy only)")
+    proxy_cert_path: Optional[str] = Field(
+        None, pattern=_TLS_PATH_PATTERN,
+        description="Path to TLS cert on server (proxy manual TLS)",
+    )
+    proxy_key_path: Optional[str] = Field(
+        None, pattern=_TLS_PATH_PATTERN,
+        description="Path to TLS key on server (proxy manual TLS)",
+    )
+    proxy_obfs_password: Optional[str] = Field(None, description="OBFS password (Hysteria2 only)")
+
+    # ── Mikrotik RouterOS REST mode ────────────────────────────────────────
+    # When `agent_mode='mikrotik'`, the server is managed via RouterOS REST.
+    # We reuse `agent_url` to carry the full URL (e.g. "http://1.2.3.4")
+    # and `agent_api_key` to carry "user:password" — no schema migration
+    # needed. SSH fields are ignored in this mode.
+    agent_mode: str = Field(
+        "ssh",
+        pattern=r"^(ssh|agent|mikrotik)$",
+        description="Connection mode: ssh (default), agent (HTTP daemon), mikrotik (RouterOS REST API)",
+    )
+    mikrotik_url: Optional[str] = Field(
+        None,
+        description="RouterOS REST endpoint URL (e.g. http://1.2.3.4 or https://router.example.com:443). "
+                    "Required when agent_mode=mikrotik.",
+    )
+    mikrotik_username: Optional[str] = Field(None, description="RouterOS API username")
+    mikrotik_password: Optional[str] = Field(None, description="RouterOS API password")
+
+    # security: the client subnet is later interpolated into root iptables/PostUp
+    # rules — reject a non-IPv4-network value with 422 before it can be stored.
+    @field_validator("address_pool_ipv4")
+    @classmethod
+    def _validate_pool(cls, v):
+        return _validate_ipv4_pool(v)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "name": "Amsterdam Server",
+                "endpoint": "1.2.3.4:51820",
+                "public_key": "example_public_key_base64_44chars==",
+                "private_key": "example_private_key_base64_44chars=",
+                "interface": "wg1",
+                "location": "Netherlands",
+                "ssh_host": "1.2.3.4",
+                "ssh_password": "secret"
+            }
+        }
+
+
+class ServerUpdate(BaseModel):
+    """Schema for updating a server"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    display_name: Optional[str] = Field(None, max_length=100)
+    endpoint: Optional[str] = None
+    dns: Optional[str] = None
+    max_clients: Optional[int] = Field(None, ge=1)
+    max_bandwidth_mbps: Optional[int] = Field(None, ge=0)
+    description: Optional[str] = None
+    location: Optional[str] = None
+    supports_peer_visibility: Optional[bool] = None
+    split_tunnel_support: Optional[bool] = None
+    ipv4_only: Optional[bool] = None
+    # Toggle to hide / show this server in the client portal's location
+    # picker. False = test / staging server, admin-only.
+    customer_visible: Optional[bool] = None
+    # Per-platform visibility (migration 046). False on one of these
+    # hides the server only on the matching client app; the other
+    # platform and the web portal continue to see it.
+    customer_visible_mobile: Optional[bool] = None
+    customer_visible_windows: Optional[bool] = None
+    # App-only visibility + admin override for auto-hide. See model
+    # docstring on Server.for_app_only / Server.force_visible.
+    for_app_only: Optional[bool] = None
+    force_visible: Optional[bool] = None
+    # AmneziaWG obfuscation parameters. Editable post-creation so a server
+    # migrated from another box can be made to match the old box's headers,
+    # keeping existing client configs working without re-issuing them.
+    # When any of these change the PUT handler redeploys the AWG config to
+    # disk and restarts the interface so the kernel module picks them up.
+    awg_jc: Optional[int] = Field(None, ge=1, le=128)
+    awg_jmin: Optional[int] = Field(None, ge=0, le=65535)
+    awg_jmax: Optional[int] = Field(None, ge=0, le=65535)
+    awg_s1: Optional[int] = Field(None, ge=0, le=65535)
+    awg_s2: Optional[int] = Field(None, ge=0, le=65535)
+    awg_h1: Optional[int] = Field(None, ge=1)
+    awg_h2: Optional[int] = Field(None, ge=1)
+    awg_h3: Optional[int] = Field(None, ge=1)
+    awg_h4: Optional[int] = Field(None, ge=1)
+    awg_mtu: Optional[int] = Field(None, ge=576, le=9000)
+
+
+class ProxyInstallRequest(BaseModel):
+    """Schema for installing a proxy protocol on an existing SSH-accessible server."""
+    protocol: str = Field("hysteria2", pattern=r"^(hysteria2|tuic|vless-reality)$")
+    name: Optional[str] = None
+    port: Optional[int] = Field(None, ge=1, le=65535)
+    tls_mode: str = Field("self_signed", pattern=r"^(self_signed|acme|manual)$")
+    # security: constrain fields that flow into certbot/openssl/test shell calls
+    domain: Optional[str] = Field(None, max_length=253, pattern=_HOSTNAME_PATTERN)
+    cert_path: Optional[str] = Field(None, pattern=_TLS_PATH_PATTERN)
+    key_path: Optional[str] = Field(None, pattern=_TLS_PATH_PATTERN)
+    obfs_password: Optional[str] = None  # Hysteria2 only
+    task_id: Optional[str] = None
+
+
+class AwgInstallRequest(BaseModel):
+    """Schema for installing AmneziaWG on an existing SSH-accessible server."""
+    name: Optional[str] = None
+    # security: match the validated ServerCreate.interface pattern — the
+    # interface name is interpolated into the root PostUp iptables rules.
+    interface: Optional[str] = Field(None, pattern=r"^(wg|awg)\d+$")  # e.g. "awg1" — auto-picked if omitted
+    listen_port: Optional[int] = Field(None, ge=1, le=65535)
+    address_pool_ipv4: str = "10.66.0.0/19"
+    address_pool_ipv6: Optional[str] = None
+    dns: str = "1.1.1.1"
+    task_id: Optional[str] = None
+
+    # security: reject a non-IPv4-network pool before it reaches the AWG PostUp rule
+    @field_validator("address_pool_ipv4")
+    @classmethod
+    def _validate_pool(cls, v):
+        return _validate_ipv4_pool(v)
+
+
+class ServerResponse(BaseModel):
+    """Server response schema"""
+    id: int
+    name: str
+    display_name: Optional[str] = None
+    interface: str
+    endpoint: str
+    listen_port: int
+    status: str
+    lifecycle_status: str
+    is_active: bool = True
+    max_clients: int
+    total_clients: int = 0
+    description: Optional[str]
+    location: Optional[str]
+    ssh_host: Optional[str] = None
+    ssh_port: int = 22
+    ssh_user: str = "root"
+    is_remote: bool = False
+    agent_mode: str = "ssh"  # "ssh" or "agent"
+    agent_url: Optional[str] = None
+    # In-memory circuit-breaker state for this server's agent. Populated by
+    # ServerResponse.from_server() from src.core.agent_client._breaker_state.
+    # `null` when the server isn't in agent mode or has never failed.
+    # When set, panel UI shows a red "Agent unreachable" badge + a banner
+    # offering Switch-to-SSH / Retry-now so the user can clear the lag
+    # without trawling menus. See src/core/agent_client.py:get_breaker_state.
+    agent_breaker: Optional[Dict[str, object]] = None
+    # AGENT_VERSION reported by the agent's last-successful /health, surfaced so
+    # the operator can see which nodes are on the current agent build (e.g. after
+    # a reinstall). `null` for SSH-mode servers or agents not yet health-probed.
+    agent_version: Optional[str] = None
+    max_bandwidth_mbps: Optional[int] = None
+    is_default: bool = False
+    server_type: str = "wireguard"
+    server_category: str = "vpn"
+    # VPN (WG/AWG) fields
+    awg_jc: Optional[int] = None
+    awg_jmin: Optional[int] = None
+    awg_jmax: Optional[int] = None
+    awg_s1: Optional[int] = None
+    awg_s2: Optional[int] = None
+    awg_h1: Optional[int] = None
+    awg_h2: Optional[int] = None
+    awg_h3: Optional[int] = None
+    awg_h4: Optional[int] = None
+    awg_mtu: Optional[int] = None
+    supports_peer_visibility: bool = True
+    split_tunnel_support: bool = False
+    ipv4_only: bool = False
+    customer_visible: bool = True
+    customer_visible_mobile: bool = True
+    customer_visible_windows: bool = True
+    for_app_only: bool = False
+    force_visible: bool = False
+    last_good_health_at: Optional[datetime] = None
+    # Proxy fields
+    proxy_domain: Optional[str] = None
+    proxy_tls_mode: Optional[str] = None
+    proxy_cert_path: Optional[str] = None
+    proxy_key_path: Optional[str] = None
+    proxy_config_path: Optional[str] = None
+    proxy_service_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+    @staticmethod
+    def _breaker_for(server) -> Optional[Dict[str, object]]:
+        """Return the live circuit-breaker view for this server, or None when
+        not applicable (SSH-only, no agent_url, or fresh state with zero fails).
+        We hide the all-clear case so the frontend can simply check
+        `server.agent_breaker?.open` without filtering empty objects."""
+        if (server.agent_mode or "ssh") != "agent" or not server.agent_url:
+            return None
+        try:
+            from ...core.agent_client import get_breaker_state
+            state = get_breaker_state(server.agent_url)
+        except Exception:
+            return None
+        if not state.get("open") and not state.get("fails"):
+            return None
+        return state
+
+    @staticmethod
+    def _agent_version_for(server) -> Optional[str]:
+        """AGENT_VERSION from the agent's last-successful /health (cached), or
+        None when not an agent server / never successfully probed."""
+        if (server.agent_mode or "ssh") != "agent" or not server.agent_url:
+            return None
+        try:
+            from ...core.agent_health_cache import get_cached_health
+            # Generous max-age: the version is informational and changes rarely,
+            # so show the last-known build even if the latest probe lagged.
+            cached = get_cached_health(server.agent_url, max_age_sec=3600)
+            if cached:
+                data, _age = cached
+                if isinstance(data, dict):
+                    v = data.get("version")
+                    return str(v) if v else None
+        except Exception:
+            return None
+        return None
+
+    @classmethod
+    def from_server(cls, server, db=None, total_clients=None):
+        # `total_clients` may be pre-computed by the caller (avoids N+1 in
+        # list endpoints — see list_servers below). When None, fall back to a
+        # per-server COUNT — fine for single-server endpoints, expensive in
+        # a loop. Always pass it from list contexts.
+        if total_clients is None:
+            total_clients = 0
+            if db:
+                total_clients = db.query(Client).filter(Client.server_id == server.id).count()
+
+        server_type = getattr(server, 'server_type', 'wireguard') or 'wireguard'
+        server_category = getattr(server, 'server_category', None)
+        if not server_category:
+            server_category = 'proxy' if server_type in ('hysteria2', 'tuic') else 'vpn'
+
+        return cls(
+            id=server.id,
+            name=server.name,
+            display_name=getattr(server, 'display_name', None),
+            interface=server.interface,
+            endpoint=server.endpoint,
+            listen_port=server.listen_port,
+            status=server.legacy_status.value if hasattr(server, 'legacy_status') else (server.status.value if hasattr(server.status, 'value') else str(server.status)),
+            lifecycle_status=server.effective_lifecycle_status if hasattr(server, 'effective_lifecycle_status') else str(server.status),
+            is_active=getattr(server, 'is_active', True),
+            max_clients=server.max_clients,
+            total_clients=total_clients,
+            description=server.description,
+            location=server.location,
+            ssh_host=server.ssh_host,
+            ssh_port=server.ssh_port or 22,
+            ssh_user=server.ssh_user or "root",
+            is_remote=server.ssh_host is not None,
+            agent_mode=server.agent_mode or "ssh",
+            agent_url=server.agent_url,
+            agent_breaker=cls._breaker_for(server),
+            agent_version=cls._agent_version_for(server),
+            max_bandwidth_mbps=server.max_bandwidth_mbps,
+            is_default=getattr(server, 'is_default', False) or False,
+            server_type=server_type,
+            server_category=server_category,
+            awg_jc=getattr(server, 'awg_jc', None),
+            awg_jmin=getattr(server, 'awg_jmin', None),
+            awg_jmax=getattr(server, 'awg_jmax', None),
+            awg_s1=getattr(server, 'awg_s1', None),
+            awg_s2=getattr(server, 'awg_s2', None),
+            awg_h1=getattr(server, 'awg_h1', None),
+            awg_h2=getattr(server, 'awg_h2', None),
+            awg_h3=getattr(server, 'awg_h3', None),
+            awg_h4=getattr(server, 'awg_h4', None),
+            awg_mtu=getattr(server, 'awg_mtu', None),
+            supports_peer_visibility=getattr(server, 'supports_peer_visibility', True),
+            split_tunnel_support=getattr(server, 'split_tunnel_support', False),
+            ipv4_only=getattr(server, 'ipv4_only', False),
+            customer_visible=getattr(server, 'customer_visible', True),
+            customer_visible_mobile=getattr(server, 'customer_visible_mobile', True),
+            customer_visible_windows=getattr(server, 'customer_visible_windows', True),
+            for_app_only=getattr(server, 'for_app_only', False),
+            force_visible=getattr(server, 'force_visible', False),
+            last_good_health_at=getattr(server, 'last_good_health_at', None),
+            proxy_domain=getattr(server, 'proxy_domain', None),
+            proxy_tls_mode=getattr(server, 'proxy_tls_mode', None),
+            proxy_cert_path=getattr(server, 'proxy_cert_path', None),
+            proxy_key_path=getattr(server, 'proxy_key_path', None),
+            proxy_config_path=getattr(server, 'proxy_config_path', None),
+            proxy_service_name=getattr(server, 'proxy_service_name', None),
+        )
+
+
+class DiscoverRequest(BaseModel):
+    """Schema for discovering a remote server"""
+    ssh_host: str = Field(..., description="SSH host/IP")
+    ssh_port: int = Field(22, ge=1, le=65535)
+    ssh_user: str = Field("root")
+    ssh_password: Optional[str] = Field(None, description="SSH password")
+    ssh_private_key: Optional[str] = Field(None, description="SSH private key content (PEM). Use instead of password.")
+    interface: str = Field("wg0", pattern=r"^(wg|awg)\d+$")
+    server_name: Optional[str] = Field(None, description="Name for the server (auto-generated if empty)")
+
+
+class ServerStatsResponse(BaseModel):
+    """Server statistics response"""
+    server_id: int
+    name: str
+    interface: str
+    status: str
+    endpoint: str
+    total_clients: int
+    active_clients: int
+    max_clients: int
+    capacity_percent: float
+    total_rx: int
+    total_tx: int
+    total_traffic: int
+    is_online: bool
+
+
+class AgentInstallRequest(BaseModel):
+    """Schema for agent installation"""
+    port: int = Field(8001, ge=1, le=65535, description="Agent API port")
+    # Stream install progress to this bootstrap-log task id (frontend polls
+    # GET /servers/bootstrap/{task_id}); null = no streaming.
+    task_id: Optional[str] = None
+    # Reinstall even when the current agent is healthy — needed to push a new
+    # agent build (e.g. upgrading 1.4.0 → 1.5.0) onto an already-working node.
+    force: bool = False
+
+
+# ============================================================================
+# ENDPOINTS
+# ============================================================================
+
+@router.get("")
+def list_servers(
+    include_offline: bool = Query(True, description="Include offline servers"),
+    limit: int = Query(100, ge=1, le=500, description="Max items to return"),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get list of all WireGuard servers with pagination.
+
+    Declared as `def` (not `async def`) on purpose: the body uses synchronous
+    SQLAlchemy. With `async def`, every sync DB call would block the single
+    event loop and serialize concurrent requests — which caused multi-second
+    hangs under fan-out (e.g. one /servers call queued behind 6 /bandwidth
+    calls). FastAPI runs `def` handlers in a thread pool, so concurrent
+    fan-outs progress in parallel.
+    """
+    from sqlalchemy import func as sa_func
+    # Defer Server's EncryptedText columns — Servers tab doesn't render
+    # ssh_password / ssh_private_key / agent_api_key. Loading the ORM
+    # without defer forces a Fernet AES+HMAC decrypt of all three on
+    # every row, an avoidable cost on the frequently polled list route.
+    query = db.query(Server).options(
+        defer(Server.ssh_password),
+        defer(Server.ssh_private_key),
+        defer(Server.agent_api_key),
+    )
+
+    if not include_offline:
+        query = query.filter(Server.lifecycle_status == ServerLifecycleStatus.ONLINE.value)
+
+    total = query.count()
+    servers = query.order_by(Server.name).offset(offset).limit(limit).all()
+
+    # Single grouped COUNT for ALL servers — was N+1 (one per server) which
+    # otherwise turns an N-server panel into N+1 sequential queries.
+    counts_rows = db.query(Client.server_id, sa_func.count(Client.id)) \
+                    .group_by(Client.server_id).all()
+    counts_by_sid = {sid: c for sid, c in counts_rows}
+
+    # Per-row defensive serialization: if any single server has a corrupt
+    # field, an enum mismatch, or some attribute access blows up, that one
+    # row gets skipped — the rest of the list still renders. A single bad row
+    # must not take down the whole response. Skip-and-log keeps the panel
+    # usable for everything else, including the delete button on the dead box.
+    from loguru import logger as _llog
+    items = []
+    for s in servers:
+        try:
+            items.append(ServerResponse.from_server(s, db=db, total_clients=counts_by_sid.get(s.id, 0)))
+        except Exception as _exc:
+            _llog.warning("list_servers: skipping server id={} ({}): {}", getattr(s, 'id', '?'), getattr(s, 'name', '?'), _exc)
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": items,
+    }
+
+
+@router.post("", response_model=ServerResponse, status_code=201)
+async def create_server(
+    server_data: ServerCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a new WireGuard server configuration
+
+    NEW BEHAVIOR:
+    - For remote servers (ssh_host provided): automatically installs agent
+    - SSH is used ONLY for bootstrap
+    - After installation, server switches to agent mode
+    - User sees progress: SSH → Installing → Agent Online
+    """
+    from loguru import logger
+    import os
+
+    # License enforcement: check server limits and multi_server feature.
+    # Advisory lock (key 1000002) prevents concurrent requests from both
+    # passing the check.
+    #
+    # FREE / Starter tier policy: exactly one server per protocol type. So a
+    # FREE user gets the auto-provisioned WireGuard out of the box AND can
+    # add one AmneziaWG alongside it (DPI-resistance is core FREE value).
+    # They cannot add a second server of the *same* type without the
+    # `multi_server` feature flag (Business+).
+    try:
+        from sqlalchemy import text as _sql_text
+        from ...modules.license.manager import get_license_manager
+        db.execute(_sql_text("SELECT pg_advisory_xact_lock(1000002)"))
+        mgr = get_license_manager()
+        info = mgr.get_license_info()
+        current_count = db.query(Server).count()
+        same_type_count = db.query(Server).filter(
+            Server.server_type == server_data.server_type
+        ).count()
+
+        if not info.has_feature("multi_server"):
+            # No multi-server: cap is one of each protocol type.
+            if same_type_count >= 1:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "message": (
+                            f"You already have a {server_data.server_type} server. "
+                            f"FREE tier allows one server per protocol type "
+                            f"(WireGuard + AmneziaWG). Adding more requires the "
+                            f"multi-server feature (Business or Enterprise tier)."
+                        ),
+                        "license_feature_required": "multi_server",
+                        "upgrade_url": "https://flirexa.biz/#pricing",
+                        "upgrade_tier": "business",
+                    },
+                )
+        elif not info.can_add_server(current_count):
+            # Multi-server is on, but the absolute max_servers cap was reached.
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": f"License limit reached: {current_count}/{info.max_servers} servers. Upgrade your license.",
+                    "license_feature_required": "multi_server",
+                    "upgrade_url": "https://flirexa.biz/#pricing",
+                    "upgrade_tier": "enterprise",
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception as _lic_err:
+        from loguru import logger
+        logger.error(f"License check failed during server creation: {_lic_err}")
+        raise HTTPException(status_code=503, detail="License verification unavailable")
+
+    # License enforcement: per-protocol feature gating.
+    # FREE tier supports WireGuard + AmneziaWG (per docs/free-vs-paid.md).
+    # Hysteria2/TUIC require the `proxy_protocols` feature (Starter+).
+    # Trial — handled separately below as a hard wireguard-only restriction.
+    if server_data.server_type != "wireguard":
+        try:
+            _proto_feature_map = {
+                # AmneziaWG is FREE; no feature flag required.
+                "hysteria2":     "proxy_protocols",
+                "tuic":          "proxy_protocols",
+                "vless-reality": "proxy_protocols",
+            }
+            _required = _proto_feature_map.get(server_data.server_type)
+            if _required and not info.has_feature(_required):
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "message": (
+                            f"{server_data.server_type.upper()} protocol requires the "
+                            f"'{_required}' feature. Upgrade your plan to enable it."
+                        ),
+                        "license_feature_required": _required,
+                        "upgrade_url": "https://flirexa.biz/#pricing",
+                        "upgrade_tier": "starter",
+                    },
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # If license check unavailable, allow (fail-open)
+
+    core = ManagementCore(db)
+
+    # Check if server with same name exists
+    if core.servers.get_server_by_name(server_data.name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Server '{server_data.name}' already exists"
+        )
+
+    # ── Route proxy protocols to their own creation flow ──────────────────────
+    is_proxy = server_data.server_type in ("hysteria2", "tuic", "vless-reality")
+    if is_proxy:
+        return await _create_proxy_server(server_data, db, core)
+
+    # Check if interface is already used (only for local servers — remote
+    # SSH-managed and Mikrotik-managed boxes have their own interface
+    # namespace on the remote host and can legitimately share a name with
+    # the local install).
+    _is_local_mode = (
+        not server_data.ssh_host
+        and (server_data.agent_mode or "ssh") != "mikrotik"
+    )
+    if _is_local_mode and core.servers.get_server_by_interface(server_data.interface):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Interface '{server_data.interface}' is already in use"
+        )
+
+    public_key = server_data.public_key
+    private_key = server_data.private_key
+    listen_port = server_data.listen_port
+    address_pool_ipv4 = server_data.address_pool_ipv4
+
+    is_awg = server_data.server_type == "amneziawg"
+
+    # ── Mikrotik RouterOS mode ─────────────────────────────────────────────
+    # The router holds the WG interface and its keypair. We fetch the
+    # public key over REST, leave private_key NULL (we never have it —
+    # RouterOS doesn't expose it via this code path), and listen-port comes
+    # from the router too. Caller doesn't need to provide keys.
+    is_mikrotik = (server_data.agent_mode or "ssh") == "mikrotik"
+    if is_mikrotik:
+        # License gate: RouterOS adapter is a Pro+ feature.
+        # `mikrotik_adapter` aliases to `multi_server` in `_FEATURE_ALIASES`
+        # so existing Pro+ lifetime keys are honored without re-issue.
+        if not info.has_feature("mikrotik_adapter"):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": (
+                        "Mikrotik / RouterOS management requires the "
+                        "'mikrotik_adapter' feature. Upgrade to Pro or higher to enable it."
+                    ),
+                    "license_feature_required": "mikrotik_adapter",
+                    "upgrade_url": "https://flirexa.biz/#pricing",
+                    "upgrade_tier": "pro",
+                },
+            )
+        if not server_data.mikrotik_url:
+            raise HTTPException(400, "mikrotik_url is required when agent_mode=mikrotik")
+        if not server_data.mikrotik_username or not server_data.mikrotik_password:
+            raise HTTPException(400, "mikrotik_username and mikrotik_password are required")
+        if is_awg:
+            raise HTTPException(400, "AmneziaWG is not supported on RouterOS — use server_type=wireguard")
+        try:
+            from urllib.parse import urlparse
+            from ...core.mikrotik import MikrotikWireGuardManager
+            _u = urlparse(server_data.mikrotik_url)
+            _host = _u.hostname or server_data.mikrotik_url
+            _scheme = _u.scheme or "http"
+            _port = _u.port or (443 if _scheme == "https" else 80)
+            probe = MikrotikWireGuardManager(
+                interface=server_data.interface,
+                host=_host, port=_port, scheme=_scheme,
+                username=server_data.mikrotik_username,
+                password=server_data.mikrotik_password,
+            )
+            info = probe.get_interface_info()
+            # NOTE: do NOT close `probe` here — the address-pool inherit
+            # block below still uses it. Close happens after that block.
+        except Exception as _mt_err:
+            raise HTTPException(400, f"Mikrotik REST probe failed: {_mt_err}")
+        if not info:
+            raise HTTPException(
+                400,
+                f"Interface '{server_data.interface}' not found on Mikrotik. "
+                f"Create it on the router first (e.g. via WebFig) then retry."
+            )
+        public_key = info["public_key"]
+        # Server.private_key is NOT NULL — but the router holds the real
+        # private key, we never have it. Empty-string sentinel keeps the
+        # constraint happy; no code path for mikrotik mode reads this field
+        # (MikrotikWireGuardManager queries the router directly).
+        private_key = ""
+        listen_port = info["listen_port"]
+        # Auto-inherit the IP pool from the router — saves the operator
+        # from re-typing it and from accidentally specifying a different
+        # subnet than what the WG interface actually has assigned.
+        # Caller can still override by sending an explicit `address_pool_ipv4`
+        # that doesn't match a schema default — we keep the user's value
+        # in that case. All historical defaults (/24, /22) and the current
+        # /19 are treated as "auto" so Mikrotik probe can override.
+        try:
+            addrs = probe.get_interface_addresses()
+            if server_data.address_pool_ipv4 in (None, "10.66.66.0/24", "10.66.0.0/22", "10.66.0.0/19") and addrs.get("ipv4"):
+                address_pool_ipv4 = addrs["ipv4"]
+                logger.info(f"Mikrotik probe: inherited IPv4 pool {address_pool_ipv4} from router")
+            if (server_data.address_pool_ipv6 in (None, "fd42:42:42::/64")) and addrs.get("ipv6"):
+                server_data.address_pool_ipv6 = addrs["ipv6"]
+                logger.info(f"Mikrotik probe: inherited IPv6 pool {addrs['ipv6']} from router")
+        except Exception as _addr_err:
+            logger.warning(f"Mikrotik probe: address-pool inherit failed ({_addr_err}); using operator-supplied values")
+        finally:
+            try: probe.close()
+            except Exception: pass
+        logger.info(
+            f"Mikrotik probe OK: interface={server_data.interface} "
+            f"port={listen_port} pubkey={public_key[:20]}…"
+        )
+
+    # Keypair-reuse path: when the operator pastes only a private_key (the
+    # "Replacing a broken server? Reuse its private key" toggle on Add Server,
+    # or any caller using just the private_key API field), derive the matching
+    # public_key here. Without this, the empty public_key would trip the
+    # discovery+regenerate fallback below and silently overwrite the pasted
+    # key — the new box would end up with a fresh keypair and existing client
+    # configs (which pin the OLD pubkey) would stop handshaking.
+    if private_key and not public_key:
+        try:
+            if is_awg:
+                from ...core.amneziawg import AmneziaWGManager
+                public_key = AmneziaWGManager.generate_public_key(private_key)
+            else:
+                from ...core.wireguard import WireGuardManager
+                public_key = WireGuardManager.generate_public_key(private_key)
+            logger.info("Derived public_key from caller-supplied private_key (keypair reuse)")
+        except Exception as _derive_err:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid private_key — could not derive public key: {_derive_err}",
+            )
+
+    # Auto-pick a free listen_port if the requested one is already taken by
+    # another local server. Prevents the classic "RTNETLINK answers: Address
+    # already in use" failure when a FREE user adds AmneziaWG alongside the
+    # auto-provisioned WireGuard (both default to 51820). Only adjusts if the
+    # caller didn't pin a specific value explicitly via API — we still bump
+    # because the request can't succeed otherwise; better to drift the port
+    # than to 500.
+    # Local-server collision auto-picks (port + subnet) apply only to
+    # interfaces that actually live on this host. Mikrotik mode is remote
+    # — port and subnet belong to the router and we already probed them,
+    # so skip these auto-shifts to avoid clobbering the probed values.
+    if not server_data.ssh_host and not is_mikrotik:
+        existing_ports = {
+            row[0]
+            for row in db.query(Server.listen_port)
+            .filter(Server.listen_port.isnot(None))
+            .all()
+        }
+        if listen_port in existing_ports:
+            candidate = listen_port + 1
+            while candidate in existing_ports and candidate < 65535:
+                candidate += 1
+            from loguru import logger as _portlog
+            _portlog.info(
+                "Port {} already used by another server; "
+                "auto-picked {} for new {}",
+                listen_port, candidate, server_data.server_type,
+            )
+            listen_port = candidate
+
+        # Auto-shift the client subnet if it overlaps any existing local
+        # server's pool. Two VPN interfaces on the same host with the same
+        # /24 break each other — the kernel routes the subnet through the
+        # last one to come up, so older interface's clients lose return
+        # traffic. Caught the hard way by adding AmneziaWG on the same box
+        # as an existing WireGuard install with the default 10.0.1.0/24.
+        # Walk the third octet within the same family until we find a free /24.
+        if address_pool_ipv4:
+            # security: parse the requested pool up-front and reject an
+            # unparseable value with 422 instead of storing the raw string.
+            # Previously the broad `except Exception` below swallowed this parse
+            # error, letting a shell-injecting pool reach the DB and later the
+            # root PostUp rules. The best-effort collision auto-shift below keeps
+            # its own narrower try/except.
+            try:
+                req_net = ipaddress.IPv4Network(address_pool_ipv4, strict=False)
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid address_pool_ipv4: {address_pool_ipv4}",
+                )
+            try:
+                existing_pools_raw = (
+                    db.query(Server.address_pool_ipv4)
+                    .filter(Server.address_pool_ipv4.isnot(None))
+                    .filter(Server.ssh_host.is_(None))   # local servers only
+                    .all()
+                )
+                existing_nets = []
+                for (pool_str,) in existing_pools_raw:
+                    if not pool_str:
+                        continue
+                    try:
+                        existing_nets.append(ipaddress.IPv4Network(pool_str.strip(), strict=False))
+                    except (ValueError, TypeError):
+                        pass
+
+                def _overlaps_any(net):
+                    return any(net.overlaps(e) for e in existing_nets)
+
+                if _overlaps_any(req_net):
+                    octets = req_net.network_address.exploded.split(".")
+                    base = ".".join(octets[:2])
+                    third_orig = int(octets[2])
+                    chosen = None
+                    for delta in range(1, 256):
+                        third_try = (third_orig + delta) % 256
+                        cand = ipaddress.IPv4Network(
+                            f"{base}.{third_try}.0/{req_net.prefixlen}", strict=False
+                        )
+                        if not _overlaps_any(cand):
+                            chosen = str(cand)
+                            break
+                    if chosen:
+                        logger.info(
+                            "Subnet {} already in use by another local server; auto-picked {} for new {}",
+                            address_pool_ipv4, chosen, server_data.server_type,
+                        )
+                        address_pool_ipv4 = chosen
+                    # If nothing free in /16, leave as-is — the bring-up will
+                    # surface the error explicitly. Better than silently breaking.
+            except Exception as _se:
+                logger.warning("Subnet collision check failed: {}", _se)
+
+    # For AmneziaWG: auto-generate obfuscation params if not provided
+    awg_params = {}
+    _awg_auto = {}
+    if is_awg:
+        from ...core.amneziawg import AmneziaWGManager
+        _awg_auto = AmneziaWGManager.generate_obfuscation_params()
+        # Start with auto-generated values; will be overridden by discovered/user values below
+        awg_params = {
+            "awg_jc":   _awg_auto["jc"],
+            "awg_jmin": _awg_auto["jmin"],
+            "awg_jmax": _awg_auto["jmax"],
+            "awg_s1":   _awg_auto["s1"],
+            "awg_s2":   _awg_auto["s2"],
+            "awg_h1":   _awg_auto["h1"],
+            "awg_h2":   _awg_auto["h2"],
+            "awg_h3":   _awg_auto["h3"],
+            "awg_h4":   _awg_auto["h4"],
+        }
+
+    # For remote servers without keys: try to discover existing WG/AWG config.
+    # If config not found (fresh server) — automatically fall into provision mode.
+    if server_data.ssh_host and (not public_key or not private_key):
+        logger.info(f"Fetching keys from remote server {server_data.ssh_host}...")
+        if is_awg:
+            from ...core.amneziawg import AmneziaWGManager
+            wg = AmneziaWGManager(
+                interface=server_data.interface,
+                config_path=f"/etc/amnezia/amneziawg/{server_data.interface}.conf",
+                ssh_host=server_data.ssh_host,
+                ssh_port=server_data.ssh_port,
+                ssh_user=server_data.ssh_user,
+                ssh_password=server_data.ssh_password,
+                ssh_private_key=server_data.ssh_private_key,
+            )
+        else:
+            from ...core.wireguard import WireGuardManager
+            wg = WireGuardManager(
+                interface=server_data.interface,
+                config_path=f"/etc/wireguard/{server_data.interface}.conf",
+                ssh_host=server_data.ssh_host,
+                ssh_port=server_data.ssh_port,
+                ssh_user=server_data.ssh_user,
+                ssh_password=server_data.ssh_password,
+                ssh_private_key=server_data.ssh_private_key,
+            )
+        try:
+            result = await asyncio.to_thread(wg.discover_remote)
+            wg.close()
+            if result:
+                # Existing VPN found — use discovered keys and params
+                public_key  = result["public_key"]
+                private_key = result["private_key"]
+                listen_port = result.get("listen_port", listen_port)
+                if result.get("address_pool_ipv4"):
+                    address_pool_ipv4 = result["address_pool_ipv4"]
+                if is_awg and result.get("awg_params"):
+                    for k, v in result["awg_params"].items():
+                        if not getattr(server_data, f"awg_{k}", None):
+                            awg_params[f"awg_{k}"] = v
+                logger.info(f"Discovered existing VPN on {server_data.ssh_host}: pub={public_key[:12]}...")
+            else:
+                # No existing config — provision fresh server automatically
+                logger.info(f"No VPN config found on {server_data.ssh_host} — switching to provision mode")
+                server_data.provision = True
+        except Exception as e:
+            wg.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"SSH connection failed to {server_data.ssh_host}: {str(e)}"
+            )
+
+    # Apply user-provided AWG params last (highest priority)
+    if is_awg:
+        for k in ("jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"):
+            user_val = getattr(server_data, f"awg_{k}", None)
+            if user_val:
+                awg_params[f"awg_{k}"] = user_val
+
+    # For local servers without keys: generate new keypair. Mikrotik mode
+    # is excluded — the router owns the keypair, we already probed the
+    # public side of it above and intentionally store private_key="" since
+    # we never have it locally.
+    if (not public_key or not private_key) and not is_mikrotik:
+        if is_awg:
+            from ...core.amneziawg import AmneziaWGManager
+            wg = AmneziaWGManager(interface=server_data.interface)
+        else:
+            from ...core.wireguard import WireGuardManager
+            wg = WireGuardManager(interface=server_data.interface)
+        try:
+            private_key, public_key = wg.generate_keypair()
+        except RuntimeError as e:
+            # AmneziaWGManager raises RuntimeError when amneziawg-tools is
+            # missing on the host. Surface that as a 400 with the install
+            # hint instead of a 500.
+            wg.close()
+            raise HTTPException(status_code=400, detail=str(e))
+        wg.close()
+
+    # split_tunnel_support is not applicable to AWG: AmneziaVPN handles it client-side
+    # when AllowedIPs = 0.0.0.0/0 (full tunnel). Setting it for AWG is silently ignored.
+    effective_split_tunnel = False if is_awg else server_data.split_tunnel_support
+
+    server = core.servers.create_server(
+        name=server_data.name,
+        endpoint=server_data.endpoint,
+        public_key=public_key,
+        private_key=private_key,
+        interface=server_data.interface,
+        listen_port=listen_port,
+        address_pool_ipv4=address_pool_ipv4,
+        address_pool_ipv6=server_data.address_pool_ipv6,
+        _is_remote_mode=is_mikrotik,
+        dns=server_data.dns,
+        max_clients=server_data.max_clients,
+        description=server_data.description,
+        location=server_data.location,
+        ssh_host=server_data.ssh_host,
+        ssh_port=server_data.ssh_port,
+        ssh_user=server_data.ssh_user,
+        ssh_password=server_data.ssh_password,
+        ssh_private_key=server_data.ssh_private_key,
+        server_type=server_data.server_type,
+        awg_mtu=server_data.awg_mtu,
+        supports_peer_visibility=server_data.supports_peer_visibility,
+        split_tunnel_support=effective_split_tunnel,
+        ipv4_only=server_data.ipv4_only,
+        customer_visible=server_data.customer_visible,
+        for_app_only=server_data.for_app_only,
+        force_visible=server_data.force_visible,
+        **awg_params,
+    )
+
+    if not server:
+        raise HTTPException(status_code=500, detail="Failed to create server")
+
+    # ── Mikrotik mode: stamp agent_mode/url/creds on the new row ──────────
+    # `create_server` doesn't know about Mikrotik; we patch the columns
+    # directly. `agent_api_key` is encrypted at rest by the model.
+    if is_mikrotik:
+        server.agent_mode = "mikrotik"
+        server.agent_url = server_data.mikrotik_url
+        server.agent_api_key = f"{server_data.mikrotik_username}:{server_data.mikrotik_password}"
+        db.add(server)
+        db.commit()
+        db.refresh(server)
+        # Mikrotik path skips agent install entirely — there's no SSH and
+        # no agent daemon to deploy.
+        return ServerResponse.from_server(server, db=db)
+
+    # AUTO-INSTALL AGENT for remote servers
+    if server.ssh_host:
+        logger.info(f"Auto-installing agent on {server.name}...")
+
+        # Determine agent.py path dynamically
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        agent_code_path = os.path.join(base_dir, "agent.py")
+
+        try:
+            agent_installed, install_error = await asyncio.to_thread(
+                core.servers.install_agent,
+                server_id=server.id,
+                agent_code_path=agent_code_path,
+                port=8001,
+            )
+
+            if agent_installed:
+                logger.info(f"Agent installed and activated on {server.name}")
+            else:
+                if server_data.provision:
+                    # Provision failed — roll back server creation and surface the real error
+                    await asyncio.to_thread(core.servers.delete_server, server.id, True)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=install_error or "Failed to provision server"
+                    )
+                logger.warning(f"Agent installation failed, staying in SSH mode: {install_error}")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Agent installation error: {e}")
+            if server_data.provision:
+                await asyncio.to_thread(core.servers.delete_server, server.id, True)
+                raise HTTPException(status_code=400, detail=str(e))
+
+    # Refresh server to get updated agent_mode
+    db.refresh(server)
+
+    # For local servers, re-sync status after creation so API responses do not
+    # return a stale OFFLINE value when wg0 is already up.
+    if not server.ssh_host:
+        core.servers.check_server_status(server.id)
+        db.refresh(server)
+
+    # Backfill existing device slots onto the new server. Customers with
+    # an existing slot will see this region appear in their portal Server
+    # picker on the next page-load — no action needed on their side.
+    # Only runs for VPN servers (proxy boxes don't belong in slots) and
+    # only if the new server is actually customer-visible. Failures here
+    # don't block server creation; the lazy-heal in GET /devices catches
+    # anything we missed on subsequent portal opens.
+    try:
+        from ...modules.subscription.slot_manager import SlotManager
+        SlotManager(db).backfill_all_slots_on_server(server)
+    except Exception as _bf_err:
+        logger.warning(
+            "slot backfill on new server {} failed: {}",
+            getattr(server, "name", "?"), _bf_err,
+        )
+
+    return ServerResponse.from_server(server, db=db)
+
+
+# ============================================================================
+# PROXY SERVER CREATION HELPER
+# ============================================================================
+
+async def _create_proxy_server(server_data: "ServerCreate", db: Session, core: "ManagementCore"):
+    """
+    Create a Hysteria2 or TUIC proxy server.
+
+    Flow:
+    1. If ssh_host provided + provision=False → try to discover existing installation
+    2. If not found (or no ssh_host) → write DB record only (provision must be called separately
+       or set provision=True to auto-bootstrap on creation)
+    3. If provision=True → bootstrap on remote server
+
+    server_data.task_id: if provided, bootstrap log lines are emitted to the
+    bootstrap_logger registry so the frontend can poll for live progress.
+    """
+    from ...modules.bootstrap_logger import create_task, get_task, attach_task_server
+    from ...core.hysteria2 import Hysteria2Manager, DEFAULT_CONFIG_PATH as HY2_CFG, DEFAULT_SERVICE_NAME as HY2_SVC, DEFAULT_PORT as HY2_PORT, DEFAULT_CERT_PATH as HY2_CERT, DEFAULT_KEY_PATH as HY2_KEY
+    from ...core.tuic import TUICManager, DEFAULT_CONFIG_PATH as TUIC_CFG, DEFAULT_SERVICE_NAME as TUIC_SVC, DEFAULT_PORT as TUIC_PORT, DEFAULT_CERT_PATH as TUIC_CERT, DEFAULT_KEY_PATH as TUIC_KEY
+    from ...core.vless_reality import (VlessRealityManager, generate_reality_keys,
+        _random_short_id, DEFAULT_PORT as VLESS_PORT)
+
+    is_hy2   = server_data.server_type == "hysteria2"
+    is_tuic  = server_data.server_type == "tuic"
+    is_vless = server_data.server_type == "vless-reality"
+
+    # Resolve defaults per protocol
+    if is_hy2:
+        default_port, svc_stub, cfg_dir, cfg_ext = HY2_PORT, "hysteria", "/etc/hysteria", "yaml"
+    elif is_tuic:
+        default_port, svc_stub, cfg_dir, cfg_ext = TUIC_PORT, "tuic", "/etc/tuic", "json"
+    else:  # vless-reality
+        default_port, svc_stub, cfg_dir, cfg_ext = VLESS_PORT, "xray", "/etc/xray", "json"
+
+    listen_port = server_data.listen_port if server_data.listen_port != 51820 else default_port
+
+    # Compute interface early — per-interface paths prevent shared-service conflicts
+    prefix = f"proxy-{server_data.server_type[:3]}"
+    existing_ifaces = {s.interface for s in db.query(Server).filter(Server.interface.like(f"{prefix}%")).all()}
+    idx = 0
+    while f"{prefix}{idx}" in existing_ifaces:
+        idx += 1
+    interface = f"{prefix}{idx}"
+
+    # Derive per-interface isolated paths (each proxy gets its own service + config)
+    svc_name    = f"{svc_stub}-{interface}"
+    config_path = f"{cfg_dir}/config-{interface}.{cfg_ext}"
+    cert_path   = server_data.proxy_cert_path or f"{cfg_dir}/{interface}.crt"
+    key_path    = server_data.proxy_key_path  or f"{cfg_dir}/{interface}.key"
+
+    # Build manager kwargs
+    mgr_kwargs = dict(
+        config_path=config_path,
+        service_name=svc_name,
+        listen_port=listen_port,
+        domain=server_data.proxy_domain,
+        tls_mode=server_data.proxy_tls_mode or "self_signed",
+        ssh_host=server_data.ssh_host,
+        ssh_port=server_data.ssh_port,
+        ssh_user=server_data.ssh_user,
+        ssh_password=server_data.ssh_password,
+        ssh_private_key=server_data.ssh_private_key,
+        cert_path=cert_path,
+        key_path=key_path,
+    )
+    proxy_auth_password = None
+    if is_hy2:
+        mgr_kwargs["obfs_password"] = server_data.proxy_obfs_password
+
+    reality_priv = reality_pub = reality_sid = None
+    if is_vless:
+        keys = generate_reality_keys()
+        reality_priv, reality_pub, reality_sid = keys["private_key"], keys["public_key"], _random_short_id()
+        # domain defaults to the camouflage host when the operator leaves it blank
+        # (local var only — must not mutate server_data.proxy_domain before the
+        # user_wants_fresh / discover decision below, or it always looks "fresh")
+        reality_domain = server_data.proxy_domain or "www.microsoft.com"
+        mgr_kwargs.update(reality_private_key=reality_priv, reality_public_key=reality_pub,
+                          short_id=reality_sid, domain=reality_domain)
+        mgr_kwargs.pop("tls_mode", None)  # not used by Reality
+
+    # Set up bootstrap progress logging
+    task = None
+    log_cb = None
+    if server_data.task_id:
+        task = create_task(server_data.task_id)
+        log_cb = task.log
+
+    def _log(msg: str):
+        logger.info(msg)
+        if log_cb:
+            log_cb(msg)
+
+    # If the user explicitly provided a domain or chose ACME/manual TLS, they want a
+    # fresh configured installation — skip discover and go straight to bootstrap.
+    user_wants_fresh = bool(
+        server_data.proxy_domain
+        or server_data.proxy_tls_mode in ("acme", "manual")
+    )
+    if user_wants_fresh and not server_data.provision:
+        server_data.provision = True
+        _log(f"ℹ Domain/TLS mode specified — installing fresh (skipping discover)")
+
+    if is_vless:
+        # v1: vless-reality always provisions a fresh Xray-Reality install.
+        # Reuse/discover of an already-provisioned xray box is a tracked follow-up.
+        server_data.provision = True
+
+    # Discover existing installation (local or remote) unless caller forces provision.
+    # ProxyBaseManager._run() works locally when ssh_host=None, so discover() runs
+    # for both local and remote servers.
+    discovered = {}
+    if not server_data.provision:
+        try:
+            host_label = server_data.ssh_host or "localhost"
+            _log(f"🔍 Checking {host_label} for existing {server_data.server_type} installation...")
+            if is_hy2:
+                mgr = Hysteria2Manager(**mgr_kwargs)
+            elif is_tuic:
+                mgr = TUICManager(**{k: v for k, v in mgr_kwargs.items() if k != "obfs_password"})
+            else:
+                mgr = VlessRealityManager(**{k: v for k, v in mgr_kwargs.items()
+                                             if k not in ("obfs_password", "cert_path", "key_path", "tls_mode")})
+
+            result = await asyncio.to_thread(mgr.discover)
+            mgr.close()
+
+            if result.get("found"):
+                discovered = result
+                config_path = result.get("config_path", config_path)
+                listen_port = result.get("listen_port", listen_port)
+                cert_path   = result.get("cert_path", cert_path)
+                key_path    = result.get("key_path", key_path)
+                svc_name = result.get("service_name", svc_name)
+                mgr_kwargs["service_name"] = svc_name
+                server_data.proxy_tls_mode = result.get("tls_mode", server_data.proxy_tls_mode or "self_signed")
+                server_data.proxy_domain = result.get("domain", server_data.proxy_domain)
+                if is_hy2:
+                    server_data.proxy_obfs_password = result.get("obfs_password", server_data.proxy_obfs_password)
+                    proxy_auth_password = result.get("auth_password")
+                    if proxy_auth_password:
+                        mgr_kwargs["auth_password"] = proxy_auth_password
+                _log(f"✓ Found existing {server_data.server_type} installation at {config_path}")
+            else:
+                _log(
+                    f"No existing {server_data.server_type} found (reason: {result.get('reason', 'unknown')}) "
+                    "— will install fresh"
+                )
+                server_data.provision = True
+        except Exception as e:
+            if 'mgr' in dir():
+                try:
+                    mgr.close()
+                except Exception:
+                    pass
+            if server_data.ssh_host:
+                # SSH connection failure is a hard error for remote servers
+                if task:
+                    task.finish(error=f"SSH connection failed: {e}")
+                raise HTTPException(status_code=400, detail=f"SSH connection failed: {e}")
+            else:
+                # For local servers, discovery failure is non-fatal — just provision
+                logger.warning(f"Local discover failed ({e}), switching to provision mode")
+                server_data.provision = True
+
+    if is_hy2 and not proxy_auth_password:
+        # Fresh bootstrap needs a stable server-level password that is also
+        # persisted in the DB for later URI/config generation.
+        import secrets as _secrets, string as _string
+        _alphabet = _string.ascii_letters + _string.digits
+        proxy_auth_password = "".join(_secrets.choice(_alphabet) for _ in range(32))
+        mgr_kwargs["auth_password"] = proxy_auth_password
+
+    # Create DB record (endpoint: host:port if port given, else just host)
+    endpoint_host = server_data.endpoint.split(":")[0] if ":" in server_data.endpoint else server_data.endpoint
+    endpoint = f"{endpoint_host}:{listen_port}"
+
+    # placeholder keys not needed for proxy
+    import secrets as _sec
+    placeholder_key = _sec.token_hex(22)  # 44 hex chars, unique
+
+    if is_vless:
+        # Safe here: runs after user_wants_fresh/provision were decided above,
+        # so defaulting the domain can no longer distort the fresh/discover choice.
+        server_data.proxy_domain = server_data.proxy_domain or "www.microsoft.com"
+
+    server = core.servers.create_server(
+        name=server_data.name,
+        endpoint=endpoint,
+        public_key=placeholder_key,
+        private_key=placeholder_key,
+        interface=interface,
+        listen_port=listen_port,
+        address_pool_ipv4=server_data.address_pool_ipv4,
+        address_pool_ipv6=None,
+        dns=server_data.dns,
+        max_clients=server_data.max_clients,
+        description=server_data.description,
+        location=server_data.location,
+        ssh_host=server_data.ssh_host,
+        ssh_port=server_data.ssh_port,
+        ssh_user=server_data.ssh_user,
+        ssh_password=server_data.ssh_password,
+        ssh_private_key=server_data.ssh_private_key,
+        server_type=server_data.server_type,
+        server_category="proxy",
+        proxy_domain=server_data.proxy_domain,
+        proxy_tls_mode=server_data.proxy_tls_mode or "self_signed",
+        proxy_cert_path=cert_path,
+        proxy_key_path=key_path,
+        proxy_config_path=config_path,
+        proxy_service_name=svc_name,
+        proxy_obfs_password=server_data.proxy_obfs_password if is_hy2 else None,
+        proxy_auth_password=proxy_auth_password if is_hy2 else None,
+        # VPN fields not applicable to proxy
+        supports_peer_visibility=False,
+        split_tunnel_support=False,
+    )
+
+    if not server:
+        raise HTTPException(status_code=500, detail="Failed to create server record")
+
+    if is_vless and server:
+        server.proxy_reality_private_key = reality_priv
+        server.proxy_reality_public_key = reality_pub
+        server.proxy_reality_short_id = reality_sid
+        db.commit()
+
+    if task:
+        attach_task_server(server_data.task_id, server.id)
+
+    # Bootstrap if requested (local servers have no ssh_host but still need provisioning)
+    if server_data.provision:
+        try:
+            mgr_kwargs_final = dict(mgr_kwargs)
+            mgr_kwargs_final.update({
+                "config_path": config_path,
+                "listen_port": listen_port,
+                "cert_path": cert_path,
+                "key_path": key_path,
+            })
+            if is_hy2:
+                mgr = Hysteria2Manager(**mgr_kwargs_final)
+            elif is_tuic:
+                tuic_kwargs = {k: v for k, v in mgr_kwargs_final.items() if k != "obfs_password"}
+                mgr = TUICManager(**tuic_kwargs)
+            else:
+                mgr = VlessRealityManager(**{k: v for k, v in mgr_kwargs_final.items()
+                                             if k not in ("obfs_password", "cert_path", "key_path", "tls_mode")})
+
+            result = await asyncio.to_thread(mgr.bootstrap, [], log_cb)
+            mgr.close()
+
+            if not result.get("success"):
+                await asyncio.to_thread(core.servers.delete_server, server.id, True)
+                err_msg = result.get("message", "Bootstrap failed")
+                # Surface the real cause (e.g. "address already in use") from the
+                # captured service log tail, instead of a bare "Service not active".
+                _bd = result.get("details", {}) or {}
+                _logs = _bd.get("service_logs")
+                if _logs:
+                    _tail = " / ".join(l.strip() for l in str(_logs).strip().splitlines()[-3:] if l.strip())
+                    if _tail:
+                        err_msg = f"{err_msg} — {_tail}"
+                if task:
+                    task.finish(error=err_msg)
+                raise HTTPException(status_code=400, detail=err_msg)
+
+            if is_vless:
+                d = result.get("details", {})
+                if d.get("reality_public_key"):
+                    server.proxy_reality_private_key = d.get("reality_private_key")
+                    server.proxy_reality_public_key = d.get("reality_public_key")
+                    server.proxy_reality_short_id = d.get("short_id")
+                    db.commit()
+
+            logger.info(f"{server_data.server_type} bootstrapped on {server_data.ssh_host or 'localhost'}")
+            # Update status to ONLINE after successful bootstrap
+            await asyncio.to_thread(core.servers.check_server_status, server.id)
+            if task:
+                task.finish()
+        except HTTPException:
+            raise
+        except Exception as e:
+            await asyncio.to_thread(core.servers.delete_server, server.id, True)
+            if task:
+                task.finish(error=str(e))
+            raise HTTPException(status_code=400, detail=str(e))
+    else:
+        # No bootstrap — but if discover found an existing installation, sync
+        # the lifecycle status so the server doesn't stay stuck at OFFLINE.
+        if discovered.get("found"):
+            await asyncio.to_thread(core.servers.check_server_status, server.id)
+        if task:
+            task.finish()
+
+    db.refresh(server)
+    return ServerResponse.from_server(server, db=db)
+
+
+@router.get("/bootstrap/{task_id}")
+async def get_bootstrap_logs(task_id: str, since: int = Query(0, ge=0)):
+    """
+    Poll bootstrap progress logs for a proxy server installation.
+
+    Returns new log lines since index `since` so the frontend can
+    call this repeatedly without receiving duplicate lines.
+
+    Response: {task_id, logs: [str], complete: bool, error: str|null, next_index: int}
+    """
+    from ...modules.bootstrap_logger import get_task
+    task = get_task(task_id)
+    if task is None:
+        return JSONResponse({"task_id": task_id, "logs": [], "complete": True,
+                             "error": "Task not found (may have expired)", "next_index": since})
+    new_logs = task.get_logs_since(since)
+    return JSONResponse({
+        "task_id": task_id,
+        "logs": new_logs,
+        "complete": task.complete,
+        "error": task.error,
+        "next_index": since + len(new_logs),
+    })
+
+
+@router.post("/{server_id}/install-proxy")
+async def install_proxy_on_server(
+    server_id: int,
+    req: ProxyInstallRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Install a proxy protocol (Hysteria2 or TUIC) on an existing server.
+
+    The existing server must have SSH credentials stored. A new proxy Server
+    record is created and bootstrap runs over SSH (same flow as creating a
+    proxy server with provision=True).
+
+    Use-case: you added a WireGuard server (or bare agent server) and now
+    want to also install Hysteria2/TUIC on the same machine.
+
+    Returns the newly created proxy ServerResponse.
+    """
+    from ...modules.bootstrap_logger import create_task, attach_task_server
+
+    core = ManagementCore(db)
+    src = core.get_server(server_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="Source server not found")
+    if not src.ssh_host:
+        raise HTTPException(status_code=400, detail="Source server has no SSH credentials")
+    from ...core.hysteria2 import (
+        Hysteria2Manager,
+        DEFAULT_CONFIG_PATH as HY2_CFG, DEFAULT_SERVICE_NAME as HY2_SVC,
+        DEFAULT_PORT as HY2_PORT, DEFAULT_CERT_PATH as HY2_CERT, DEFAULT_KEY_PATH as HY2_KEY,
+    )
+    from ...core.tuic import (
+        TUICManager,
+        DEFAULT_CONFIG_PATH as TUIC_CFG, DEFAULT_SERVICE_NAME as TUIC_SVC,
+        DEFAULT_PORT as TUIC_PORT, DEFAULT_CERT_PATH as TUIC_CERT, DEFAULT_KEY_PATH as TUIC_KEY,
+    )
+    from ...core.vless_reality import (
+        VlessRealityManager, generate_reality_keys, _random_short_id,
+        DEFAULT_PORT as VLESS_PORT,
+    )
+
+    is_hy2 = req.protocol == "hysteria2"
+    is_tuic = req.protocol == "tuic"
+    is_vless = req.protocol == "vless-reality"
+
+    # Unique per-proxy interface on the box (so a second proxy of the same type
+    # doesn't clobber the first's service/config).
+    _prefix = f"proxy-{req.protocol[:3]}"
+    _existing_ifaces = {s.interface for s in db.query(Server).filter(Server.interface.like(f"{_prefix}%")).all()}
+    _idx = 0
+    while f"{_prefix}{_idx}" in _existing_ifaces:
+        _idx += 1
+    interface = f"{_prefix}{_idx}"
+
+    reality_priv = reality_pub = reality_sid = None
+    if is_hy2:
+        default_port = req.port or HY2_PORT
+        config_path, svc_name = HY2_CFG, HY2_SVC
+        cert_path = req.cert_path or HY2_CERT
+        key_path = req.key_path or HY2_KEY
+        resolved_domain = req.domain
+    elif is_tuic:
+        default_port = req.port or TUIC_PORT
+        config_path, svc_name = TUIC_CFG, TUIC_SVC
+        cert_path = req.cert_path or TUIC_CERT
+        key_path = req.key_path or TUIC_KEY
+        resolved_domain = req.domain
+    else:  # vless-reality
+        default_port = req.port or VLESS_PORT
+        config_path = f"/etc/xray/config-{interface}.json"
+        svc_name = f"xray-{interface}"
+        cert_path = key_path = None
+        resolved_domain = req.domain or "www.microsoft.com"
+        _keys = generate_reality_keys()
+        reality_priv, reality_pub, reality_sid = _keys["private_key"], _keys["public_key"], _random_short_id()
+
+    # Inherit SSH from source server
+    mgr_kwargs = dict(
+        config_path=config_path,
+        service_name=svc_name,
+        listen_port=default_port,
+        domain=resolved_domain,
+        tls_mode=req.tls_mode,
+        ssh_host=src.ssh_host,
+        ssh_port=src.ssh_port or 22,
+        ssh_user=src.ssh_user or "root",
+        ssh_password=src.ssh_password,
+        ssh_private_key=src.ssh_private_key,
+        cert_path=cert_path,
+        key_path=key_path,
+    )
+
+    # Generate stable auth password for Hysteria2
+    proxy_auth_password = None
+    if is_hy2:
+        import secrets as _sec, string as _str
+        proxy_auth_password = "".join(_sec.choice(_str.ascii_letters + _str.digits) for _ in range(32))
+        mgr_kwargs["auth_password"] = proxy_auth_password
+        mgr_kwargs["obfs_password"] = req.obfs_password
+    if is_vless:
+        mgr_kwargs.update(reality_private_key=reality_priv, reality_public_key=reality_pub, short_id=reality_sid)
+
+    # Set up progress logging
+    task = None
+    log_cb = None
+    if req.task_id:
+        task = create_task(req.task_id)
+        log_cb = task.log
+
+    def _log(msg: str):
+        logger.info(msg)
+        if log_cb:
+            log_cb(msg)
+
+    # Create proxy DB record
+    import secrets as _sec2
+    placeholder_key = _sec2.token_hex(22)
+    endpoint_host = src.ssh_host
+    endpoint = f"{endpoint_host}:{default_port}"
+    # (interface computed above — unique per proxy on this box)
+    name = req.name or f"{src.name} — {req.protocol.upper()}"
+
+    server = core.servers.create_server(
+        name=name,
+        endpoint=endpoint,
+        public_key=placeholder_key,
+        private_key=placeholder_key,
+        interface=interface,
+        listen_port=default_port,
+        address_pool_ipv4="10.66.66.0/24",
+        address_pool_ipv6=None,
+        dns="1.1.1.1",
+        max_clients=250,
+        description=f"Proxy installed on {src.name}",
+        location=src.location,
+        ssh_host=src.ssh_host,
+        ssh_port=src.ssh_port,
+        ssh_user=src.ssh_user,
+        ssh_password=src.ssh_password,
+        ssh_private_key=src.ssh_private_key,
+        server_type=req.protocol,
+        server_category="proxy",
+        proxy_domain=resolved_domain,
+        proxy_tls_mode=req.tls_mode,
+        proxy_cert_path=cert_path,
+        proxy_key_path=key_path,
+        proxy_config_path=config_path,
+        proxy_service_name=svc_name,
+        proxy_obfs_password=req.obfs_password if is_hy2 else None,
+        proxy_auth_password=proxy_auth_password if is_hy2 else None,
+        supports_peer_visibility=False,
+        split_tunnel_support=False,
+    )
+    if not server:
+        if task:
+            task.finish(error="Failed to create server record")
+        raise HTTPException(status_code=500, detail="Failed to create server record")
+    if task:
+        attach_task_server(req.task_id, server.id)
+
+    # Persist the freshly-generated Reality keys on the row (create_server does
+    # not forward proxy_reality_*; the client URI later reads them from here).
+    if is_vless:
+        server.proxy_reality_private_key = reality_priv
+        server.proxy_reality_public_key = reality_pub
+        server.proxy_reality_short_id = reality_sid
+        db.commit()
+
+    # Bootstrap
+    try:
+        _log(f"🚀 Installing {req.protocol.upper()} on {src.ssh_host}...")
+        if is_hy2:
+            mgr = Hysteria2Manager(**mgr_kwargs)
+        elif is_tuic:
+            tuic_kwargs = {k: v for k, v in mgr_kwargs.items() if k not in ("obfs_password", "auth_password")}
+            mgr = TUICManager(**tuic_kwargs)
+        else:  # vless-reality
+            vless_kwargs = {k: v for k, v in mgr_kwargs.items()
+                            if k not in ("obfs_password", "auth_password", "tls_mode", "cert_path", "key_path")}
+            mgr = VlessRealityManager(**vless_kwargs)
+
+        result = await asyncio.to_thread(mgr.bootstrap, [], log_cb)
+        mgr.close()
+
+        if not result.get("success"):
+            await asyncio.to_thread(core.servers.delete_server, server.id, True)
+            err = result.get("message", "Bootstrap failed")
+            if task:
+                task.finish(error=err)
+            raise HTTPException(status_code=400, detail=err)
+
+        _log(f"✅ {req.protocol.upper()} installed successfully")
+        if task:
+            task.finish()
+    except HTTPException:
+        raise
+    except Exception as e:
+        await asyncio.to_thread(core.servers.delete_server, server.id, True)
+        if task:
+            task.finish(error=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+
+    db.refresh(server)
+    return ServerResponse.from_server(server, db=db)
+
+
+@router.post("/{server_id}/install-awg")
+async def install_awg_on_server(
+    server_id: int,
+    req: AwgInstallRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Install AmneziaWG on an existing SSH-accessible server, alongside its
+    current protocol (typically WireGuard).
+
+    Strategy:
+      1. **Agent mode** (preferred). A second `vpnmanager-agent-{interface}`
+         systemd unit on a non-colliding port is provisioned. The original
+         agent for WG keeps running. Each interface has its own agent.
+      2. **SSH-only fallback.** If the agent install can't complete (e.g.
+         launchpad.net unreachable from the host's region), we still
+         provision the AWG interface itself directly via SSH so the user
+         gets a working server, just managed without an agent.
+
+    Returns the newly created AWG ServerResponse.
+    """
+    from ...modules.bootstrap_logger import create_task, attach_task_server
+    from ...core.amneziawg import AmneziaWGManager
+
+    core = ManagementCore(db)
+    src = core.get_server(server_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="Source server not found")
+    if not src.ssh_host:
+        raise HTTPException(status_code=400, detail="Source server has no SSH credentials")
+
+    # License: AmneziaWG is FREE-tier — only check the multi_server cap.
+    try:
+        from sqlalchemy import text as _sql_text
+        from ...modules.license.manager import get_license_manager
+        db.execute(_sql_text("SELECT pg_advisory_xact_lock(1000002)"))
+        info = get_license_manager().get_license_info()
+        same_type = db.query(Server).filter(Server.server_type == "amneziawg").count()
+        if not info.has_feature("multi_server") and same_type >= 1:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "FREE tier allows one AmneziaWG server. Upgrade for multi-server.",
+                    "license_feature_required": "multi_server",
+                    "upgrade_tier": "business",
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # license-check unavailable → fail-open
+
+    # Pick interface name — first free awgN
+    used_ifaces = {s.interface for s in db.query(Server).all()}
+    interface = req.interface
+    if not interface:
+        for n in range(1, 32):
+            cand = f"awg{n}"
+            if cand not in used_ifaces:
+                interface = cand
+                break
+        if not interface:
+            raise HTTPException(status_code=400, detail="No free awgN interface name available")
+    if interface in used_ifaces:
+        raise HTTPException(status_code=400, detail=f"Interface '{interface}' already used by another server")
+
+    # Pick listen port — default 51821, drift on collision
+    used_ports = {s.listen_port for s in db.query(Server).filter(Server.ssh_host == src.ssh_host).all()}
+    listen_port = req.listen_port or 51821
+    while listen_port in used_ports and listen_port < 65535:
+        listen_port += 1
+
+    # Pick a /24 pool that doesn't collide with another VPN interface on the
+    # SAME host. The kernel rejects assigning the same .1 address to two
+    # interfaces ("RTNETLINK answers: Address already in use"), so when the
+    # box already runs e.g. wg0 on 10.66.66.0/24 and we want to add awg1
+    # alongside it, awg1 must use a different /24.
+    #
+    # We can't trust the DB alone: a previous server record may have been
+    # removed without bringing down its interface (zombie iface from older
+    # uninstall code, manual hand-cleanup that only touched DB, etc.).
+    # So we *also* probe the remote box over SSH and ask the kernel which
+    # /24 networks are already assigned to interfaces. Union of DB-known
+    # pools and live kernel-assigned pools is what we avoid.
+    address_pool_ipv4 = req.address_pool_ipv4 or "10.66.66.0/24"
+    if not req.address_pool_ipv4:
+        used_pools = set()
+        # 1. From DB
+        for s in db.query(Server).filter(Server.ssh_host == src.ssh_host).all():
+            if s.address_pool_ipv4:
+                used_pools.add(s.address_pool_ipv4.strip())
+        # 2. From the remote kernel (best-effort SSH probe)
+        try:
+            from ...core.wireguard import WireGuardManager as _WG
+            _probe = _WG(
+                interface="probe",
+                ssh_host=src.ssh_host, ssh_port=src.ssh_port or 22,
+                ssh_user=src.ssh_user or "root",
+                ssh_password=src.ssh_password,
+                ssh_private_key=src.ssh_private_key,
+            )
+            try:
+                _r = _probe._run_cmd(
+                    ["bash", "-c",
+                     "ip -o -4 addr show 2>/dev/null | awk '{print $4}'"],
+                    check=False,
+                )
+                for line in (_r.stdout or "").splitlines():
+                    line = line.strip()
+                    if "/" not in line:
+                        continue
+                    ip_part, _, prefix = line.partition("/")
+                    octets = ip_part.split(".")
+                    if len(octets) != 4:
+                        continue
+                    try:
+                        # Normalise to its /24 network (.0/24)
+                        net24 = f"{octets[0]}.{octets[1]}.{octets[2]}.0/24"
+                        used_pools.add(net24)
+                    except Exception:
+                        pass
+            finally:
+                _probe.close()
+        except Exception as _probe_err:
+            logger.warning(f"install-awg: pool-collision probe failed (continuing with DB-only): {_probe_err}")
+        # Walk 10.66.66.0/24 → 10.66.99.0/24, skipping anything taken.
+        for octet3 in range(66, 100):
+            cand = f"10.66.{octet3}.0/24"
+            if cand not in used_pools:
+                address_pool_ipv4 = cand
+                break
+
+    name = req.name or f"{src.name} — AmneziaWG"
+    if core.servers.get_server_by_name(name):
+        raise HTTPException(status_code=400, detail=f"Server '{name}' already exists")
+
+    # Set up progress logging (mirrors install-proxy behavior)
+    task = None
+    log_cb = None
+    if req.task_id:
+        task = create_task(req.task_id)
+        log_cb = task.log
+
+    def _log(msg: str):
+        logger.info(msg)
+        if log_cb:
+            log_cb(msg)
+
+    # ── Generate keypair locally (panel host needs awg-tools) ─────────────
+    try:
+        local_mgr = AmneziaWGManager(interface=interface)
+        private_key, public_key = local_mgr.generate_keypair()
+        local_mgr.close()
+    except Exception as e:
+        if task:
+            task.finish(error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to generate AWG keypair locally: {e}")
+
+    awg_params = AmneziaWGManager.generate_obfuscation_params()
+
+    # ── Create DB row (initially agent_mode='ssh' — flipped after install) ─
+    server = core.servers.create_server(
+        name=name,
+        endpoint=f"{src.ssh_host}:{listen_port}",
+        public_key=public_key,
+        private_key=private_key,
+        interface=interface,
+        listen_port=listen_port,
+        address_pool_ipv4=address_pool_ipv4,
+        address_pool_ipv6=req.address_pool_ipv6,
+        dns=req.dns,
+        max_clients=250,
+        description=f"AmneziaWG installed on {src.name}",
+        location=src.location,
+        ssh_host=src.ssh_host,
+        ssh_port=src.ssh_port,
+        ssh_user=src.ssh_user,
+        ssh_password=src.ssh_password,
+        ssh_private_key=src.ssh_private_key,
+        server_type="amneziawg",
+        server_category="vpn",
+        awg_jc=awg_params["jc"], awg_jmin=awg_params["jmin"], awg_jmax=awg_params["jmax"],
+        awg_s1=awg_params["s1"], awg_s2=awg_params["s2"],
+        awg_h1=awg_params["h1"], awg_h2=awg_params["h2"],
+        awg_h3=awg_params["h3"], awg_h4=awg_params["h4"],
+    )
+    if not server:
+        if task:
+            task.finish(error="Failed to create server record")
+        raise HTTPException(status_code=500, detail="Failed to create AmneziaWG server record")
+    if task:
+        attach_task_server(req.task_id, server.id)
+
+    # Wrap the entire install attempt so any unexpected error (NameError,
+    # connection blow-up, paramiko crash, etc.) still cleans up the DB row
+    # — otherwise the user is left with an orphan "Server" entry that
+    # appears in the panel after a refresh but can't actually start.
+    try:
+        # ── Try agent install first ────────────────────────────────────────
+        _log(f"🚀 Installing AmneziaWG agent on {src.ssh_host} (iface={interface}, port={listen_port})…")
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        agent_code_path = os.path.join(base_dir, "agent.py")
+
+        agent_ok = False
+        agent_err = None
+        try:
+            agent_ok, agent_err = await asyncio.to_thread(
+                core.servers.install_agent,
+                server_id=server.id,
+                agent_code_path=agent_code_path,
+                port=8001,
+            )
+        except Exception as e:
+            agent_err = str(e)
+
+        if agent_ok:
+            _log(f"✅ AmneziaWG installed via agent on {src.ssh_host}")
+            if task:
+                task.finish()
+            db.refresh(server)
+            return ServerResponse.from_server(server, db=db)
+
+        # ── Fallback: SSH-only provisioning ────────────────────────────────
+        _log(f"⚠ Agent install failed: {agent_err}")
+        _log(f"↳ Falling back to SSH-only provisioning…")
+
+        mgr = AmneziaWGManager(
+            interface=interface,
+            config_path=f"/etc/amnezia/amneziawg/{interface}.conf",
+            ssh_host=src.ssh_host,
+            ssh_port=src.ssh_port or 22,
+            ssh_user=src.ssh_user or "root",
+            ssh_password=src.ssh_password,
+            ssh_private_key=src.ssh_private_key,
+        )
+        try:
+            result = await asyncio.to_thread(
+                mgr.bootstrap_remote,
+                address_pool_ipv4=address_pool_ipv4,
+                address_pool_ipv6=req.address_pool_ipv6,
+                listen_port=listen_port,
+                dns=req.dns,
+                log_callback=log_cb,
+            )
+        finally:
+            try:
+                mgr.close()
+            except Exception:
+                pass
+
+        if not result.get("success"):
+            ssh_err = result.get('message', 'unknown')
+            # If both paths failed because the remote can't reach
+            # launchpadcontent.net, give the user an actionable message
+            # instead of a wall of apt output.
+            blob = (str(agent_err) + " " + str(ssh_err)).lower()
+            launchpad_unreachable = (
+                "launchpadcontent.net" in blob and
+                ("timed out" in blob or "could not connect" in blob or "network is unreachable" in blob)
+            )
+            if launchpad_unreachable:
+                msg = (
+                    f"AmneziaWG install failed: cannot reach launchpadcontent.net "
+                    f"from {src.ssh_host}. The hosting provider appears to block "
+                    "Canonical's CDN (185.125.190.80). Workaround: SSH into the "
+                    "remote and install AmneziaWG manually with:\n\n"
+                    "    apt install -y software-properties-common && \\\n"
+                    "    add-apt-repository -y ppa:amnezia/ppa && \\\n"
+                    "    apt update && apt install -y amneziawg amneziawg-tools\n\n"
+                    "Then click Install AmneziaWG again — the panel will skip "
+                    "the apt step since the binary is already present."
+                )
+            else:
+                msg = (
+                    f"AmneziaWG install failed.\n"
+                    f"  agent path: {agent_err}\n"
+                    f"  ssh fallback: {ssh_err}"
+                )
+            raise RuntimeError(msg)
+
+        _log(f"✅ AmneziaWG installed via SSH fallback (no agent) on {src.ssh_host}")
+        if task:
+            task.finish()
+        db.refresh(server)
+        return ServerResponse.from_server(server, db=db)
+
+    except HTTPException:
+        # Already a proper HTTP error — clean up DB row, surface it.
+        try:
+            await asyncio.to_thread(core.servers.delete_server, server.id, True)
+        except Exception:
+            pass
+        if task:
+            task.finish(error="install failed")
+        raise
+    except Exception as e:
+        # Anything else (NameError, paramiko, runtime). Roll back the row,
+        # log, return 400 with the error message so the panel doesn't show
+        # a misleading orphan server entry on refresh.
+        logger.exception("install-awg crashed for server_id={}", server.id)
+        try:
+            await asyncio.to_thread(core.servers.delete_server, server.id, True)
+        except Exception:
+            pass
+        if task:
+            task.finish(error=str(e))
+        raise HTTPException(status_code=400, detail=f"AmneziaWG install failed: {e}")
+
+
+@router.get("/{server_id}", response_model=ServerResponse)
+async def get_server(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get server details
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    return ServerResponse.from_server(server, db=db)
+
+
+@router.get("/{server_id}/keypair")
+async def get_server_keypair(
+    server_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Reveal the WireGuard keypair stored for this server.
+
+    Use case: replacing a broken box with a fresh one while keeping all
+    existing client configs working. Paste the same private_key into the
+    new server's `private_key` field on creation and clients keep
+    handshaking — the *server's public key* (which clients pinned) does
+    not change because the private key is the same.
+
+    Sensitive — logged in audit. Admin-auth only (enforced by router prefix).
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    # Audit trail. Goes to the standard application log so the operator can
+    # always answer "who pulled this server's private key, and when?".
+    actor = getattr(request.state, "admin_username", None) or "admin"
+    logger.warning(
+        f"[AUDIT] server.keypair.reveal actor={actor} server_id={server.id} name={server.name}"
+    )
+
+    return {
+        "server_id": server.id,
+        "name": server.name,
+        "interface": server.interface,
+        "listen_port": server.listen_port,
+        "endpoint": server.endpoint,
+        "address_pool_ipv4": server.address_pool_ipv4,
+        "private_key": server.private_key,
+        "public_key": server.public_key,
+        "server_type": server.server_type,
+        # AmneziaWG obfuscation params — must also match on the new box.
+        "awg_params": ({
+            "jc": server.awg_jc, "jmin": server.awg_jmin, "jmax": server.awg_jmax,
+            "s1": server.awg_s1, "s2": server.awg_s2,
+            "h1": server.awg_h1, "h2": server.awg_h2,
+            "h3": server.awg_h3, "h4": server.awg_h4,
+            "mtu": server.awg_mtu,
+        } if server.server_type == "amneziawg" else None),
+    }
+
+
+class MigrateClientsRequest(BaseModel):
+    target_server_id: int = Field(..., description="ID of the server clients should be moved to")
+    sync_to_remote: bool = Field(True, description="Also push peer entries to the new server's running WireGuard")
+    remove_from_old: bool = Field(True, description="Remove peer entries from the old server's running WireGuard")
+    keep_on_source: bool = Field(
+        False,
+        description=(
+            "Dual-active copy mode. When true, clients stay associated with the SOURCE server "
+            "in the DB and only get added as peers on the target server's WireGuard. The source "
+            "server keeps both its DB association AND its live peer entries. Forces "
+            "remove_from_old=false implicitly. Designed for the DNS-propagation transition: "
+            "during the change-over period, customers' configs work against either endpoint."
+        ),
+    )
+    force_different_keys: bool = Field(
+        False,
+        description=(
+            "Bypass the public-key match safety check. Off by default — migration refuses "
+            "to run when src and dst have different keypairs because existing client configs "
+            "(which pin the src's PublicKey) cannot handshake with dst until the operator "
+            "re-issues every config. Set to true only if you know what you're doing and "
+            "intend to re-issue configs after the move."
+        ),
+    )
+    client_ids: Optional[List[int]] = Field(
+        None,
+        description=(
+            "Optional list of client IDs to migrate. If omitted, all clients on the source server "
+            "are moved. Useful for selective migrations or test runs."
+        ),
+    )
+
+
+@router.post("/{server_id}/migrate-clients")
+def migrate_clients_between_servers(
+    server_id: int,
+    payload: MigrateClientsRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Move ALL clients from one server to another.
+
+    Typical use: the old box is dead/being replaced, the new server has
+    been provisioned (ideally with the same private_key — see
+    GET /servers/{id}/keypair). This re-points each client's `server_id`
+    in the database and, optionally, syncs the WireGuard peer table on
+    both old and new boxes so traffic actually routes.
+    """
+    core = ManagementCore(db)
+    src = core.get_server(server_id)
+    if not src:
+        raise HTTPException(status_code=404, detail="Source server not found")
+
+    dst = core.get_server(payload.target_server_id)
+    if not dst:
+        raise HTTPException(status_code=404, detail="Target server not found")
+
+    if src.id == dst.id:
+        raise HTTPException(status_code=400, detail="Source and target are the same server")
+
+    # Compatibility check — moving WG clients to an AWG server (or vice versa)
+    # would silently break their .conf files because the protocols differ.
+    if (src.server_type or "wireguard") != (dst.server_type or "wireguard"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Protocol mismatch: source is {src.server_type}, target is {dst.server_type}. "
+                "Migration only supports same-protocol moves."
+            ),
+        )
+
+    # Safety guard — clients' .conf files pin the SOURCE server's PublicKey.
+    # If the destination has a different keypair, every client would need a
+    # new .conf re-issued and re-installed before they could connect. That's
+    # almost always an accident (operator picked the wrong dst from the
+    # dropdown). Refuse unless force_different_keys is explicitly set.
+    if (src.public_key or "") != (dst.public_key or "") and not payload.force_different_keys:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "keypair_mismatch",
+                "message": (
+                    f"'{src.name}' and '{dst.name}' have different WireGuard keypairs. "
+                    "Existing client configs pin the source's PublicKey and would fail "
+                    "to handshake on the destination. Either: "
+                    "(1) recreate the destination via Add Server with the 'Replacing a "
+                    "broken server? Reuse its private key' toggle and paste the source's "
+                    "private key, or (2) pass force_different_keys=true if you intend to "
+                    "re-issue every client config afterwards."
+                ),
+                "src_pubkey_hint": (src.public_key or "")[:12] + "…",
+                "dst_pubkey_hint": (dst.public_key or "")[:12] + "…",
+            },
+        )
+
+    q = db.query(Client).filter(Client.server_id == src.id)
+    if payload.client_ids:
+        # Selective migration — caller picked specific clients (e.g. for a
+        # canary/test run before doing a full bulk move).
+        q = q.filter(Client.id.in_(payload.client_ids))
+    clients = q.all()
+
+    if payload.client_ids:
+        # Surface a clear error if any requested ID isn't actually on the
+        # source server — silent partial moves are confusing.
+        found = {c.id for c in clients}
+        missing = [cid for cid in payload.client_ids if cid not in found]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Clients not found on source server: {missing}",
+            )
+
+    if not clients:
+        return {"moved": 0, "message": "No clients matched on source server"}
+
+    # ── Pre-flight: refuse if any moving client would collide with an existing
+    # client on the target server (uq_client_server_ip — UNIQUE on
+    # (server_id, ip_index)). Without this, the SQL UPDATE later raises
+    # IntegrityError → 500 with an opaque message. Better to fail clean.
+    moving_ips = {c.ip_index for c in clients if c.ip_index is not None}
+    if moving_ips:
+        from sqlalchemy import and_ as _sql_and
+        existing = (
+            db.query(Client.id, Client.ipv4, Client.ip_index, Client.name)
+            .filter(_sql_and(
+                Client.server_id == dst.id,
+                Client.ip_index.in_(moving_ips),
+            ))
+            .all()
+        )
+        if existing:
+            taken = [
+                {"client_id": e.id, "name": e.name, "ipv4": e.ipv4, "ip_index": e.ip_index}
+                for e in existing
+            ]
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "ip_conflict",
+                    "message": (
+                        f"Cannot migrate: {len(taken)} client(s) on the target server "
+                        f"already use the IPs you'd be moving. Either free those IPs first "
+                        f"or migrate to an empty server. The replace-broken-box scenario "
+                        f"(new server with same private_key, no clients yet) is conflict-free."
+                    ),
+                    "conflicting_clients_on_target": taken,
+                },
+            )
+
+    moved = 0
+    failed: List[Dict[str, Any]] = []
+
+    # Dual-active "copy" mode: clients stay registered against src in the DB
+    # AND keep their live peer on src; we only ALSO add the peer to dst.
+    # Implies remove_from_old=False (forced) and skips the DB re-point step
+    # so the panel still shows them on the source server during the
+    # DNS-propagation window.
+    if payload.keep_on_source:
+        payload.remove_from_old = False
+
+    # Pre-build WG managers for each side so we don't open SSH on every iteration.
+    src_wg = core.clients._get_wg(src) if payload.remove_from_old else None
+    dst_wg = core.clients._get_wg(dst) if payload.sync_to_remote else None
+
+    try:
+        for c in clients:
+            try:
+                allowed_ips = [f"{c.ipv4}/32"]
+                if getattr(c, "ipv6", None):
+                    allowed_ips.append(f"{c.ipv6}/128")
+
+                # 1) Remove from OLD server's live WG (best-effort).
+                if src_wg is not None:
+                    try:
+                        src_wg.remove_peer(c.public_key)
+                    except Exception as _e_rm:
+                        logger.warning(
+                            "migrate_clients: remove peer {} from {} failed: {}",
+                            c.name, src.name, _e_rm,
+                        )
+
+                # 2) Re-point in DB — skipped in copy mode so the panel still
+                #    shows the client on the source server.
+                if not payload.keep_on_source:
+                    c.server_id = dst.id
+
+                # 3) Add peer to NEW server's live WG (best-effort) — same client keys.
+                if dst_wg is not None:
+                    try:
+                        dst_wg.add_peer(
+                            public_key=c.public_key,
+                            allowed_ips=allowed_ips,
+                            preshared_key=getattr(c, "preshared_key", None),
+                        )
+                    except Exception as _e_add:
+                        logger.warning(
+                            "migrate_clients: add peer {} to {} failed: {}",
+                            c.name, dst.name, _e_add,
+                        )
+                moved += 1
+            except Exception as e:
+                failed.append({"client": c.name, "error": str(e)})
+    finally:
+        # Always close SSH/WG handles, even if an exception bubbles.
+        for w in (src_wg, dst_wg):
+            try:
+                if w is not None:
+                    w.close()
+            except Exception:
+                pass
+
+    db.commit()
+
+    actor = getattr(request.state, "admin_username", None) or "admin"
+    logger.warning(
+        f"[AUDIT] server.clients.migrate actor={actor} "
+        f"from={src.id}({src.name}) to={dst.id}({dst.name}) "
+        f"moved={moved} failed={len(failed)}"
+    )
+
+    return {
+        "moved": moved,
+        "failed": failed,
+        "from_server": {"id": src.id, "name": src.name},
+        "to_server": {"id": dst.id, "name": dst.name},
+        "message": (
+            f"Migrated {moved} client(s) from '{src.name}' to '{dst.name}'."
+            if not failed
+            else f"Migrated {moved} client(s); {len(failed)} failed (see 'failed' field)."
+        ),
+    }
+
+
+class ExpandPoolRequest(BaseModel):
+    """Request to grow a server's IPv4 address pool to a wider CIDR."""
+    new_cidr: str = Field(..., description="New IPv4 network in CIDR form, e.g. '10.0.0.0/20'")
+
+
+@router.post("/{server_id}/expand-pool")
+def expand_address_pool(
+    server_id: int,
+    payload: ExpandPoolRequest,
+    db: Session = Depends(get_db),
+):
+    """Grow the WG server's IPv4 address pool without disrupting existing
+    clients.
+
+    Safety contract — every check has to pass before we touch anything:
+      1. New CIDR parses cleanly as an IPv4 network (strict=False so
+         bare host bits are forgiven, but we re-derive the canonical
+         network address before saving).
+      2. New network is STRICTLY WIDER (smaller prefix length) than the
+         current pool. Refusing same-or-narrower keeps this endpoint
+         purely additive — there's no scenario where a narrower pool
+         doesn't risk orphaning a client.
+      3. New network CONTAINS the current pool entirely. The current
+         pool's network address must fall inside the new one. This is
+         what guarantees every existing client IP stays valid.
+      4. No conflict with any OTHER server's pool. Two overlapping pools
+         on different servers would let a client IP be routable to two
+         places — broken setup. We ignore the current server itself when
+         looking for conflicts.
+      5. Server is wireguard / amneziawg (proxy servers don't have a pool).
+
+    On success: DB updated, server config regenerated, interface bounced
+    so the new in-kernel rules pick up the wider mask. Existing peers
+    keep their IPs and reconnect within seconds (one handshake cycle).
+    """
+    import ipaddress
+
+    server = db.query(Server).filter(Server.id == server_id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    server_type = getattr(server, "server_type", "wireguard") or "wireguard"
+    server_category = getattr(server, "server_category", "vpn") or "vpn"
+    if server_category == "proxy" or server_type in ("hysteria2", "tuic"):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "wrong_server_type",
+                    "message": "Address pools only apply to WireGuard / AmneziaWG servers."},
+        )
+
+    # Mikrotik routers own their wireguard interface address themselves —
+    # the panel inherits the pool at adoption time and doesn't push config
+    # back. Silently regenerating a "new" config here would update the DB
+    # without touching the router, leaving the two out of sync. Refuse
+    # cleanly and point the operator at the right place.
+    if (getattr(server, "agent_mode", None) or "") == "mikrotik":
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "not_supported_on_mikrotik",
+                    "message": "Address pool for a Mikrotik server is configured "
+                               "on the router itself (/interface/wireguard, "
+                               "/ip address). Update it in RouterOS, then "
+                               "re-adopt the server in the panel — the new "
+                               "pool is inherited automatically."},
+        )
+
+    # 1. Parse + canonicalise
+    try:
+        new_net = ipaddress.IPv4Network(payload.new_cidr.strip(), strict=False)
+    except (ValueError, ipaddress.AddressValueError) as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_cidr",
+                    "message": f"'{payload.new_cidr}' is not a valid IPv4 network: {e}"},
+        )
+
+    canonical_new = f"{new_net.network_address}/{new_net.prefixlen}"
+
+    # 2. Parse current pool — must be valid for the comparisons below
+    try:
+        cur_net = ipaddress.IPv4Network(server.address_pool_ipv4 or "", strict=False)
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "current_pool_invalid",
+                    "message": f"Server's stored pool '{server.address_pool_ipv4}' is not parseable. "
+                               "Contact support — this row needs manual repair."},
+        )
+
+    # 3. Strictly wider AND contains old
+    if new_net.prefixlen >= cur_net.prefixlen:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "not_wider",
+                    "message": f"New /{new_net.prefixlen} is the same size or narrower than the current "
+                               f"/{cur_net.prefixlen}. This endpoint only expands. Pick a smaller "
+                               "prefix length (e.g. /20 to grow a /24, /16 to grow a /20)."},
+        )
+    if not new_net.supernet_of(cur_net):
+        # Walking the canonical-form alternative the operator probably meant
+        # gives them a useful nudge: "you wrote 10.0.1.0/20 which canonicalises
+        # to 10.0.0.0/20 — was that what you intended?"
+        suggested = ipaddress.ip_network(
+            f"{cur_net.network_address}/{new_net.prefixlen}", strict=False
+        )
+        hint = ""
+        if suggested.supernet_of(cur_net):
+            hint = (f" Did you mean {suggested}? That keeps your existing "
+                    f"{cur_net} inside the new range.")
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "does_not_contain_current",
+                    "message": f"{new_net} doesn't contain the current pool {cur_net}. "
+                               "All existing client IPs must fall inside the new range." + hint,
+                    "current": str(cur_net),
+                    "suggested": str(suggested) if suggested.supernet_of(cur_net) else None},
+        )
+
+    # 4. No conflict with other servers' pools — but ONLY when they live
+    # on the same physical machine. Two WG servers on different boxes
+    # don't share a kernel routing table, so their pools can overlap
+    # without breaking anything (each box NATs its own /24 to the
+    # internet independently). The original strict check was treating a
+    # remote agent at IP-A as if it conflicted with a remote agent at
+    # IP-B — which it doesn't, technically. Same machine = same kernel =
+    # real route conflict, that we still block.
+    own_host = (server.ssh_host or "").strip()
+    other_pools = (
+        db.query(Server.id, Server.name, Server.address_pool_ipv4, Server.ssh_host)
+        .filter(Server.id != server_id)
+        .filter(Server.address_pool_ipv4.isnot(None))
+        .all()
+    )
+    for other_id, other_name, other_pool, other_host in other_pools:
+        if not other_pool:
+            continue
+        # Different machine → no kernel-level conflict, skip.
+        if (other_host or "").strip() != own_host:
+            continue
+        try:
+            other_net = ipaddress.IPv4Network(other_pool, strict=False)
+        except Exception:
+            continue
+        if new_net.overlaps(other_net):
+            raise HTTPException(
+                status_code=409,
+                detail={"error": "pool_conflict",
+                        "message": f"New pool {new_net} overlaps with server "
+                                   f"'{other_name}' (#{other_id}) which uses {other_net} "
+                                   f"on the same machine. Two interfaces on the "
+                                   "same box can't share an address range — kernel "
+                                   "routes would collide. Pick a non-overlapping CIDR "
+                                   "or move that server to a different host first.",
+                        "conflicting_server_id": other_id,
+                        "conflicting_server_name": other_name,
+                        "conflicting_pool": str(other_net)},
+            )
+
+    # 5. All checks passed — commit DB change
+    old_cidr = server.address_pool_ipv4
+    server.address_pool_ipv4 = canonical_new
+    db.commit()
+    db.refresh(server)
+    logger.info(
+        "expand-pool: server_id={} {} → {}",
+        server_id, old_cidr, canonical_new,
+    )
+
+    # 6. Regenerate config + bounce interface so kernel picks up the new
+    # mask on the WG-quick interface address line. Existing peers keep
+    # their IPs (they're inside the new pool by construction).
+    config_pushed = False
+    interface_bounced = False
+    push_error = None
+    try:
+        from ...core.management import ManagementCore
+        core = ManagementCore(db)
+        new_cfg = core.servers.generate_server_config(server_id)
+        if not new_cfg:
+            raise RuntimeError("generate_server_config returned None")
+
+        # Push to remote (agent or SSH) — this writes /etc/wireguard/<iface>.conf
+        # AND bounces the interface so the new pool/mask are live in-kernel.
+        if server.ssh_host:
+            from ...core.remote_adapter import RemoteServerAdapter
+            adapter = RemoteServerAdapter(
+                server=server,
+                interface=server.interface,
+                config_path=server.config_path,
+            )
+            try:
+                # RemoteServerAdapter exposes the file-write op as
+                # write_config_file (not write_config — the latter doesn't
+                # exist and a typo here would cost us a retry on prod).
+                if not adapter.write_config_file(new_cfg):
+                    raise RuntimeError(
+                        f"Failed to push regenerated config to {server.ssh_host}; "
+                        "agent may be unreachable. DB has new pool but the box hasn't seen it."
+                    )
+                config_pushed = True
+                # Bounce: stop then start so PostDown/PostUp iptables rules
+                # are torn down and re-created against the new pool. Both
+                # legs are checked — a silent failure here means the
+                # kernel keeps the OLD pool while the DB believes it
+                # applied, the worst kind of inconsistency.
+                stop_ok = adapter.stop_interface()
+                if not stop_ok:
+                    raise RuntimeError(
+                        f"stop_interface failed on remote {server.ssh_host} ({server.interface}); "
+                        "DB has new pool but kernel did not pick it up. "
+                        "SSH in and run `wg-quick down {iface} && wg-quick up {iface}` to apply."
+                    )
+                start_ok = adapter.start_interface()
+                if not start_ok:
+                    raise RuntimeError(
+                        f"start_interface failed on remote {server.ssh_host}; "
+                        "interface is currently down."
+                    )
+                interface_bounced = True
+            finally:
+                adapter.close()
+        else:
+            # Local-server path
+            cfg_path = server.config_path or f"/etc/wireguard/{server.interface}.conf"
+            from pathlib import Path as _P
+            _P(cfg_path).write_text(new_cfg)
+            config_pushed = True
+            if server_type == "amneziawg":
+                from ...core.amneziawg import AmneziaWGManager
+                mgr = AmneziaWGManager(interface=server.interface, config_path=cfg_path)
+            else:
+                from ...core.wireguard import WireGuardManager
+                mgr = WireGuardManager(interface=server.interface, config_path=cfg_path)
+            try:
+                # Bounce: stop (best-effort) → start. Verify both, don't
+                # claim success on a failed stop. If stop fails AND iface
+                # is still up, start_interface bails with "already up" and
+                # the kernel keeps the OLD pool — silent failure mode that
+                # bit prod hard during 1.5.73 testing.
+                stop_ok = True
+                if mgr.is_interface_up():
+                    stop_ok = mgr.stop_interface()
+                if not stop_ok:
+                    raise RuntimeError(
+                        f"stop_interface failed on {server.interface}; "
+                        "kernel still has the old pool. The DB has the new "
+                        "pool — manually run `awg-quick down {iface} && "
+                        "awg-quick up {iface}` on the box to apply."
+                    )
+                start_ok = mgr.start_interface()
+                if not start_ok:
+                    raise RuntimeError(
+                        f"start_interface failed on {server.interface}; "
+                        "interface is now down. Bring it back up manually."
+                    )
+                interface_bounced = True
+            finally:
+                if hasattr(mgr, "close"):
+                    try: mgr.close()
+                    except Exception: pass
+    except Exception as e:
+        push_error = str(e)
+        logger.error("expand-pool: config push/bounce failed for server_id={}: {}",
+                     server_id, e)
+
+    # If config push or bounce failed but DB change succeeded, the operator
+    # gets a clear partial-success response. The DB is the source of truth
+    # and the next manual restart will sync the kernel state.
+    return {
+        "server_id":         server_id,
+        "old_pool":          old_cidr,
+        "new_pool":          canonical_new,
+        "host_capacity":     int(new_net.num_addresses) - 2,  # minus network + broadcast
+        "config_pushed":     config_pushed,
+        "interface_bounced": interface_bounced,
+        "warning":           push_error,
+    }
+
+
+@router.put("/{server_id}", response_model=ServerResponse)
+async def update_server(
+    server_id: int,
+    server_data: ServerUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update server properties
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    update_data = server_data.model_dump(exclude_unset=True)
+
+    # Snapshot the pre-update visibility so we can detect a hidden→visible
+    # flip below and backfill existing slots on this server. Note: the
+    # default for legacy rows that predate customer_visible is True, so
+    # treat missing as True.
+    was_customer_visible = bool(getattr(server, "customer_visible", True))
+
+    is_awg = getattr(server, 'server_type', 'wireguard') == 'amneziawg'
+
+    # AWG obfuscation params are only meaningful for AmneziaWG servers; drop
+    # them silently for plain WG/proxy so the API doesn't 400 on a noise field.
+    awg_fields = {
+        'awg_jc', 'awg_jmin', 'awg_jmax', 'awg_s1', 'awg_s2',
+        'awg_h1', 'awg_h2', 'awg_h3', 'awg_h4', 'awg_mtu',
+    }
+    if not is_awg:
+        for f in awg_fields:
+            update_data.pop(f, None)
+
+    # split_tunnel_support has no effect on AWG servers — silently drop it
+    if update_data and is_awg:
+        update_data.pop('split_tunnel_support', None)
+
+    awg_param_changed = is_awg and bool(set(update_data) & awg_fields)
+
+    if update_data:
+        server = core.servers.update_server(server_id, **update_data)
+        if not server:
+            raise HTTPException(status_code=500, detail="Failed to update server")
+
+    # When AWG obfuscation params change, push the new values to the
+    # interface config on disk and restart so the kernel module picks them
+    # up — otherwise the DB knows the new headers but the live interface
+    # still uses the old ones, and existing client configs keep failing.
+    if awg_param_changed:
+        try:
+            await asyncio.to_thread(core.servers.save_server_config, server_id)
+            await asyncio.to_thread(core.servers.restart_server, server_id)
+            logger.info(
+                f"AWG obfuscation params updated on server {server.name}; "
+                "config redeployed + interface restarted"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to redeploy AWG config after param update on {server.name}: {e}"
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Database updated but pushing config to the interface failed: {e}. "
+                    "Use Apply config + Restart from the server menu to retry."
+                ),
+            )
+
+    # If the operator flipped customer_visible False → True, fan out the
+    # backfill: existing slots get a peer on this server retroactively.
+    # The opposite flip (visible → hidden) intentionally leaves existing
+    # slot peers in place so customers currently connected to this region
+    # don't drop their tunnel mid-session; new slots simply skip the now-
+    # hidden server. Operators who really want to wipe peers from a hidden
+    # server can delete the server row entirely.
+    now_visible = bool(getattr(server, "customer_visible", True))
+    if now_visible and not was_customer_visible:
+        try:
+            from ...modules.subscription.slot_manager import SlotManager
+            SlotManager(db).backfill_all_slots_on_server(server)
+        except Exception as _bf_err:
+            logger.warning(
+                "slot backfill after customer_visible flip on {} failed: {}",
+                getattr(server, "name", "?"), _bf_err,
+            )
+
+    return ServerResponse.from_server(server, db=db)
+
+
+@router.get("/{server_id}/delete-preview")
+def delete_server_preview(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Preview what will be affected by deleting a server.
+    Use this before actually calling DELETE to show the user consequences.
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    from ...database.models import Client
+    clients = db.query(Client).filter(Client.server_id == server_id).all()
+    enabled_clients = [c for c in clients if c.enabled]
+
+    return {
+        "server_name": server.name,
+        "server_id": server_id,
+        "total_clients": len(clients),
+        "enabled_clients": len(enabled_clients),
+        "client_names": [c.name for c in clients],
+        "warning": f"This will permanently delete server '{server.name}' and all {len(clients)} associated clients.",
+        "requires_force": len(clients) > 0,
+    }
+
+
+@router.delete("/{server_id}")
+async def delete_server(
+    server_id: int,
+    force: bool = Query(False, description="Delete even if has clients"),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a WireGuard server
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    if not core.servers.delete_server(server_id, force=force):
+        # With force=False, the most common cause is clients still attached.
+        # With force=True it means even DB-only cleanup ran into an unhandled
+        # error — the row is still there, surface a different message so the
+        # operator knows force was honoured but something else broke and asks
+        # them to check the API logs.
+        if force:
+            detail = (
+                "Server delete failed unexpectedly even with force=true. "
+                "The DB row is still present. Check the API service logs "
+                "(journalctl -u vpnmanager-api) for the underlying exception."
+            )
+        else:
+            detail = "Failed to delete server. It may have clients - use force=true to delete anyway"
+        raise HTTPException(status_code=400, detail=detail)
+
+    # Drop the peer cache for this server so the background refresher
+    # stops trying to poll it and stale entries don't linger.
+    try:
+        from ...modules.cache.handshake_cache import get_cache
+        get_cache().drop_server(server_id)
+    except Exception:
+        pass
+
+    return {"message": f"Server '{server.name}' deleted successfully"}
+
+
+@router.post("/{server_id}/purge")
+def purge_server(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Hard purge a server: DELETE the DB row + cascade-delete clients/subscriptions
+    WITHOUT any attempt to reach the remote box. Last-resort path used when the
+    normal force-delete blew up on a dead remote — operators were dropping to
+    psql/CLI; this gives them the same outcome from the panel.
+
+    The remote box (if it ever comes back) will still have its WG interface and
+    peers; operator can clean it up manually or by re-adding the server then
+    deleting properly. We trade orphaned remote-side state for the panel
+    staying authoritative.
+    """
+    from loguru import logger as _llog
+    from sqlalchemy import text as _sql_text
+    from ...database.models import Subscription, Client as _Client
+    from ...modules.subscription.subscription_models import ClientUserClients
+
+    server = db.query(Server).filter(Server.id == server_id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    name = server.name
+    try:
+        client_ids = [cid for (cid,) in db.query(_Client.id).filter(_Client.server_id == server_id).all()]
+        if client_ids:
+            db.query(Subscription).filter(Subscription.client_id.in_(client_ids)).delete(synchronize_session=False)
+            # Explicitly drop the portal-user link rows for these clients
+            # before deleting the clients. The ORM declares this FK with
+            # ondelete=CASCADE, but client_user_clients predates Alembic and
+            # is materialised via create_all — on installs whose table was
+            # built before that annotation the live DB FK may lack the
+            # cascade, in which case DELETE FROM clients would raise a
+            # ForeignKeyViolation (→ 500). Deleting links first is correct
+            # either way (a no-op for rows the cascade would have removed).
+            db.query(ClientUserClients).filter(
+                ClientUserClients.client_id.in_(client_ids)
+            ).delete(synchronize_session=False)
+        db.query(_Client).filter(_Client.server_id == server_id).delete(synchronize_session=False)
+        db.delete(server)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        _llog.error(f"purge_server({server_id}) failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Purge failed: {e}")
+
+    # Best-effort: drop peer cache so the background poller doesn't keep trying
+    # to reach the now-deleted server.
+    try:
+        from ...modules.cache.handshake_cache import get_cache
+        get_cache().drop_server(server_id)
+    except Exception:
+        pass
+
+    _llog.warning(f"Server '{name}' (id={server_id}) hard-purged from panel — remote state may be orphaned")
+    return {"message": f"Server '{name}' purged from panel (remote state not touched)"}
+
+
+@router.get("/{server_id}/stats", response_model=ServerStatsResponse)
+def get_server_stats(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get server statistics including traffic and client counts.
+
+    Declared `def` (not `async`): core.get_server_stats() makes a BLOCKING
+    agent HTTP / SSH round-trip to the node. As `async def` that ran on the
+    single event loop, so a slow or unreachable node (a dead agent hitting the
+    5s connect timeout before the circuit breaker opens) can freeze the panel
+    while other requests queue behind it. As a sync def
+    FastAPI runs it in the threadpool, so a bad node slows only this one request.
+    """
+    core = ManagementCore(db)
+    stats = core.get_server_stats(server_id)
+
+    if not stats:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    return stats
+
+
+@router.get("/{server_id}/bandwidth")
+def get_server_bandwidth(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get real-time bandwidth rates for a server.
+    Call every 5 seconds for live monitoring.
+    First call returns zero rates (baseline snapshot).
+
+    Declared as `def`: bandwidth fan-out (6 servers × every 5s) used to
+    serialize on the event loop because the body does sync HTTP/SSH calls.
+    Threadpool execution makes the per-server fetches parallel.
+    """
+    from ...core.bandwidth_monitor import BandwidthMonitor
+
+    monitor = BandwidthMonitor(db)
+    result = monitor.get_server_bandwidth(server_id)
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Server not found or offline")
+
+    return result
+
+
+@router.post("/{server_id}/start")
+async def start_server(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Start a WireGuard server interface
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    # Suspended servers (license enforcement parked them after a paid
+    # subscription lapsed) need a paid license before they can be started.
+    from ...database.models import ServerLifecycleStatus
+    if server.lifecycle_status == ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": (
+                    f"Server '{server.name}' is suspended because the paid "
+                    "subscription that authorized it has lapsed. Re-activate "
+                    "a Business or Enterprise subscription to start it again."
+                ),
+                "license_feature_required": "multi_server",
+                "upgrade_url": "https://flirexa.biz/#pricing",
+                "upgrade_tier": "business",
+            },
+        )
+
+    if not core.start_server(server_id):
+        raise HTTPException(status_code=500, detail="Failed to start server")
+
+    return {
+        "message": f"Server '{server.name}' started",
+        "status": "online"
+    }
+
+
+@router.post("/{server_id}/stop")
+async def stop_server(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Stop a WireGuard server interface
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    if not core.stop_server(server_id):
+        raise HTTPException(status_code=500, detail="Failed to stop server")
+
+    return {
+        "message": f"Server '{server.name}' stopped",
+        "status": "offline"
+    }
+
+
+@router.post("/{server_id}/restart")
+async def restart_server(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Restart a WireGuard server interface
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    if not core.servers.restart_server(server_id):
+        raise HTTPException(status_code=500, detail="Failed to restart server")
+
+    return {
+        "message": f"Server '{server.name}' restarted",
+        "status": "online"
+    }
+
+
+@router.get("/{server_id}/clients")
+async def get_server_clients(
+    server_id: int,
+    enabled_only: bool = Query(False),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all clients on a specific server
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    clients = core.clients.get_all_clients(
+        server_id=server_id,
+        enabled_only=enabled_only
+    )
+
+    return {
+        "server_id": server_id,
+        "server_name": server.name,
+        "client_count": len(clients),
+        "clients": [
+            {
+                "id": c.id,
+                "name": c.name,
+                "ipv4": c.ipv4,
+                "enabled": c.enabled,
+                "status": c.status.value,
+            }
+            for c in clients
+        ]
+    }
+
+
+@router.get("/{server_id}/config")
+async def get_server_config(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get WireGuard server configuration file content
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    config = core.servers.generate_server_config(server_id)
+
+    if not config:
+        raise HTTPException(status_code=500, detail="Failed to generate config")
+
+    return {"config": config}
+
+
+@router.post("/{server_id}/save-config")
+async def save_server_config(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Save server configuration to file
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    if not core.servers.save_server_config(server_id):
+        raise HTTPException(status_code=500, detail="Failed to save config")
+
+    return {
+        "message": f"Configuration saved to {server.config_path}",
+        "path": server.config_path
+    }
+
+
+@router.get("/{server_id}/agent-status")
+async def get_agent_installation_status(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get agent installation/health status
+
+    Returns:
+        - mode: "ssh" or "agent"
+        - agent_healthy: true/false (if agent mode)
+        - status: "ssh_only", "agent_online", "agent_offline"
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    response = {
+        "server_id": server.id,
+        "mode": server.agent_mode or "ssh",
+        "agent_url": server.agent_url,
+        "agent_healthy": False,
+        "status": "ssh_only"
+    }
+
+    # Check agent health if in agent mode
+    if server.agent_mode == "agent" and server.agent_url and server.agent_api_key:
+        from ...core.agent_client import AgentClient
+
+        try:
+            client = AgentClient(server.agent_url, server.agent_api_key, timeout=5)
+            health = client.health_check()
+            response["agent_healthy"] = health
+            response["status"] = "agent_online" if health else "agent_offline"
+            client.close()
+        except Exception:
+            response["agent_healthy"] = False
+            response["status"] = "agent_offline"
+    elif server.agent_mode == "ssh":
+        response["status"] = "ssh_only"
+
+    return response
+
+
+@router.post("/{server_id}/agent/breaker/reset")
+async def reset_agent_breaker(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """Force-clear the in-memory circuit breaker for this server's agent.
+    Backs the panel's "Retry now" button — after the user fixes a firewall
+    rule or restarts the agent, this lets the next call probe immediately
+    instead of waiting out the open-window backoff."""
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if (server.agent_mode or "ssh") != "agent" or not server.agent_url:
+        return {"reset": False, "reason": "not_in_agent_mode"}
+    from ...core.agent_client import reset_breaker
+    cleared = reset_breaker(server.agent_url)
+    return {"reset": cleared}
+
+
+@router.post("/{server_id}/install-agent", dependencies=[_multi_server_gate])
+async def install_agent_on_server(
+    server_id: int,
+    request: AgentInstallRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Manually install agent on existing remote server
+
+    This endpoint allows installing the agent on servers that were added
+    before Agent Mode was implemented, or if initial installation failed.
+
+    Returns:
+        - success: bool
+        - message: str
+        - agent_mode: "agent" or "ssh"
+        - agent_url: str or null
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    # Check if it's a remote server
+    if not server.ssh_host:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot install agent on local server. Agent is only for remote servers."
+        )
+
+    # Fail fast with an actionable message when the panel has no way to SSH in.
+    # Without this the operator got paramiko's cryptic "No authentication
+    # methods available" a minute into the attempt. `code` lets the redesign
+    # modal react (reveal an inline SSH-password field).
+    if not server.ssh_password and not getattr(server, "ssh_private_key", None):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={
+            "detail": "SSH credentials missing for this server — add an SSH password "
+                      "or private key (Edit server), then retry the install.",
+            "code": "ssh_credentials_missing",
+        })
+
+    # If already in agent mode, only skip if agent is actually healthy — unless
+    # the caller forced a reinstall (e.g. to push a newer agent build onto a
+    # node whose current agent is healthy but outdated).
+    if not request.force and server.agent_mode == "agent" and server.agent_url and server.agent_api_key:
+        from ...core.agent_client import AgentClient
+        try:
+            client = AgentClient(server.agent_url, server.agent_api_key, timeout=5)
+            is_healthy = client.health_check()
+            client.close()
+        except Exception:
+            is_healthy = False
+        if is_healthy:
+            return {
+                "success": True,
+                "message": "Agent already installed and healthy",
+                "agent_mode": "agent",
+                "agent_url": server.agent_url
+            }
+        logger.info(f"Agent on {server.name} is unhealthy — proceeding with reinstall")
+
+    # Optional live progress stream (frontend polls GET /servers/bootstrap/{task_id})
+    task = None
+    if request.task_id:
+        try:
+            from ...modules.bootstrap_logger import create_task
+            task = create_task(request.task_id, server.id)
+        except Exception:
+            task = None
+
+    def _log(msg: str):
+        logger.info(msg)
+        if task:
+            try:
+                task.log(msg)
+            except Exception:
+                pass
+
+    # Install agent
+    import os
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    agent_code_path = os.path.join(base_dir, "agent.py")
+
+    _log(f"🔌 Connecting to {server.ssh_host} …")
+    _log("📦 Installing agent — uploading agent.py, dependencies and the systemd "
+         "service. This can take up to a minute …")
+
+    try:
+        agent_installed, install_error = await asyncio.to_thread(
+            core.servers.install_agent,
+            server_id=server.id,
+            agent_code_path=agent_code_path,
+            port=request.port,
+            progress_cb=_log,
+        )
+
+        if agent_installed:
+            # Refresh server data
+            db.refresh(server)
+
+            # The reinstall itself knocked the agent down for ~a minute, so the
+            # panel's pollers tripped the circuit breaker — without this reset
+            # every agent call keeps getting skipped for the backoff window and
+            # the UI shows "agent unavailable" right after a SUCCESSFUL install.
+            try:
+                from ...core.agent_client import reset_breaker
+                if server.agent_url:
+                    reset_breaker(server.agent_url)
+            except Exception:
+                pass
+
+            # Report the now-running agent version (best-effort, refreshes cache).
+            agent_version = None
+            try:
+                if server.agent_url and server.agent_api_key:
+                    from ...core.agent_client import AgentClient
+                    client = AgentClient(server.agent_url, server.agent_api_key, timeout=5)
+                    health = await asyncio.to_thread(client.health_full)
+                    client.close()
+                    if health:
+                        agent_version = health.get("version")
+            except Exception:
+                pass
+
+            _log(f"✅ Agent installed and running"
+                 f"{f' (v{agent_version})' if agent_version else ''} on {server.name}")
+            if task:
+                task.finish()
+            return {
+                "success": True,
+                "message": "Agent installed and activated successfully",
+                "agent_mode": server.agent_mode,
+                "agent_url": server.agent_url,
+                "agent_version": agent_version,
+            }
+        else:
+            _log(f"❌ {install_error or 'Agent installation failed'}")
+            if task:
+                task.finish(error=install_error or "Agent installation failed")
+            return {
+                "success": False,
+                "message": install_error or "Agent installation failed. Server remains in SSH mode. Check logs for details.",
+                "agent_mode": "ssh",
+                "agent_url": None
+            }
+
+    except Exception as e:
+        logger.error(f"Agent installation error on {server.name}: {e}")
+        _log(f"❌ Installation error: {e}")
+        if task:
+            try:
+                task.finish(error=str(e))
+            except Exception:
+                pass
+        raise HTTPException(
+            status_code=500,
+            detail=f"Agent installation failed: {str(e)}"
+        )
+
+
+class AgentsReinstallAllRequest(BaseModel):
+    """Schema for the fleet-wide agent reinstall."""
+    # Bootstrap-log task id supplied by the frontend so it can stream the whole
+    # rollout via GET /servers/bootstrap/{task_id} (same channel as single installs).
+    task_id: Optional[str] = None
+
+
+@router.post("/agents/reinstall-all", dependencies=[_multi_server_gate])
+async def reinstall_all_agents(
+    request: AgentsReinstallAllRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Reinstall the agent on EVERY agent-mode server, one node at a time.
+
+    Runs as a background task and returns immediately — a fleet rollout takes
+    minutes and a long HTTP call would be dropped by proxies (the same lesson
+    as the single-install route: the task stream is the source of truth).
+    Servers are processed sequentially so a bad batch can't hammer every node
+    at once and the log stays readable. Per-server failures (e.g. missing SSH
+    creds on adopted nodes) are logged and skipped — the rollout continues.
+    """
+    plan = []
+    for s in db.query(Server).filter(Server.agent_mode == "agent").all():
+        if not s.ssh_host:
+            continue  # local server — no SSH bootstrap
+        m = re.search(r":(\d+)/?$", s.agent_url or "")
+        # Keep each node's existing agent port so agent_url stays stable.
+        plan.append({"id": s.id, "name": s.name, "port": int(m.group(1)) if m else 8001})
+
+    if not plan:
+        raise HTTPException(status_code=400, detail="No agent-mode servers to reinstall")
+
+    task = None
+    if request.task_id:
+        try:
+            from ...modules.bootstrap_logger import create_task
+            task = create_task(request.task_id)
+        except Exception:
+            task = None
+
+    def _log(msg: str):
+        logger.info(f"[reinstall-all] {msg}")
+        if task:
+            try:
+                task.log(msg)
+            except Exception:
+                pass
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    agent_code_path = os.path.join(base_dir, "agent.py")
+
+    async def _run():
+        from ...database.connection import SessionLocal
+        ok, failed = [], []
+        for i, item in enumerate(plan, 1):
+            _log(f"— [{i}/{len(plan)}] {item['name']} —")
+            # Fresh session per node: the request-scoped one is gone by now,
+            # and one node's failure must not poison the next one's session.
+            s_db = SessionLocal()
+            try:
+                s_core = ManagementCore(s_db)
+                srv = s_core.get_server(item["id"])
+                if not srv:
+                    failed.append(item["name"]); _log("❌ Server disappeared from DB — skipped")
+                    continue
+                if not srv.ssh_password and not getattr(srv, "ssh_private_key", None):
+                    failed.append(item["name"])
+                    _log("❌ No SSH credentials stored — skipped. Add a password/key "
+                         "(Edit server) and use Manage agent → Reinstall for this node.")
+                    continue
+                _log(f"🔌 Connecting to {srv.ssh_host} …")
+                installed, err = await asyncio.to_thread(
+                    s_core.servers.install_agent,
+                    server_id=item["id"],
+                    agent_code_path=agent_code_path,
+                    port=item["port"],
+                    progress_cb=_log,
+                )
+                if not installed:
+                    failed.append(item["name"]); _log(f"❌ {err or 'Install failed'}")
+                    continue
+                s_db.refresh(srv)
+                # Same as the single route: the reinstall outage tripped the
+                # breaker — clear it so the fresh agent isn't shown as down.
+                try:
+                    from ...core.agent_client import reset_breaker
+                    if srv.agent_url:
+                        reset_breaker(srv.agent_url)
+                except Exception:
+                    pass
+                ver = None
+                try:
+                    if srv.agent_url and srv.agent_api_key:
+                        from ...core.agent_client import AgentClient
+                        client = AgentClient(srv.agent_url, srv.agent_api_key, timeout=5)
+                        health = await asyncio.to_thread(client.health_full)
+                        client.close()
+                        ver = (health or {}).get("version")
+                except Exception:
+                    pass
+                ok.append(item["name"])
+                _log(f"✅ {item['name']}: agent reinstalled{f' (v{ver})' if ver else ''}")
+            except Exception as e:
+                failed.append(item["name"]); _log(f"❌ {item['name']}: {e}")
+            finally:
+                try:
+                    s_db.close()
+                except Exception:
+                    pass
+        summary = f"Reinstalled {len(ok)}/{len(plan)} agents" + (f"; failed: {', '.join(failed)}" if failed else "")
+        _log(("✅ " if not failed else "⚠️ ") + summary)
+        if task:
+            try:
+                task.finish(error=None if not failed else summary)
+            except Exception:
+                pass
+
+    asyncio.create_task(_run())
+    return {"started": True, "total": len(plan), "servers": [p["name"] for p in plan]}
+
+
+@router.post("/discover", dependencies=[_multi_server_gate])
+async def discover_server(
+    data: DiscoverRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Discover WireGuard/AmneziaWG configuration on a remote server via SSH.
+    Automatically registers the server, imports all clients, and installs the agent.
+    """
+    from ...core.amneziawg import AmneziaWGManager
+
+    core = ManagementCore(db)
+
+    is_awg = data.interface.startswith("awg")
+    config_dir = "/etc/amnezia/amneziawg" if is_awg else "/etc/wireguard"
+
+    # Create appropriate manager for WG or AWG
+    wg_kwargs = dict(
+        interface=data.interface,
+        config_path=f"{config_dir}/{data.interface}.conf",
+        ssh_host=data.ssh_host,
+        ssh_port=data.ssh_port,
+        ssh_user=data.ssh_user,
+        ssh_password=data.ssh_password,
+        ssh_private_key=data.ssh_private_key,
+    )
+    wg = AmneziaWGManager(**wg_kwargs) if is_awg else WireGuardManager(**wg_kwargs)
+
+    try:
+        result = await asyncio.to_thread(wg.discover_remote)
+    except Exception as e:
+        wg.close()
+        raise HTTPException(status_code=400, detail=f"SSH connection failed: {str(e)}")
+
+    if not result:
+        wg.close()
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{'AmneziaWG' if is_awg else 'WireGuard'} interface '{data.interface}' not found on {data.ssh_host}. "
+                "Check: 1) interface name is correct (wg0/wg1/awg0), "
+                "2) WireGuard is installed (wireguard-tools), "
+                "3) config file exists at /etc/wireguard/{interface}.conf"
+            )
+        )
+
+    wg.close()
+
+    # Generate server name
+    server_name = data.server_name or f"Server {data.ssh_host}"
+
+    # Check for duplicate
+    if core.servers.get_server_by_name(server_name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Server '{server_name}' already exists"
+        )
+
+    # Create endpoint
+    endpoint = f"{data.ssh_host}:{result['listen_port']}"
+
+    # Register server + import clients in a SINGLE transaction
+    try:
+        # Build AWG-specific fields from discovered params (if AWG)
+        awg_fields = {}
+        if is_awg and result.get("awg_params"):
+            p = result["awg_params"]
+            awg_fields = {
+                "awg_jc":   p.get("jc"),
+                "awg_jmin": p.get("jmin"),
+                "awg_jmax": p.get("jmax"),
+                "awg_s1":   p.get("s1"),
+                "awg_s2":   p.get("s2"),
+                "awg_h1":   p.get("h1"),
+                "awg_h2":   p.get("h2"),
+                "awg_h3":   p.get("h3"),
+                "awg_h4":   p.get("h4"),
+            }
+
+        server = Server(
+            name=server_name,
+            interface=data.interface,
+            endpoint=endpoint,
+            listen_port=result["listen_port"],
+            public_key=result["public_key"],
+            private_key=result["private_key"],
+            address_pool_ipv4=result.get("address_pool_ipv4") or "10.66.66.0/24",
+            address_pool_ipv6=result.get("address_pool_ipv6"),
+            dns="1.1.1.1,1.0.0.1",
+            config_path=f"{config_dir}/{data.interface}.conf",
+            max_clients=250,
+            status=ServerStatus.ONLINE,
+            lifecycle_status=ServerLifecycleStatus.ONLINE.value,
+            is_active=True,
+            ssh_host=data.ssh_host,
+            ssh_port=data.ssh_port,
+            ssh_user=data.ssh_user,
+            ssh_password=data.ssh_password,
+            ssh_private_key=data.ssh_private_key,
+            server_type="amneziawg" if is_awg else "wireguard",
+            **awg_fields,
+        )
+        db.add(server)
+        db.flush()  # Get server.id without committing
+
+        # Import clients
+        imported_clients = []
+        for client_data in result.get("clients", []):
+            # Calculate IP index from allowed_ips
+            ip_index = 2
+            if client_data.get("allowed_ips"):
+                ip = client_data["allowed_ips"][0].split("/")[0]
+                parts = ip.split(".")
+                if len(parts) == 4:
+                    ip_index = int(parts[3])
+
+            # Extract IPv4 and IPv6
+            ipv4 = None
+            ipv6 = None
+            for aip in client_data.get("allowed_ips", []):
+                addr = aip.split("/")[0]
+                if ":" in addr:
+                    ipv6 = addr
+                else:
+                    ipv4 = addr
+
+            client = Client(
+                name=client_data.get("name", f"peer_{ip_index}"),
+                server_id=server.id,
+                public_key=client_data["public_key"],
+                private_key=client_data.get("private_key"),
+                preshared_key=client_data.get("preshared_key"),
+                ip_index=ip_index,
+                ipv4=ipv4,
+                ipv6=ipv6,
+                status=ClientStatus.ACTIVE,
+                enabled=True,
+            )
+            db.add(client)
+            imported_clients.append(client_data.get("name", f"peer_{ip_index}"))
+
+        # Single commit: server + all clients atomically
+        db.commit()
+        db.refresh(server)
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to discover/import server: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to import server: {str(e)}")
+
+    # Auto-install agent (best-effort, non-fatal)
+    agent_status = "not_attempted"
+    try:
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        agent_code_path = os.path.join(base_dir, "agent.py")
+        agent_installed, _ = await asyncio.to_thread(
+            core.servers.install_agent,
+            server_id=server.id,
+            agent_code_path=agent_code_path,
+            port=8001,
+        )
+        if agent_installed:
+            db.refresh(server)
+            agent_status = "installed"
+            logger.info(f"Agent auto-installed after discovery on {server.name}")
+        else:
+            agent_status = "failed"
+    except Exception as e:
+        logger.warning(f"Agent auto-install after discovery failed (non-fatal): {e}")
+        agent_status = "failed"
+
+    return {
+        "message": f"Server '{server_name}' discovered and registered",
+        "server": ServerResponse.from_server(server, db=db),
+        "clients_imported": len(imported_clients),
+        "client_names": imported_clients,
+        "agent_status": agent_status,
+    }
+
+
+# ============================================================================
+# BACKUP & RESTORE
+# ============================================================================
+
+@router.get("/{server_id}/backup")
+def backup_server(
+    server_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Export all clients of a server as a JSON backup.
+    Includes WG keys, IPs, settings, traffic counters.
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    clients = db.query(Client).filter(Client.server_id == server_id).all()
+
+    backup = {
+        "version": "1.0",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "server": {
+            "name": server.name,
+            "endpoint": server.endpoint,
+            "interface": server.interface,
+            "listen_port": server.listen_port,
+            "public_key": server.public_key,
+            "address_pool_ipv4": server.address_pool_ipv4,
+            "dns": server.dns,
+        },
+        "clients": []
+    }
+
+    for c in clients:
+        backup["clients"].append({
+            "name": c.name,
+            "public_key": c.public_key,
+            "private_key": c.private_key,
+            "preshared_key": c.preshared_key,
+            "ip_index": c.ip_index,
+            "ipv4": c.ipv4,
+            "ipv6": c.ipv6,
+            "enabled": c.enabled,
+            "status": c.status.value if hasattr(c.status, 'value') else str(c.status),
+            "bandwidth_limit": c.bandwidth_limit,
+            "traffic_limit_mb": c.traffic_limit_mb,
+            "traffic_used_rx": c.traffic_used_rx,
+            "traffic_used_tx": c.traffic_used_tx,
+            "expiry_date": c.expiry_date.isoformat() if c.expiry_date else None,
+        })
+
+    logger.info(f"Backup created for server '{server.name}': {len(clients)} clients")
+    return JSONResponse(
+        content=backup,
+        headers={
+            "Content-Disposition": f'attachment; filename="backup_{_safe_filename(server.name)}_{datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")}.json"'
+        }
+    )
+
+
+@router.post("/{server_id}/restore")
+async def restore_server(
+    server_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Restore clients from a JSON backup file.
+    Skips clients that already exist (by public_key).
+    """
+    core = ManagementCore(db)
+    server = core.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    try:
+        content = await file.read()
+        backup = json.loads(content)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid backup file: {str(e)}")
+
+    if "clients" not in backup:
+        raise HTTPException(status_code=400, detail="Invalid backup format: missing 'clients' key")
+
+    restored = 0
+    skipped = 0
+    errors = []
+
+    for cd in backup["clients"]:
+        # Check if client with this public_key already exists
+        existing = db.query(Client).filter(Client.public_key == cd["public_key"]).first()
+        if existing:
+            skipped += 1
+            continue
+
+        # Check IP conflict
+        if cd.get("ipv4"):
+            ip_conflict = db.query(Client).filter(
+                Client.server_id == server_id,
+                Client.ipv4 == cd["ipv4"]
+            ).first()
+            if ip_conflict:
+                errors.append(f"{cd['name']}: IP {cd['ipv4']} already in use")
+                skipped += 1
+                continue
+
+        from ...database.models import ClientStatus as CS
+
+        status_map = {"active": CS.ACTIVE, "disabled": CS.DISABLED, "expired": CS.EXPIRED}
+        client_status = status_map.get(cd.get("status", "active"), CS.ACTIVE)
+
+        expiry = None
+        if cd.get("expiry_date"):
+            try:
+                expiry = datetime.fromisoformat(cd["expiry_date"])
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+
+        client = Client(
+            name=cd["name"],
+            server_id=server_id,
+            public_key=cd["public_key"],
+            private_key=cd.get("private_key"),
+            preshared_key=cd.get("preshared_key"),
+            ip_index=cd.get("ip_index", 0),
+            ipv4=cd.get("ipv4", ""),
+            ipv6=cd.get("ipv6"),
+            enabled=cd.get("enabled", True),
+            status=client_status,
+            bandwidth_limit=cd.get("bandwidth_limit"),
+            traffic_limit_mb=cd.get("traffic_limit_mb"),
+            traffic_used_rx=cd.get("traffic_used_rx", 0),
+            traffic_used_tx=cd.get("traffic_used_tx", 0),
+            expiry_date=expiry,
+        )
+        db.add(client)
+        restored += 1
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    logger.info(f"Restore to server '{server.name}': {restored} restored, {skipped} skipped")
+    return {
+        "message": f"Restore complete: {restored} clients restored, {skipped} skipped",
+        "restored": restored,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
+@router.post("/{server_id}/set-default")
+async def set_default_server(
+    server_id: int,
+    db: Session = Depends(get_db),
+):
+    """Set a server as the default for auto-provisioned clients (subscriptions, client portal)"""
+    core = ManagementCore(db)
+    success = core.servers.set_default_server(server_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return {"message": f"Server {server_id} set as default", "server_id": server_id}
+
+
+@router.post("/{server_id}/reconcile")
+def reconcile_server(
+    server_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Manually trigger drift detection + reconciliation for a single server.
+    Re-adds any peers missing from the live WireGuard interface (safe drift).
+    Sets drift_detected=True for unsafe drifts (interface down, agent broken).
+    """
+    server = db.query(Server).filter(Server.id == server_id).first()
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+
+    from ...modules.state_reconciler import reconcile_server as _reconcile
+    try:
+        result = _reconcile(server, db)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Reconcile error for server {server_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Reconciliation failed: {e}")
+
+    return result
