@@ -13,7 +13,7 @@ import subprocess
 import threading
 import re
 
-from ..database.models import Client, Server, ClientStatus, TrafficDaily, TrafficRule
+from ..database.models import Client, Server, ClientStatus, TrafficDaily
 from .wireguard import WireGuardManager
 from datetime import date as date_type
 
@@ -580,113 +580,10 @@ class TrafficManager:
         return top
 
     def check_traffic_rules(self) -> int:
-        """
-        Evaluate all enabled traffic rules and apply/remove auto bandwidth limits.
+        """Delegate commercial rule evaluation through its protected module."""
+        from ..modules.traffic_rules_engine import check_traffic_rules
 
-        Returns:
-            Number of clients affected
-        """
-        from sqlalchemy import func as sa_func
-
-        rules = (
-            self.db.query(TrafficRule)
-            .filter(TrafficRule.enabled == True)
-            .order_by(TrafficRule.threshold_mb.asc())
-            .all()
-        )
-
-        if not rules:
-            return 0
-
-        today = date_type.today()
-        affected = 0
-
-        # Calculate period usage for all clients at once
-        # We need usage for each period type that rules use
-        periods_needed = set(r.period for r in rules)
-        period_usage = {}  # {client_id: {period: bytes_total}}
-
-        for period in periods_needed:
-            if period == "day":
-                start_date = today
-            elif period == "week":
-                start_date = today - timedelta(days=7)
-            else:
-                start_date = today - timedelta(days=30)
-
-            results = (
-                self.db.query(
-                    TrafficDaily.client_id,
-                    sa_func.sum(TrafficDaily.bytes_rx + TrafficDaily.bytes_tx).label("total"),
-                )
-                .filter(TrafficDaily.date >= start_date)
-                .group_by(TrafficDaily.client_id)
-                .all()
-            )
-
-            for r in results:
-                if r.client_id not in period_usage:
-                    period_usage[r.client_id] = {}
-                period_usage[r.client_id][period] = r.total or 0
-
-        # For each client, find the strictest matching rule
-        clients = self.db.query(Client).filter(Client.enabled == True).all()
-
-        for client in clients:
-            usage = period_usage.get(client.id, {})
-            matching_rule = None
-
-            # Rules are sorted by threshold_mb ASC — first match = lowest threshold = strictest
-            for rule in rules:
-                # Skip rules targeted at a different client
-                if rule.client_id is not None and rule.client_id != client.id:
-                    continue
-
-                threshold_bytes = rule.threshold_mb * 1024 * 1024
-                client_usage = usage.get(rule.period, 0)
-
-                if client_usage >= threshold_bytes:
-                    # This rule matches — use the one with lowest bandwidth limit
-                    if matching_rule is None or rule.bandwidth_limit_mbps < matching_rule.bandwidth_limit_mbps:
-                        matching_rule = rule
-
-            if matching_rule:
-                # Client exceeds a rule — apply auto-limit if not already set
-                if client.auto_bandwidth_limit != matching_rule.bandwidth_limit_mbps or \
-                   client.auto_bandwidth_rule_id != matching_rule.id:
-                    client.auto_bandwidth_limit = matching_rule.bandwidth_limit_mbps
-                    client.auto_bandwidth_rule_id = matching_rule.id
-
-                    # Apply effective limit via tc
-                    effective = matching_rule.bandwidth_limit_mbps
-                    if client.bandwidth_limit:
-                        effective = min(effective, client.bandwidth_limit)
-                    self._apply_bandwidth_for_client(client, effective)
-
-                    affected += 1
-                    logger.info(
-                        f"Auto-limit: {client.name} → {matching_rule.bandwidth_limit_mbps} Mbps "
-                        f"(rule: {matching_rule.name})"
-                    )
-            else:
-                # Client below all thresholds — remove auto-limit if set
-                if client.auto_bandwidth_limit is not None:
-                    client.auto_bandwidth_limit = None
-                    client.auto_bandwidth_rule_id = None
-
-                    # Restore manual limit or remove limit
-                    if client.bandwidth_limit:
-                        self._apply_bandwidth_for_client(client, client.bandwidth_limit)
-                    else:
-                        self._remove_bandwidth_for_client(client)
-
-                    affected += 1
-                    logger.info(f"Auto-limit removed: {client.name}")
-
-        if affected > 0:
-            self.db.commit()
-
-        return affected
+        return check_traffic_rules(self)
 
     def _apply_bandwidth_for_client(self, client: Client, limit_mbps: int):
         """Apply bandwidth limit for a client (routes to local tc or remote agent)."""

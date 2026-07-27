@@ -215,45 +215,10 @@ class BackupManager:
     # ── Config helpers ────────────────────────────────────────────────────────
 
     def _get_storage_config(self) -> dict:
-        """Return the full backup-storage config from SystemConfig with sane
-        defaults. Used by _get_backup_dir, ensure_storage_ready, and the API
-        routes that report storage state to the UI."""
-        keys = [
-            "backup_storage_type", "backup_path", "backup_mount_point",
-            "backup_mount_type", "backup_mount_address",
-            "backup_mount_username", "backup_mount_password",
-            "backup_mount_options",
-        ]
-        cfg = {}
-        try:
-            from src.database.models import SystemConfig
-            rows = self.db.query(SystemConfig).filter(SystemConfig.key.in_(keys)).all()
-            cfg = {r.key: r.value for r in rows}
-            # Close the implicit read-only transaction immediately. SQLAlchemy
-            # with autocommit=False keeps the SELECT's snapshot open until
-            # commit/rollback, which means later pg_restore calls would
-            # deadlock waiting for our session to release locks on the same
-            # tables (system_config in particular). Rolling back is safe —
-            # we ran a SELECT, nothing to persist.
-            self.db.rollback()
-        except Exception:
-            try: self.db.rollback()
-            except Exception: pass
-        cfg.setdefault("backup_storage_type", "local")
-        # Default = <project_root>/backups. Three .parent climbs because this
-        # file lives at <project_root>/src/modules/backup_manager.py. The
-        # scheduler at src/api/scheduler.py uses the same depth, so both
-        # agree on the canonical path when SystemConfig.backup_path is unset.
-        # Until 1.5.83 BackupManager used .parent.parent (one too few),
-        # which made manual API backups land in src/backups/ while the
-        # scheduler wrote to <root>/backups/ — two directories on one host.
-        cfg.setdefault(
-            "backup_path",
-            os.getenv("VMS_BACKUP_DIR", str(Path(__file__).parent.parent.parent / "backups")),
-        )
-        cfg.setdefault("backup_mount_point", "/mnt/vpnmanager-backup")
-        cfg.setdefault("backup_mount_type", "smb")
-        return cfg
+        """Return storage configuration through the protected adapter."""
+        from .auto_backup_storage import get_storage_config
+
+        return get_storage_config(self)
 
     def _get_backup_dir(self) -> str:
         """Resolve the directory where backups live, honoring storage_type.
@@ -261,24 +226,17 @@ class BackupManager:
         Does NOT verify the path exists or that the mount is up — callers
         that need a guaranteed-writable path should call ensure_storage_ready
         first."""
-        cfg = self._get_storage_config()
-        if cfg["backup_storage_type"] == "network":
-            return cfg["backup_mount_point"]
-        return cfg["backup_path"]
+        from .auto_backup_storage import get_backup_dir
+
+        return get_backup_dir(self)
 
     @staticmethod
     def is_path_mounted(path: str) -> bool:
         """True if `path` is a real mount point (not just a regular dir).
         Uses `mountpoint -q`; treats command failure as not-mounted."""
-        if not path:
-            return False
-        try:
-            r = subprocess.run(
-                ["mountpoint", "-q", path], capture_output=True, timeout=5
-            )
-            return r.returncode == 0
-        except Exception:
-            return False
+        from .auto_backup_storage import is_path_mounted
+
+        return is_path_mounted(path)
 
     def ensure_storage_ready(self) -> dict:
         """Make sure the backup target is writable. For local mode, mkdir.
@@ -289,101 +247,27 @@ class BackupManager:
         Distinguishes the silent failure mode from before — a backup written
         to an unmounted-but-existing-as-dir mount point used to land on the
         local disk and look successful until you went to restore."""
-        cfg = self._get_storage_config()
-        target = self._get_backup_dir()
-        result = {"target": target, "storage_type": cfg["backup_storage_type"], "ready": False, "auto_mounted": False, "error": None}
+        from .auto_backup_storage import ensure_storage_ready
 
-        if cfg["backup_storage_type"] == "local":
-            try:
-                os.makedirs(target, exist_ok=True)
-                result["ready"] = True
-            except OSError as exc:
-                result["error"] = f"could not create backup dir: {exc}"
-            return result
-
-        # Network mode: must be a real mount point before we accept it
-        if self.is_path_mounted(target):
-            result["ready"] = True
-            return result
-
-        # Try one auto-mount with stored credentials
-        try:
-            self._mount_network_storage(cfg)
-            if self.is_path_mounted(target):
-                result["ready"] = True
-                result["auto_mounted"] = True
-                return result
-            result["error"] = "mount command returned ok but path is not mounted"
-        except Exception as exc:
-            result["error"] = f"auto-mount failed: {exc}"
-        return result
+        return ensure_storage_ready(self)
 
     def _mount_network_storage(self, cfg: dict) -> None:
         """Run mount(8) with NFS or CIFS using credentials in DB. Password
         goes through a 0600 credentials file rather than the command line so
         it does not appear in `ps aux` or journalctl. Caller verifies success
         via is_path_mounted."""
-        mount_point = cfg["backup_mount_point"]
-        address = cfg.get("backup_mount_address", "")
-        if not address:
-            raise RuntimeError("backup_mount_address is empty")
-        os.makedirs(mount_point, exist_ok=True)
-        options = cfg.get("backup_mount_options", "").strip()
+        from .auto_backup_storage import mount_network_storage
 
-        if cfg.get("backup_mount_type") == "nfs":
-            cmd = ["mount", "-t", "nfs"]
-            if options:
-                cmd += ["-o", options]
-            cmd += [address, mount_point]
-            self._run_mount_cmd(cmd)
-            return
-
-        # CIFS / SMB — use credentials file instead of -o password=...
-        username = cfg.get("backup_mount_username", "") or ""
-        password = cfg.get("backup_mount_password", "") or ""
-        cred_file = None
-        opts_parts = []
-        try:
-            if username or password:
-                fd, cred_file = tempfile.mkstemp(prefix="vmsmount-", text=True)
-                os.fchmod(fd, 0o600)
-                with os.fdopen(fd, "w") as fh:
-                    if username:
-                        fh.write(f"username={username}\n")
-                    if password:
-                        fh.write(f"password={password}\n")
-                opts_parts.append(f"credentials={cred_file}")
-            if options:
-                opts_parts.append(options)
-            cmd = ["mount", "-t", "cifs"]
-            if opts_parts:
-                cmd += ["-o", ",".join(opts_parts)]
-            cmd += [address, mount_point]
-            self._run_mount_cmd(cmd)
-        finally:
-            # Always remove the credentials file once mount is done — kernel
-            # has already read it. Failing to clean it up would leave the
-            # password sitting on disk under /tmp.
-            if cred_file:
-                try:
-                    os.unlink(cred_file)
-                except OSError:
-                    pass
+        mount_network_storage(cfg)
 
     @staticmethod
     def _run_mount_cmd(cmd: list[str]) -> None:
         """Run mount/umount with a 30s ceiling. Surfaces stderr verbatim so
         the operator sees the kernel's actual error (host unreachable, perm
         denied, missing kernel module, etc.) instead of a generic 'failed'."""
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        except subprocess.TimeoutExpired:
-            raise RuntimeError("mount command timed out after 30s")
-        except FileNotFoundError:
-            raise RuntimeError("mount command not found — is util-linux installed?")
-        if r.returncode != 0:
-            stderr = (r.stderr or "").strip()
-            raise RuntimeError(stderr or f"mount returned exit code {r.returncode}")
+        from .auto_backup_storage import run_mount_command
+
+        run_mount_command(cmd)
 
     def _get_retention_cfg(self) -> dict:
         """Return retention settings from DB or defaults."""

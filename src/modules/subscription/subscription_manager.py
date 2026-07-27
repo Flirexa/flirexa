@@ -691,8 +691,6 @@ class SubscriptionManager:
             sync_wg: If True, apply WG limits via direct DB (legacy/admin mode).
                       If False, caller handles WG sync via admin API.
         """
-        from sqlalchemy import text as _sql_text
-
         # Acquire row-level lock to prevent duplicate processing under concurrent webhooks.
         # with_for_update() translates to SELECT FOR UPDATE on PostgreSQL (serializes concurrent
         # calls for the same invoice). SQLite ignores the hint gracefully.
@@ -745,33 +743,12 @@ class SubscriptionManager:
                 "tx_hash": tx_hash,
             })
 
-        # Atomic conditional promo increment. The WHERE clause prevents
-        # overflowing `max_uses` under concurrent webhook deliveries
-        # for different payments that both used the same promo (e.g.
-        # two customers redeeming a 1-use code simultaneously before
-        # either paid). If 0 rows are affected the promo was already
-        # exhausted; we log and proceed with the activation — the
-        # customer paid, refusing the sub here is worse than letting
-        # them overflow by one and surfacing to ops.
-        if payment.promo_code_id:
-            try:
-                res = self.db.execute(
-                    _sql_text(
-                        "UPDATE promo_codes "
-                        "SET used_count = COALESCE(used_count, 0) + 1 "
-                        "WHERE id = :id "
-                        "  AND (max_uses IS NULL OR COALESCE(used_count, 0) < max_uses)"
-                    ),
-                    {"id": payment.promo_code_id},
-                )
-                if getattr(res, "rowcount", 1) == 0:
-                    logger.warning(
-                        "[PAY:%s] promo id=%s overflow — already at max_uses, "
-                        "subscription activated without burning a slot",
-                        invoice_id, payment.promo_code_id,
-                    )
-            except Exception as _e:
-                logger.warning(f"Promo code increment failed for id={payment.promo_code_id}: {_e}")
+        # Commercial promo accounting is isolated behind a no-op open-core
+        # compatibility surface. Payment activation itself remains core and
+        # must never fail just because promo accounting is unavailable.
+        from .promo_accounting import record_redemption
+
+        record_redemption(self.db, payment, invoice_id)
 
         # Check if user is banned/inactive — record payment but don't activate subscription
         user = self.get_user_by_id(payment.user_id)

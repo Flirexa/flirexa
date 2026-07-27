@@ -3,9 +3,9 @@ Flirexa API - Bot Management Routes
 Telegram bot status and control
 """
 
-from typing import Optional, List
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import subprocess
 import os
@@ -25,7 +25,6 @@ _client_bot_gate = Depends(require_license_feature("telegram_client_bot"))
 # Service names — configurable via env vars to support different install prefixes
 # Legacy installs may still use the pre-Flirexa systemd prefix.
 _ADMIN_BOT_SERVICE  = os.getenv("ADMIN_BOT_SERVICE",  "vpnmanager-admin-bot")
-_CLIENT_BOT_SERVICE = os.getenv("CLIENT_BOT_SERVICE", "vpnmanager-client-bot")
 
 
 # ============================================================================
@@ -39,12 +38,6 @@ class BotStatusResponse(BaseModel):
     pid: Optional[int]
     uptime: Optional[str]
     status: str
-
-
-class BotConfigUpdate(BaseModel):
-    """Bot configuration update"""
-    token: Optional[str] = Field(None, description="Telegram bot token")
-    allowed_users: Optional[list] = Field(None, description="List of allowed user IDs")
 
 
 class BotConfigRequest(BaseModel):
@@ -193,22 +186,26 @@ def update_env_file(updates: dict):
 @router.get("/config")
 async def get_bot_config(db: Session = Depends(get_db)):
     """Get current bot configuration (tokens masked)"""
+    from ...modules.client_bot_admin import get_client_config
+
     admin_token = os.getenv("ADMIN_BOT_TOKEN", "")
     admin_users = os.getenv("ADMIN_BOT_ALLOWED_USERS", "")
-    client_token = os.getenv("CLIENT_BOT_TOKEN", "")
-    client_enabled = os.getenv("CLIENT_BOT_ENABLED", "false").lower() == "true"
-
-    return {
+    result = {
         "admin_bot_token_masked": mask_token(admin_token) if admin_token else "",
         "admin_allowed_users": admin_users,
-        "client_bot_token_masked": mask_token(client_token) if client_token else "",
-        "client_bot_enabled": client_enabled,
     }
+    result.update(get_client_config(mask_token))
+    return result
 
 
 @router.post("/config")
 def update_bot_config(config: BotConfigRequest, db: Session = Depends(get_db)):
     """Update bot configuration — writes to .env and saves to SystemConfig"""
+    from ...modules.client_bot_admin import (
+        prepare_client_config,
+        restart_after_config,
+    )
+
     env_updates = {}
     changes = {}
 
@@ -237,20 +234,9 @@ def update_bot_config(config: BotConfigRequest, db: Session = Depends(get_db)):
         env_updates["ADMIN_BOT_ALLOWED_USERS"] = cleaned
         changes["admin_allowed_users"] = cleaned
 
-    # Validate client bot token
-    if config.client_bot_token:
-        if not TOKEN_PATTERN.match(config.client_bot_token):
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid client bot token format. Expected: digits:alphanumeric"
-            )
-        env_updates["CLIENT_BOT_TOKEN"] = config.client_bot_token
-        changes["client_bot_token"] = mask_token(config.client_bot_token)
-
-    # Client bot enabled toggle
-    if config.client_bot_enabled is not None:
-        env_updates["CLIENT_BOT_ENABLED"] = str(config.client_bot_enabled).lower()
-        changes["client_bot_enabled"] = config.client_bot_enabled
+    client_env, client_changes = prepare_client_config(config, mask_token)
+    env_updates.update(client_env)
+    changes.update(client_changes)
 
     if not env_updates:
         raise HTTPException(status_code=400, detail="No configuration changes provided")
@@ -285,8 +271,9 @@ def update_bot_config(config: BotConfigRequest, db: Session = Depends(get_db)):
     restart_results = {}
     if "ADMIN_BOT_TOKEN" in env_updates or "ADMIN_BOT_ALLOWED_USERS" in env_updates:
         restart_results["admin_bot"] = "restarted" if control_service(_ADMIN_BOT_SERVICE, "restart") else "restart_failed"
-    if "CLIENT_BOT_TOKEN" in env_updates or "CLIENT_BOT_ENABLED" in env_updates:
-        restart_results["client_bot"] = "restarted" if control_service(_CLIENT_BOT_SERVICE, "restart") else "restart_failed"
+    client_restart = restart_after_config(env_updates, control_service)
+    if client_restart is not None:
+        restart_results["client_bot"] = client_restart
 
     return {
         "message": "Configuration updated successfully",
@@ -353,7 +340,9 @@ async def get_client_bot_status():
     """
     Get client bot status
     """
-    status = get_service_status(_CLIENT_BOT_SERVICE)
+    from ...modules.client_bot_admin import get_client_status
+
+    status = get_client_status(get_service_status)
     return BotStatusResponse(
         bot_type="client",
         **status
@@ -365,7 +354,9 @@ async def start_client_bot():
     """
     Start the client Telegram bot
     """
-    if not control_service(_CLIENT_BOT_SERVICE, "start"):
+    from ...modules.client_bot_admin import control_client
+
+    if not control_client("start", control_service):
         raise HTTPException(status_code=500, detail="Failed to start client bot")
 
     return {"message": "Client bot started", "status": "running"}
@@ -376,7 +367,9 @@ async def stop_client_bot():
     """
     Stop the client Telegram bot
     """
-    if not control_service(_CLIENT_BOT_SERVICE, "stop"):
+    from ...modules.client_bot_admin import control_client
+
+    if not control_client("stop", control_service):
         raise HTTPException(status_code=500, detail="Failed to stop client bot")
 
     return {"message": "Client bot stopped", "status": "stopped"}
@@ -387,7 +380,9 @@ async def restart_client_bot():
     """
     Restart the client Telegram bot
     """
-    if not control_service(_CLIENT_BOT_SERVICE, "restart"):
+    from ...modules.client_bot_admin import control_client
+
+    if not control_client("restart", control_service):
         raise HTTPException(status_code=500, detail="Failed to restart client bot")
 
     return {"message": "Client bot restarted", "status": "running"}
@@ -403,7 +398,9 @@ async def get_all_bots_status():
     Get status of all bots
     """
     admin_status = get_service_status(_ADMIN_BOT_SERVICE)
-    client_status = get_service_status(_CLIENT_BOT_SERVICE)
+    from ...modules.client_bot_admin import get_client_status
+
+    client_status = get_client_status(get_service_status)
 
     return {
         "admin_bot": {
@@ -423,7 +420,9 @@ async def restart_all_bots():
     Restart all bots
     """
     admin_result = control_service(_ADMIN_BOT_SERVICE, "restart")
-    client_result = control_service(_CLIENT_BOT_SERVICE, "restart")
+    from ...modules.client_bot_admin import restart_client_if_entitled
+
+    client_result = restart_client_if_entitled(control_service)
 
     return {
         "admin_bot": "restarted" if admin_result else "failed",

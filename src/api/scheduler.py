@@ -15,7 +15,6 @@ import asyncio
 import os
 import threading
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from loguru import logger
 
@@ -193,72 +192,14 @@ def monitoring_cycle():
         if synced > 0:
             logger.debug(f"Monitoring: synced traffic for {synced} portal subscriptions")
 
-        # ── Auto-renewal MUST run before check_and_expire_subscriptions ──
+        # Auto-renewal must run before the normal expiry pass. Its paid
+        # implementation and entitlement check live behind a protected module.
         try:
-            import math as _math
-            from ..modules.notifications import NotificationService
-            from ..modules.subscription.subscription_models import ClientUser, ClientPortalSubscription, SubscriptionStatus
-            from ..database.models import AuditLog, AuditAction
-            ns = NotificationService(db)
-            now = datetime.now(timezone.utc)
-            now_naive = now.replace(tzinfo=None)
+            from ..modules.subscription.auto_renewal import process_auto_renewals
 
-            auto_renew_subs = db.query(ClientPortalSubscription).filter(
-                ClientPortalSubscription.auto_renew == True,
-                ClientPortalSubscription.tier != "free",
-                ClientPortalSubscription.expiry_date != None,
-                ClientPortalSubscription.expiry_date <= now_naive,
-            ).all()
-            for sub in auto_renew_subs:
-                if sub.last_renewal:
-                    last = sub.last_renewal
-                    if last.tzinfo is None:
-                        last = last.replace(tzinfo=timezone.utc)
-                    if (now - last).total_seconds() < 86400:
-                        continue
-
-                if (sub.auto_renew_failures or 0) >= 3:
-                    sub.auto_renew = False
-                    ns.notify_user(sub.user_id,
-                        f"<b>Auto-renewal disabled</b>\n\n"
-                        f"After 3 failed attempts, auto-renewal has been disabled for your <b>{sub.tier}</b> subscription.\n"
-                        f"Please renew manually."
-                    )
-                    ns.create_portal_notification(sub.user_id, "Auto-renewal disabled", "Auto-renewal disabled after 3 failures")
-                    db.commit()
-                    continue
-
-                try:
-                    tier_before = sub.tier
-                    renewed, err = mgr.renew_subscription(sub.user_id, sub.billing_cycle_days or 30)
-                    if renewed:
-                        mgr.apply_subscription_limits(sub.user_id, reset_traffic=True)
-                        sub.auto_renew_failures = 0
-                        user = db.query(ClientUser).filter(ClientUser.id == sub.user_id).first()
-                        if user:
-                            ns.notify_user(sub.user_id,
-                                f"<b>Subscription renewed!</b>\n\n"
-                                f"Your <b>{tier_before}</b> subscription has been auto-renewed for {sub.billing_cycle_days or 30} days."
-                            )
-                            ns.create_portal_notification(sub.user_id, "Subscription renewed", f"Your {tier_before} plan was auto-renewed")
-                            logger.info(f"Auto-renewed subscription for {user.username} ({tier_before}, {sub.billing_cycle_days or 30}d)")
-                        db.add(AuditLog(
-                            user_type="system",
-                            action=AuditAction.SUBSCRIPTION_RENEW,
-                            target_type="subscription",
-                            target_id=sub.id,
-                            target_name=f"auto-renew user {sub.user_id}",
-                            details={"tier": tier_before, "days": sub.billing_cycle_days or 30},
-                        ))
-                    else:
-                        sub.auto_renew_failures = (sub.auto_renew_failures or 0) + 1
-                        logger.warning(f"Auto-renewal failed for user {sub.user_id}: {err}")
-                except Exception as e:
-                    sub.auto_renew_failures = (sub.auto_renew_failures or 0) + 1
-                    logger.error(f"Auto-renewal exception for user {sub.user_id}: {e}")
-            db.commit()
-        except Exception as e:
-            logger.error(f"Auto-renewal cycle error: {e}")
+            process_auto_renewals(db, mgr)
+        except Exception as exc:
+            logger.error("Auto-renewal cycle error: {}", exc)
 
         # Expire subscriptions (after auto-renewal so successfully renewed subs are not expired)
         expired = mgr.check_and_expire_subscriptions()
@@ -533,123 +474,20 @@ async def monitoring_loop():
             logger.error(f"Monitoring error: {e}")
 
 
-# ─── Backup ───────────────────────────────────────────────────────────────────
-
-def _get_backup_config() -> dict:
-    """Read backup config from SystemConfig DB."""
-    from ..database.models import SystemConfig
-    defaults = {
-        "backup_enabled": "true",
-        "backup_interval_hours": "24",
-        "backup_hour_utc": "3",
-        "backup_retention_count": "7",
-        "backup_auto_cleanup": "true",
-        "backup_storage_type": "local",
-        "backup_path": str(Path(__file__).parent.parent.parent / "backups"),
-        "backup_mount_point": "/mnt/vpnmanager-backup",
-    }
-    db = SessionLocal()
-    try:
-        rows = db.query(SystemConfig).filter(
-            SystemConfig.key.in_(list(defaults.keys()))
-        ).all()
-        config = {r.key: r.value for r in rows}
-    except Exception:
-        config = {}
-    finally:
-        db.close()
-
-    return {key: config.get(key, default) for key, default in defaults.items()}
-
+# ─── Commercial scheduled backup delegation ─────────────────────────────────
 
 def backup_cycle():
-    """Single backup cycle — runs in thread, uses DB config."""
-    from ..modules.backup_manager import BackupManager
+    """Run one protected auto-backup cycle when the licence permits it."""
+    from ..modules.auto_backup_scheduler import backup_cycle as protected_cycle
 
-    config = _get_backup_config()
-    storage_type = config.get("backup_storage_type", "local")
-    if storage_type == "network":
-        backup_dir = config.get("backup_mount_point", "/mnt/vpnmanager-backup")
-    else:
-        backup_dir = config.get("backup_path", str(Path(__file__).parent.parent.parent / "backups"))
-
-    retention = int(config.get("backup_retention_count", "7"))
-    auto_cleanup = config.get("backup_auto_cleanup", "true").lower() == "true"
-
-    db = SessionLocal()
-    try:
-        mgr = BackupManager(db, backup_dir=backup_dir)
-        manifest = mgr.create_full_backup()
-        if auto_cleanup:
-            mgr.cleanup_old_backups(keep=retention)
-        logger.info(f"Scheduled backup completed: {manifest.get('backup_size_mb', 0)} MB")
-
-        try:
-            from ..modules.notifications import NotificationService
-            ns = NotificationService(db)
-            ns.notify_admin(
-                f"<b>Backup completed</b>\n"
-                f"Servers: {manifest.get('server_count', 0)}\n"
-                f"Clients: {manifest.get('client_count', 0)}\n"
-                f"Size: {manifest.get('backup_size_mb', 0)} MB"
-            )
-        except Exception:
-            pass
-    except Exception as e:
-        logger.error(f"Scheduled backup failed: {e}")
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        try:
-            from ..modules.notifications import NotificationService
-            ns = NotificationService(db)
-            ns.notify_admin(f"<b>Backup FAILED</b>\n{str(e)[:200]}")
-        except Exception:
-            pass
-    finally:
-        db.close()
+    return protected_cycle()
 
 
 async def backup_loop():
-    """Background loop that creates backups using DB-configured schedule."""
-    logger.info("Backup scheduler started")
-    last_backup_hour = None
-    while True:
-        try:
-            await asyncio.sleep(60)
+    """Delegate the paid scheduler loop through its protected module."""
+    from ..modules.auto_backup_scheduler import backup_loop as protected_loop
 
-            config = _get_backup_config()
-            enabled = config.get("backup_enabled", "true").lower() == "true"
-            if not enabled:
-                continue
-
-            interval_hours = int(config.get("backup_interval_hours", "24"))
-            backup_hour = int(config.get("backup_hour_utc", "3"))
-
-            now = datetime.now(timezone.utc)
-            current_slot = (now.date(), now.hour)
-
-            if current_slot == last_backup_hour:
-                continue
-
-            if interval_hours <= 24:
-                hours_step = interval_hours
-                if now.hour % hours_step == backup_hour % hours_step:
-                    last_backup_hour = current_slot
-                    await asyncio.to_thread(backup_cycle)
-            else:
-                if now.hour == backup_hour:
-                    days_interval = interval_hours // 24
-                    last_date = last_backup_hour[0] if last_backup_hour else None
-                    if last_date is None or (now.date() - last_date).days >= days_interval:
-                        last_backup_hour = current_slot
-                        await asyncio.to_thread(backup_cycle)
-        except asyncio.CancelledError:
-            logger.info("Backup scheduler stopped")
-            break
-        except Exception as e:
-            logger.error(f"Backup scheduler error: {e}")
+    return await protected_loop()
 
 
 # ─── Start / stop ─────────────────────────────────────────────────────────────

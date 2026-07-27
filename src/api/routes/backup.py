@@ -30,11 +30,7 @@ Operations:
   POST   /backup/migrate               — migrate server to new host
 """
 
-import os
 import re
-import shutil
-import subprocess
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -55,73 +51,14 @@ _auto_backup_gate = Depends(require_license_feature("auto_backup"))
 
 
 # ============================================================================
-# CONSTANTS — backup configuration keys + defaults
-# ============================================================================
-
-BACKUP_CONFIG_KEYS = [
-    "backup_enabled", "backup_interval_hours", "backup_hour_utc",
-    "backup_retention_count", "backup_auto_cleanup",
-    "backup_storage_type", "backup_path",
-    "backup_mount_type", "backup_mount_address",
-    "backup_mount_username", "backup_mount_password",
-    "backup_mount_point", "backup_mount_options",
-]
-
-BACKUP_DEFAULTS = {
-    "backup_enabled": "true",
-    "backup_interval_hours": "24",
-    "backup_hour_utc": "3",
-    "backup_retention_count": "7",
-    "backup_auto_cleanup": "true",
-    "backup_storage_type": "local",
-    "backup_path": str(Path(__file__).parent.parent.parent.parent / "backups"),
-    "backup_mount_type": "smb",
-    "backup_mount_address": "",
-    "backup_mount_username": "",
-    "backup_mount_password": "",
-    "backup_mount_point": "/mnt/vpnmanager-backup",
-    "backup_mount_options": "",
-}
-
-
-# ============================================================================
 # VALIDATION HELPERS
 # ============================================================================
 
 _BACKUP_ID_PATTERN = re.compile(r'^[a-zA-Z0-9_\-]+$')
-_DANGEROUS_PATHS = {
-    "/", "/etc", "/usr", "/bin", "/sbin", "/lib", "/boot",
-    "/dev", "/proc", "/sys", "/var", "/root",
-}
-_MOUNT_OPTIONS_RE = re.compile(r'^[a-zA-Z0-9.,=_\-/]+$')
-
-
 def _validate_backup_id(backup_id: str) -> str:
     if not backup_id or not _BACKUP_ID_PATTERN.match(backup_id) or '..' in backup_id:
         raise HTTPException(status_code=400, detail="Invalid backup ID format")
     return backup_id
-
-
-def _validate_backup_path(path: str) -> str:
-    """Block dangerous system paths and traversal attempts."""
-    path = path.strip()
-    if not path or not path.startswith("/"):
-        raise HTTPException(status_code=400, detail="Path must be absolute (start with /)")
-    normalized = os.path.normpath(path)
-    if normalized in _DANGEROUS_PATHS:
-        raise HTTPException(status_code=400, detail=f"Dangerous path: {normalized}")
-    if ".." in path:
-        raise HTTPException(status_code=400, detail="Path traversal not allowed")
-    return normalized
-
-
-def _validate_mount_options(options: str) -> str:
-    options = options.strip()
-    if not options:
-        return ""
-    if not _MOUNT_OPTIONS_RE.match(options):
-        raise HTTPException(status_code=400, detail="Invalid characters in mount options")
-    return options
 
 
 # ============================================================================
@@ -146,84 +83,20 @@ class FullRestoreRequest(BaseModel):
 # SETTINGS — get / update the entire backup config
 # ============================================================================
 
-@router.get("/settings")
+@router.get("/settings", dependencies=[_auto_backup_gate])
 def get_backup_settings(db: Session = Depends(get_db)):
-    """Return all backup config from SystemConfig with the password masked.
+    from ...modules.auto_backup_admin import get_backup_settings as protected_get
 
-    The frontend uses the `backup_mount_password_set` flag to know whether
-    a password is on file (so it can show 'unchanged' as the placeholder)
-    without ever sending the raw value back over the wire.
-    """
-    from src.database.models import SystemConfig
-
-    rows = db.query(SystemConfig).filter(SystemConfig.key.in_(BACKUP_CONFIG_KEYS)).all()
-    settings = {r.key: r.value for r in rows}
-
-    result = {}
-    for key in BACKUP_CONFIG_KEYS:
-        val = settings.get(key, BACKUP_DEFAULTS.get(key, ""))
-        if key == "backup_mount_password" and val:
-            result[key] = "••••••"
-            result["backup_mount_password_set"] = True
-        else:
-            result[key] = val
-    if "backup_mount_password" not in result or not settings.get("backup_mount_password"):
-        result["backup_mount_password_set"] = False
-
-    return result
+    return protected_get(db)
 
 
-@router.post("/settings")
+@router.post("/settings", dependencies=[_auto_backup_gate])
 def update_backup_settings(data: dict, db: Session = Depends(get_db)):
-    """Persist backup settings. Validates each field; rejects invalid
-    combos (interval not in {6,12,24,48,168}, hour out of 0-23, etc.).
-    The password mask placeholder ('••••••') is treated as 'unchanged'
-    so re-saving without retyping the password does not clear it."""
-    from src.database.models import SystemConfig
+    from ...modules.auto_backup_admin import (
+        update_backup_settings as protected_update,
+    )
 
-    if "backup_path" in data and data["backup_path"]:
-        data["backup_path"] = _validate_backup_path(data["backup_path"])
-    if "backup_mount_point" in data and data["backup_mount_point"]:
-        data["backup_mount_point"] = _validate_backup_path(data["backup_mount_point"])
-    if "backup_mount_options" in data:
-        data["backup_mount_options"] = _validate_mount_options(data.get("backup_mount_options", ""))
-    if "backup_interval_hours" in data:
-        try:
-            val = int(data["backup_interval_hours"])
-            if val not in (6, 12, 24, 48, 168):
-                raise ValueError()
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="Invalid interval_hours, must be 6/12/24/48/168")
-    if "backup_hour_utc" in data:
-        try:
-            val = int(data["backup_hour_utc"])
-            if not (0 <= val <= 23):
-                raise ValueError()
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="Invalid hour_utc, must be 0-23")
-    if "backup_retention_count" in data:
-        try:
-            val = int(data["backup_retention_count"])
-            if not (1 <= val <= 100):
-                raise ValueError()
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="Invalid retention_count, must be 1-100")
-
-    updated = 0
-    for key, value in data.items():
-        if key not in BACKUP_CONFIG_KEYS:
-            continue
-        if key == "backup_mount_password" and value == "••••••":
-            continue
-        existing = db.query(SystemConfig).filter(SystemConfig.key == key).first()
-        if existing:
-            existing.value = str(value)
-        else:
-            db.add(SystemConfig(key=key, value=str(value)))
-        updated += 1
-
-    db.commit()
-    return {"message": f"Updated {updated} backup settings", "updated": updated}
+    return protected_update(data, db)
 
 
 # ============================================================================
@@ -232,105 +105,32 @@ def update_backup_settings(data: dict, db: Session = Depends(get_db)):
 
 @router.post("/storage/mount", dependencies=[_auto_backup_gate])
 def mount_network_storage(db: Session = Depends(get_db)):
-    """Mount network storage using saved settings. Uses BackupManager so
-    password handling (credentials file, not -o password=) lives in one
-    place."""
-    mgr = BackupManager(db)
-    cfg = mgr._get_storage_config()
-    if cfg["backup_storage_type"] != "network":
-        raise HTTPException(status_code=400, detail="Storage type is not 'network' — mount has no effect")
-    if not cfg.get("backup_mount_address"):
-        raise HTTPException(status_code=400, detail="Mount address is empty — fill it in Storage settings first")
-    try:
-        mgr._mount_network_storage(cfg)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Mount failed: {exc}")
-    if not BackupManager.is_path_mounted(cfg["backup_mount_point"]):
-        raise HTTPException(status_code=500, detail="Mount command succeeded but path is still not a mount point")
-    return {
-        "status": "ok",
-        "message": f"Mounted {cfg['backup_mount_address']} at {cfg['backup_mount_point']}",
-        "mount_point": cfg["backup_mount_point"],
-    }
+    from ...modules.auto_backup_admin import mount_network_storage as protected_mount
+
+    return protected_mount(db)
 
 
 @router.post("/storage/unmount", dependencies=[_auto_backup_gate])
 def unmount_network_storage(db: Session = Depends(get_db)):
-    """Unmount network storage. Refuses to do anything if the configured
-    mount point is not actually a mount — avoids surprising the operator
-    with 'unmount succeeded' on a regular directory."""
-    mgr = BackupManager(db)
-    cfg = mgr._get_storage_config()
-    mount_point = _validate_backup_path(cfg["backup_mount_point"])
-    if not BackupManager.is_path_mounted(mount_point):
-        return {"status": "ok", "message": f"{mount_point} is not mounted (nothing to do)"}
-    try:
-        BackupManager._run_mount_cmd(["umount", mount_point])
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Unmount failed: {exc}")
-    return {"status": "ok", "message": f"Unmounted {mount_point}"}
+    from ...modules.auto_backup_admin import (
+        unmount_network_storage as protected_unmount,
+    )
+
+    return protected_unmount(db)
 
 
-@router.get("/storage/status")
+@router.get("/storage/status", dependencies=[_auto_backup_gate])
 def get_storage_status(db: Session = Depends(get_db)):
-    """Live state of the backup target: storage type, resolved path, mount
-    health (network only), disk usage. Drives the Storage status indicator
-    in the UI so the operator sees the truth rather than the saved config."""
-    mgr = BackupManager(db)
-    cfg = mgr._get_storage_config()
-    target = mgr._get_backup_dir()
+    from ...modules.auto_backup_admin import get_storage_status as protected_status
 
-    storage_type = cfg["backup_storage_type"]
-    is_mounted = BackupManager.is_path_mounted(target) if storage_type == "network" else None
-
-    usage = None
-    try:
-        if os.path.exists(target):
-            stat = shutil.disk_usage(target)
-            usage = {
-                "total_bytes": stat.total,
-                "used_bytes": stat.used,
-                "free_bytes": stat.free,
-                "free_mb": stat.free // (1024 * 1024),
-                "total_mb": stat.total // (1024 * 1024),
-                "percent_used": round((stat.used / stat.total) * 100, 1) if stat.total else 0,
-            }
-    except OSError as exc:
-        logger.warning(f"disk_usage({target}) failed: {exc}")
-
-    return {
-        "storage_type": storage_type,
-        "target": target,
-        "mounted": is_mounted,
-        "mount_address": cfg.get("backup_mount_address", ""),
-        "usage": usage,
-    }
+    return protected_status(db)
 
 
 @router.post("/storage/test-write", dependencies=[_auto_backup_gate])
 def test_backup_write(db: Session = Depends(get_db)):
-    """Probe the target with a tiny write+delete. Surfaces real errors
-    (perm denied, ENOSPC, mount stale) before the operator finds out at
-    backup time."""
-    mgr = BackupManager(db)
-    ready = mgr.ensure_storage_ready()
-    if not ready["ready"]:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Storage not ready ({ready['storage_type']}): {ready.get('error') or 'unknown'}",
-        )
-    target = ready["target"]
-    test_file = os.path.join(target, ".vms_write_test")
-    try:
-        with open(test_file, "w") as fh:
-            fh.write("vms-test")
-        os.remove(test_file)
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Write failed: {exc}")
-    msg = f"Write OK: {target}"
-    if ready["auto_mounted"]:
-        msg += " (auto-mounted)"
-    return {"status": "ok", "message": msg, "target": target}
+    from ...modules.auto_backup_admin import test_backup_write as protected_test
+
+    return protected_test(db)
 
 
 # ============================================================================
