@@ -848,8 +848,23 @@ reset_runtime_state_for_fresh_install() {
         return 0
     fi
 
-    rm -f "$INSTALL_DIR/data/first_startup_at.txt"
-    rm -f "$INSTALL_DIR/data/license_cache.json"
+    # Defense in depth for a package assembled from a dirty working tree.
+    # These files describe one prior installation.  In particular,
+    # migration_initiated.json can deliberately decommission its original
+    # server, so it must never affect a newly installed customer panel.
+    local runtime_state_file
+    for runtime_state_file in \
+        first_startup_at.txt \
+        license_cache.json \
+        license_suspend_state.json \
+        migration_initiated.json \
+        license_migration_nonces.json \
+        applied_migration.json \
+        pending_migration.json \
+        hb_servers.json \
+        restart_pending; do
+        rm -f "$INSTALL_DIR/data/$runtime_state_file"
+    done
     log_info "  Cleared packaged runtime license state for fresh install"
 }
 
@@ -879,9 +894,14 @@ setup_python() {
     # error usually has its real `Error: …` line ~30 above the tail).
     log_info "  Installing Python packages (this may take a minute)..."
     local pip_log=/tmp/vpnmanager-pip-install.log
-    if ! "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" > "$pip_log" 2>&1; then
+    local requirements_file="$INSTALL_DIR/requirements.lock"
+    if [[ ! -f "$requirements_file" ]]; then
+        requirements_file="$INSTALL_DIR/requirements.txt"
+        log_warn "  Dependency lock not found; using compatibility requirements"
+    fi
+    if ! "$INSTALL_DIR/venv/bin/pip" install -r "$requirements_file" > "$pip_log" 2>&1; then
         log_warn "  First pip pass failed, retrying with --no-build-isolation..."
-        if ! "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" --no-build-isolation >> "$pip_log" 2>&1; then
+        if ! "$INSTALL_DIR/venv/bin/pip" install -r "$requirements_file" --no-build-isolation >> "$pip_log" 2>&1; then
             log_error "Pip install failed. Last 40 lines:"
             tail -40 "$pip_log" 2>&1 | sed 's/^/  /' || true
             log_info "Full log preserved at: $pip_log"
@@ -899,7 +919,7 @@ setup_python() {
     "$INSTALL_DIR/venv/bin/python" -c "import dotenv" 2>/dev/null || missing+=("python-dotenv")
     "$INSTALL_DIR/venv/bin/python" -c "import psutil" 2>/dev/null || missing+=("psutil")
     "$INSTALL_DIR/venv/bin/python" -c "import bcrypt" 2>/dev/null || missing+=("bcrypt")
-    "$INSTALL_DIR/venv/bin/python" -c "import jose" 2>/dev/null || missing+=("python-jose[cryptography]")
+    "$INSTALL_DIR/venv/bin/python" -c "import jwt" 2>/dev/null || missing+=("PyJWT")
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing critical packages: ${missing[*]}"

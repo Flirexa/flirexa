@@ -206,6 +206,10 @@ def _link(db, client):
 
 
 def test_proxy_subscription_returns_all_three_protocol_uris(ctx):
+    from src.core import hysteria2
+
+    if getattr(hysteria2, "FLIREXA_COMMERCIAL_STUB", False):
+        pytest.skip("proxy protocol URI implementations are private in the open core")
     client, Session = ctx
     db = Session()
     _link(db, Client(name="phone-wg", server=_wg_server(), public_key="K" * 43 + "=",

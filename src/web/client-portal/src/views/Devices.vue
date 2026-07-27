@@ -594,22 +594,8 @@ const confirmDeleteWithPassword = async () => {
   if (!deleteTarget.value || !deletePassword.value || deleting.value) return
   deleting.value = true
   deleteError.value = null
-  // Verify password by replaying login — stateless JWT means the new
-  // token is harmless. Avoids adding a one-off verify endpoint.
-  let userEmail = ''
   try {
-    const u = JSON.parse(localStorage.getItem('client_user') || '{}')
-    userEmail = u.email || ''
-  } catch { /* ignore */ }
-  if (!userEmail) {
-    deleteError.value = t('common.error')
-    deleting.value = false
-    return
-  }
-  try {
-    // skip-401-interceptor: see api/index.js — wrong password on this
-    // verify-only login must NOT yank the customer's existing session.
-    await portalApi.login({ email: userEmail, password: deletePassword.value }, { _skipAuthInterceptor: true })
+    await portalApi.verifyPassword(deletePassword.value)
   } catch (verifyErr) {
     if (verifyErr.response?.status === 400 || verifyErr.response?.status === 401) {
       deleteError.value = t('dash.deletePasswordWrong')

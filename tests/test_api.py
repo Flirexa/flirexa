@@ -5,7 +5,7 @@ Uses TestClient with SQLite in-memory database
 
 import os
 import importlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import pytest
@@ -38,6 +38,7 @@ from src.api.middleware.auth import get_current_admin
 from src.api.routes import admin_auth, client_portal
 from src.modules.subscription.subscription_models import (
     ClientUser,
+    ClientRefreshToken,
     ClientPortalSubscription,
     PortalRateLimit,
     SupportMessage,
@@ -134,6 +135,10 @@ class TestSystemEndpoints:
         assert data["status"] == "healthy"
 
     def test_client_portal_features_reports_corporate_access(self, client, db_for_test):
+        from src.modules.corporate import manager as corporate_manager
+
+        if getattr(corporate_manager, "FLIREXA_COMMERCIAL_STUB", False):
+            pytest.skip("corporate VPN implementation is private in the open core")
         user = ClientUser(email="corp-feature@example.com", username="corpfeature", password_hash="x")
         db_for_test.add(user)
         db_for_test.flush()
@@ -338,7 +343,13 @@ class TestClientPortalAbuseControls:
 
         portal_module = importlib.reload(client_portal_main)
         assert portal_module.app.openapi_url is None
-        route_paths = {route.path for route in portal_module.app.routes}
+        # Newer FastAPI versions also expose an internal router sentinel in
+        # app.routes; only concrete HTTP routes carry a path.
+        route_paths = {
+            route.path
+            for route in portal_module.app.routes
+            if getattr(route, "path", None)
+        }
         assert {"/docs", "/redoc", "/openapi.json"} <= route_paths
 
 
@@ -359,6 +370,14 @@ class TestAdminPortalUserPassword:
 
     def test_admin_can_set_password_and_revoke_reset_token(self, client, db_for_test):
         user = self._create_user(db_for_test)
+        db_for_test.add(ClientRefreshToken(
+            user_id=user.id,
+            token_hash="a" * 64,
+            family_id="b" * 64,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            created_at=datetime.now(timezone.utc),
+        ))
+        db_for_test.commit()
 
         response = client.post(
             f"/api/v1/portal-users/{user.id}/password",
@@ -392,9 +411,16 @@ class TestAdminPortalUserPassword:
         assert audit.details == {
             "action": "admin_password_reset",
             "reset_token_revoked": True,
+            "browser_sessions_revoked": 1,
         }
         assert "new_password" not in audit.details
         assert "new-password-456" not in str(audit.details)
+        refresh = (
+            db_for_test.query(ClientRefreshToken)
+            .filter(ClientRefreshToken.user_id == user.id)
+            .one()
+        )
+        assert refresh.revoked_at is not None
 
     @pytest.mark.parametrize("new_password", ["short7", "я" * 40])
     def test_admin_password_validation_rejects_unsafe_lengths(
@@ -422,6 +448,176 @@ class TestAdminPortalUserPassword:
 
 
 class TestClientPortalAuthFlows:
+    @staticmethod
+    def _register_web(client, monkeypatch, username="cookiesession"):
+        monkeypatch.setattr(client_portal, "PORTAL_COOKIE_SECURE", False)
+        return client.post(
+            "/client-portal/auth/register",
+            headers={"X-Portal-Client": "web"},
+            json={
+                "email": f"{username}@example.com",
+                "password": "strong-password-123",
+                "username": username,
+            },
+        )
+
+    def test_web_login_uses_short_httponly_cookie_without_json_bearer(
+        self,
+        client,
+        db_for_test,
+        monkeypatch,
+    ):
+        response = self._register_web(client, monkeypatch)
+        assert response.status_code == 201
+        assert response.json()["access_token"] is None
+
+        set_cookies = response.headers.get_list("set-cookie")
+        access_cookie = next(
+            value for value in set_cookies
+            if value.startswith("flirexa_portal_access=")
+        )
+        refresh_cookie = next(
+            value for value in set_cookies
+            if value.startswith("flirexa_portal_refresh=")
+        )
+        csrf_cookie = next(
+            value for value in set_cookies
+            if value.startswith("flirexa_portal_csrf=")
+        )
+        assert "HttpOnly" in access_cookie
+        assert "HttpOnly" in refresh_cookie
+        assert "SameSite=strict" in access_cookie
+        assert "HttpOnly" not in csrf_cookie
+
+        access_token = client.cookies.get("flirexa_portal_access")
+        payload = client_portal.decode_access_token(access_token)
+        assert payload["token_use"] == "portal_cookie"
+        assert 13 * 60 <= payload["exp"] - payload["iat"] <= 16 * 60
+
+        refresh_raw = client.cookies.get("flirexa_portal_refresh")
+        stored = db_for_test.query(ClientRefreshToken).one()
+        assert stored.token_hash == client_portal._refresh_token_hash(refresh_raw)
+        assert refresh_raw not in stored.token_hash
+
+        me = client.get("/client-portal/auth/me")
+        assert me.status_code == 200
+        assert me.json()["username"] == "cookiesession"
+
+    def test_production_cookie_names_are_host_only_and_secure(
+        self,
+        client,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(client_portal, "PORTAL_COOKIE_SECURE", True)
+        response = client.post(
+            "/client-portal/auth/register",
+            headers={"X-Portal-Client": "web"},
+            json={
+                "email": "secure-cookie@example.com",
+                "password": "strong-password-123",
+                "username": "securecookie",
+            },
+        )
+        assert response.status_code == 201
+        set_cookies = response.headers.get_list("set-cookie")
+        assert len(set_cookies) == 3
+        assert all(
+            value.startswith("__Host-flirexa_portal_")
+            and "Secure" in value
+            and "Path=/" in value
+            and "SameSite=strict" in value
+            for value in set_cookies
+        )
+
+    def test_cookie_auth_requires_csrf_and_refresh_rotates_with_replay_defence(
+        self,
+        client,
+        db_for_test,
+        monkeypatch,
+    ):
+        response = self._register_web(
+            client,
+            monkeypatch,
+            username="cookierotation",
+        )
+        assert response.status_code == 201
+
+        rejected = client.post(
+            "/client-portal/auth/change-password",
+            json={
+                "current_password": "strong-password-123",
+                "new_password": "new-strong-password-456",
+            },
+        )
+        assert rejected.status_code == 403
+        assert rejected.json()["detail"] == "CSRF validation failed"
+
+        old_refresh = client.cookies.get("flirexa_portal_refresh")
+        csrf = client.cookies.get("flirexa_portal_csrf")
+        refreshed = client.post(
+            "/client-portal/auth/refresh",
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert refreshed.status_code == 200
+        new_refresh = client.cookies.get("flirexa_portal_refresh")
+        assert new_refresh != old_refresh
+
+        rows = (
+            db_for_test.query(ClientRefreshToken)
+            .order_by(ClientRefreshToken.id)
+            .all()
+        )
+        assert len(rows) == 2
+        assert rows[0].revoked_at is not None
+        assert rows[0].replaced_by_hash == rows[1].token_hash
+        assert rows[0].family_id == rows[1].family_id
+
+        # Replaying the consumed token revokes the replacement family too.
+        client.cookies.set("flirexa_portal_refresh", old_refresh)
+        replay = client.post(
+            "/client-portal/auth/refresh",
+            headers={
+                "X-CSRF-Token": client.cookies.get(
+                    "flirexa_portal_csrf"
+                )
+            },
+        )
+        assert replay.status_code == 401
+        assert replay.json()["detail"] == "Refresh token replay detected"
+        db_for_test.expire_all()
+        assert all(
+            row.revoked_at is not None
+            for row in db_for_test.query(ClientRefreshToken).all()
+        )
+
+    def test_mobile_bearer_contract_remains_long_lived(
+        self,
+        client,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(client_portal, "PORTAL_COOKIE_SECURE", False)
+        response = client.post("/client-portal/auth/register", json={
+            "email": "mobile-bearer@example.com",
+            "password": "strong-password-123",
+            "username": "mobilebearer",
+        })
+        assert response.status_code == 201
+        token = response.json()["access_token"]
+        assert token
+        assert not response.headers.get_list("set-cookie")
+
+        payload = client_portal.decode_access_token(token)
+        assert payload["token_use"] == "bearer"
+        assert 89 * 86400 <= payload["exp"] - payload["iat"] <= 91 * 86400
+
+        client.cookies.clear()
+        me = client.get(
+            "/client-portal/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert me.status_code == 200
+        assert me.json()["username"] == "mobilebearer"
+
     def test_forgot_password_keeps_email_verification_token(self, client, db_for_test):
         register_response = client.post("/client-portal/auth/register", json={
             "email": "auth-flow@example.com",

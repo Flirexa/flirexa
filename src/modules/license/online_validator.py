@@ -81,9 +81,6 @@ def reload_server_urls():
     logger.info("License server URLs reloaded: primary={} backup={}",
                 _SERVER_URL or "—", _SERVER_URL_BACKUP or "—")
 
-# Path to the server response signing public key (committed to repo)
-_PUB_KEY_PATH = Path(__file__).parent.parent.parent.parent / "server_verify_public.pem"
-
 # Cache file for last valid server response
 _CACHE_PATH = Path(os.getenv("LICENSE_CACHE_PATH",
     str(Path(__file__).parent.parent.parent.parent / "data" / "license_cache.json")
@@ -306,20 +303,10 @@ def is_license_blocked() -> tuple[bool, str]:
 
 # ── Signature verification ────────────────────────────────────────────────────
 
-# Pinned server-verify public keys (RSA-PSS) — mirror of server_config.py. During
-# the 2026-07 key rotation both OLD (leaked, retired after the flip) and NEW are
-# accepted; a response is trusted if EITHER verifies. (security: rotation 2026-07)
-_SV_PUB_OLD = b"""-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnXezdbLomyz58LwJB6eG
-U62ZlmSJPc2qS4+cZ/Wg65HonMSZt6/S0bkRO9MMlukZqFG7fCZKW2TKFstJJ5y+
-Arw+jrQEJxnKBDUUPy2iC3/oymKIf+gJIAuWkWIFkxwNr6WT449W1Tmh4QgCRkFR
-dXeYMcpLYLZFH98seoAP2C99WyLGPniLMtt6g74CenMkaTzbkjXwNRMkdvC0O24k
-uNTfK19s3W8cPpDZkES013VC3Qa0pj9tZP1PeBuOww4CSIJXao+2QQfsYVfwoisg
-/JAlL+ih7lJJNOd92wDhjpRBuwfeuUwI+1dqjTgQ4nXn3y9SJXsn6THf360oqeSU
-SwIDAQAB
------END PUBLIC KEY-----
-"""
-_SV_PUB_NEW = b"""-----BEGIN PUBLIC KEY-----
+# Phase C trust anchor — mirror of server_config.py. Only the post-rotation
+# server key is accepted; the retired leaked key and editable file fallback are
+# intentionally excluded.
+_SV_PUB_CURRENT = b"""-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4XHN7ytdeE+padSbGncw
 kvL81PYqtG50ohbFd2a6OZJ1GKINXO4WiCuzvKnma00uMRWb0iXvl1bOJNPKSeAG
 RVZc8FSiMQHTf9sD3AyuXJBmGokOlZV3Iib0mvVF/WX/R2tYPbjr3CF2hSC2izoE
@@ -332,21 +319,12 @@ Jg8mJwXUXinZL3fjVmsT2ikvfLAPmUIXPIFjGqr2jSfeYJv7ozXOEqrlXSQUoTTO
 
 
 def _load_server_pub_keys():
-    """Accepted server-verify public keys: pinned old+new, plus the on-disk file
-    (dev fallback)."""
+    """Load the single pinned post-rotation server-response trust anchor."""
     keys = []
-    for pem in (_SV_PUB_OLD, _SV_PUB_NEW):
-        if pem.strip():
-            try:
-                keys.append(serialization.load_pem_public_key(pem))
-            except Exception as exc:
-                logger.error("Embedded server-verify key failed to load: {}", exc)
-    path = Path(os.getenv("SERVER_VERIFY_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH)))
-    if path.exists():
-        try:
-            keys.append(serialization.load_pem_public_key(path.read_bytes()))
-        except Exception as exc:
-            logger.error("Failed to load server_verify_public.pem: {}", exc)
+    try:
+        keys.append(serialization.load_pem_public_key(_SV_PUB_CURRENT))
+    except Exception as exc:
+        logger.error("Pinned server-verify key failed to load: {}", exc)
     return keys
 
 
@@ -361,13 +339,11 @@ def _verify_response(payload_b64: str, sig_b64: str) -> Optional[dict]:
     pub_keys = _load_server_pub_keys()
     if not pub_keys:
         # Hard fail — cannot verify without a public key.
-        key_path = os.getenv("SERVER_VERIFY_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH))
         logger.error(
-            "TAMPER ALERT: no server-verify public key available (path {}) — "
-            "rejecting server response to prevent MITM attack",
-            key_path
+            "TAMPER ALERT: pinned server-verify public key unavailable — "
+            "rejecting server response to prevent MITM attack"
         )
-        _send_tamper_report_sync("public_key_missing", {"path": key_path})
+        _send_tamper_report_sync("public_key_missing", {"source": "embedded"})
         return None
 
     try:

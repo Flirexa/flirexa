@@ -198,7 +198,12 @@ PY
 # ============================================================================
 install_deps() {
     log "Checking Python dependencies..."
-    "$VENV/bin/pip" install -q -r "$INSTALL_DIR/requirements.txt" 2>&1 | tail -1
+    local requirements_file="$INSTALL_DIR/requirements.lock"
+    if [ ! -f "$requirements_file" ]; then
+        requirements_file="$INSTALL_DIR/requirements.txt"
+        warn "Dependency lock not found; using compatibility requirements"
+    fi
+    "$VENV/bin/pip" install -q -r "$requirements_file" 2>&1 | tail -1
     log "Dependencies OK"
 }
 

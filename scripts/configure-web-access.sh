@@ -218,14 +218,32 @@ install_packages() {
     systemctl enable nginx >/dev/null 2>&1 || true
 }
 
-# Generate a 2048-bit DH group once. 2048 is plenty in 2026; 4096 takes 5+ min
-# and offers no real security delta for what we're doing here.
+# Generate a valid 2048-bit DH group once. Write through a temporary file so a
+# killed/failed openssl process cannot leave a partial file that later runs
+# mistake for a completed setup.
 ensure_dhparam() {
-    if [[ ! -f "$DHPARAM" ]]; then
-        log "Generating DH parameters (2048-bit, one-time, ~30s)..."
-        openssl dhparam -out "$DHPARAM" 2048 >/dev/null 2>&1 \
-            || die "Failed to generate DH parameters"
+    if [[ -s "$DHPARAM" ]] && \
+       openssl dhparam -in "$DHPARAM" -check -noout >/dev/null 2>&1; then
         chmod 644 "$DHPARAM"
+        return
+    fi
+
+    local dhparam_dir dhparam_tmp
+    dhparam_dir="$(dirname "$DHPARAM")"
+    mkdir -p "$dhparam_dir"
+    dhparam_tmp="$(mktemp "${DHPARAM}.tmp.XXXXXX")" \
+        || die "Failed to create temporary DH parameter file"
+
+    log "Generating DH parameters (2048-bit, one-time, ~30s)..."
+    if ! openssl dhparam -out "$dhparam_tmp" 2048 >/dev/null 2>&1 || \
+       ! openssl dhparam -in "$dhparam_tmp" -check -noout >/dev/null 2>&1; then
+        rm -f -- "$dhparam_tmp"
+        die "Failed to generate valid DH parameters"
+    fi
+    chmod 644 "$dhparam_tmp"
+    if ! mv -f -- "$dhparam_tmp" "$DHPARAM"; then
+        rm -f -- "$dhparam_tmp"
+        die "Failed to install DH parameters"
     fi
 }
 

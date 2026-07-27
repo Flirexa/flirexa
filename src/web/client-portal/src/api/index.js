@@ -3,39 +3,79 @@ import axios from 'axios'
 const api = axios.create({
   baseURL: '',
   timeout: 15000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
+    'X-Portal-Client': 'web',
   },
 })
 
-// Request interceptor: add auth token
+const unsafeMethods = new Set(['post', 'put', 'patch', 'delete'])
+
+function readCookie(name) {
+  const prefix = `${encodeURIComponent(name)}=`
+  const item = document.cookie.split('; ').find(value => value.startsWith(prefix))
+  return item ? decodeURIComponent(item.slice(prefix.length)) : ''
+}
+
+function csrfToken() {
+  // Production uses the hardened __Host- name; local HTTP development can
+  // explicitly opt out of Secure cookies and receives the unprefixed name.
+  return readCookie('__Host-flirexa_portal_csrf')
+    || readCookie('flirexa_portal_csrf')
+}
+
+// Cookie auth is ambient, so every state-changing browser request carries the
+// non-HttpOnly half of the double-submit CSRF pair.
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('client_access_token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  if (unsafeMethods.has((config.method || 'get').toLowerCase())) {
+    const token = csrfToken()
+    if (token) config.headers['X-CSRF-Token'] = token
   }
   return config
 })
 
-// Response interceptor: handle 401
-//
-// A 401 normally means "the session token expired, send the user back
-// to login". But the device-delete password-confirm flow deliberately
-// hits POST /auth/login to verify the current password — a wrong
-// password there returns 401, and yanking the auth token in that case
-// logs the user out of a perfectly good session for typing the wrong
-// password. The caller passes `_skipAuthInterceptor: true` on the
-// axios config to opt out of the auto-logout.
+let refreshPromise = null
+
+function refreshSession() {
+  if (!refreshPromise) {
+    refreshPromise = api.post(
+      '/client-portal/auth/refresh',
+      null,
+      { _skipAuthInterceptor: true },
+    ).finally(() => {
+      refreshPromise = null
+    })
+  }
+  return refreshPromise
+}
+
+function redirectToLogin() {
+  window.dispatchEvent(new CustomEvent('fx:auth-expired'))
+  const p = window.location.pathname
+  if (p !== '/login' && p !== '/register') {
+    window.location.href = '/login'
+  }
+}
+
+const publicAuthPath = /\/auth\/(login|register|forgot-password|reset-password|refresh)$/
+
+// Renew an expired short access cookie once, then replay the original request.
+// Authentication failures from public auth/verification flows remain local to
+// their form and never destroy an otherwise healthy browser session.
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    const skip = error.config && error.config._skipAuthInterceptor
-    if (error.response?.status === 401 && !skip) {
-      localStorage.removeItem('client_access_token')
-      localStorage.removeItem('client_user')
-      const p = window.location.pathname
-      if (p !== '/login' && p !== '/register') {
-        window.location.href = '/login'
+  async (error) => {
+    const config = error.config || {}
+    const skip = config._skipAuthInterceptor
+      || publicAuthPath.test(config.url || '')
+    if (error.response?.status === 401 && !skip && !config._authRetried) {
+      config._authRetried = true
+      try {
+        await refreshSession()
+        return api(config)
+      } catch {
+        redirectToLogin()
       }
     }
     return Promise.reject(error)
@@ -52,6 +92,13 @@ export const portalApi = {
   getMe: () => api.get('/client-portal/auth/me'),
   forgotPassword: (data) => api.post('/client-portal/auth/forgot-password', data),
   resetPassword: (data) => api.post('/client-portal/auth/reset-password', data),
+  refresh: () => refreshSession(),
+  logout: () => api.post('/client-portal/auth/logout'),
+  verifyPassword: (password) => api.post(
+    '/client-portal/auth/verify-password',
+    { password },
+    { _skipAuthInterceptor: true },
+  ),
 
   // Subscription
   getSubscription: () => api.get('/client-portal/subscription'),

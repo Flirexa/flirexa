@@ -29,33 +29,11 @@ _FALLBACK_BACKUP  = ""   # VENDOR_BACKUP_PLACEHOLDER
 _BASE_DIR     = Path(__file__).parent.parent.parent.parent
 _SERVERS_FILE = _BASE_DIR / "data" / "license_servers.signed"
 _NONCES_FILE  = _BASE_DIR / "data" / "license_migration_nonces.json"
-_PUB_KEY_PATH = _BASE_DIR / "server_verify_public.pem"
 
-
-def _is_production() -> bool:
-    """True when license_public.pem exists (production deployment)."""
-    candidates = [
-        _BASE_DIR / "license_public.pem",
-        Path("/opt/vpnmanager/license_public.pem"),
-    ]
-    return any(p.exists() for p in candidates)
-
-
-# Pinned server-verify public keys (RSA-PSS). During the 2026-07 key rotation the
-# panel accepts BOTH the OLD key (leaked in pre-2.2.33 tarballs; retired after the
-# server-side flip) and the NEW key — a signed artifact is trusted if EITHER
-# verifies. Pinned in code so swapping the on-disk file can't defeat verification.
-_SV_PUB_OLD = b"""-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnXezdbLomyz58LwJB6eG
-U62ZlmSJPc2qS4+cZ/Wg65HonMSZt6/S0bkRO9MMlukZqFG7fCZKW2TKFstJJ5y+
-Arw+jrQEJxnKBDUUPy2iC3/oymKIf+gJIAuWkWIFkxwNr6WT449W1Tmh4QgCRkFR
-dXeYMcpLYLZFH98seoAP2C99WyLGPniLMtt6g74CenMkaTzbkjXwNRMkdvC0O24k
-uNTfK19s3W8cPpDZkES013VC3Qa0pj9tZP1PeBuOww4CSIJXao+2QQfsYVfwoisg
-/JAlL+ih7lJJNOd92wDhjpRBuwfeuUwI+1dqjTgQ4nXn3y9SJXsn6THf360oqeSU
-SwIDAQAB
------END PUBLIC KEY-----
-"""
-_SV_PUB_NEW = b"""-----BEGIN PUBLIC KEY-----
+# Phase C trust anchor: only the post-rotation server-verify key is accepted.
+# The retired key leaked in pre-2.2.33 packages and must never regain trust
+# through an editable on-disk public-key file.
+_SV_PUB_CURRENT = b"""-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4XHN7ytdeE+padSbGncw
 kvL81PYqtG50ohbFd2a6OZJ1GKINXO4WiCuzvKnma00uMRWb0iXvl1bOJNPKSeAG
 RVZc8FSiMQHTf9sD3AyuXJBmGokOlZV3Iib0mvVF/WX/R2tYPbjr3CF2hSC2izoE
@@ -68,22 +46,13 @@ Jg8mJwXUXinZL3fjVmsT2ikvfLAPmUIXPIFjGqr2jSfeYJv7ozXOEqrlXSQUoTTO
 
 
 def _load_pub_keys():
-    """Accepted server-verify public keys: pinned old+new, plus the on-disk file
-    (dev fallback). A signed artifact is trusted if any of these verifies it."""
+    """Load the single pinned post-rotation server-verify trust anchor."""
     from cryptography.hazmat.primitives.serialization import load_pem_public_key
     keys = []
-    for pem in (_SV_PUB_OLD, _SV_PUB_NEW):
-        if pem.strip():
-            try:
-                keys.append(load_pem_public_key(pem))
-            except Exception as exc:
-                logger.error("Embedded server-verify key failed to load: %s", exc)
-    path = Path(os.getenv("SERVER_VERIFY_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH)))
-    if path.exists():
-        try:
-            keys.append(load_pem_public_key(path.read_bytes()))
-        except Exception as exc:
-            logger.error("Failed to load server_verify_public.pem: %s", exc)
+    try:
+        keys.append(load_pem_public_key(_SV_PUB_CURRENT))
+    except Exception as exc:
+        logger.error("Pinned server-verify key failed to load: %s", exc)
     return keys
 
 
@@ -192,7 +161,7 @@ def apply_migration_code(code_json: str) -> Tuple[bool, str]:
       }
 
     Security:
-      - RSA-PSS signature verified with server_verify_public.pem
+      - RSA-PSS signature verified with the pinned current vendor key
       - expires_at enforced (vendor sets e.g. 30-day window)
       - nonce tracked to prevent replay attacks
     """

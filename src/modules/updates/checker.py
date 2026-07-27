@@ -51,8 +51,6 @@ _READ_TIMEOUT    = 15.0   # seconds to read response
 _MAX_MANIFEST_BYTES = 64 * 1024   # 64KB — manifests are small JSON files
 _MAX_PACKAGE_BYTES = int(os.getenv("UPDATE_MAX_PACKAGE_BYTES", str(512 * 1024 * 1024)))
 
-_PUB_KEY_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "update_public.pem"
-
 # In-memory cache: (manifest_dict, fetched_at_timestamp, channel)
 # 1-minute TTL: Navbar's update-available badge polls /updates/status every
 # 60 seconds. If the cache outlived the poll cadence, the badge would only
@@ -74,21 +72,10 @@ REQUIRED_FIELDS = {
 
 # ── RSA public key loader ──────────────────────────────────────────────────────
 
-# Pinned update-manifest verification keys (RSA-PSS). During the 2026-07 key
-# rotation both OLD (leaked in pre-2.2.33 tarballs; retired after the flip) and
-# NEW are accepted — a manifest is trusted if EITHER verifies. Pinned in code so
-# swapping data/update_public.pem cannot defeat verification.
-_UPD_PUB_OLD = b"""-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAx65TizYb6YiCOeISTvl7
-vdEHZMNM8UKojp9YbwuDVCfs5XXE3UkQEXzyv01iSbSkKgI2jRgvAPlMokYNmgz2
-5JUX1g4zxcihwg//yXoHWpSQVrta6be1gGulLdkhVYduDkgGdWpu6DFJtKuueY43
-rtmkdQFwY1qJZQSPU2R7UmnA419RXpG1+cIMNSj1cclKsGPxh2jPFp71OA/bMgwJ
-QANOTFMzbQOtDzIA7Yp3yHPedgoSMU1aLXiLH1OvKPu8TwmM3RxcQU5htuRASRev
-CBr4i8iGhcUEZdrWY+OgOyEqR2ed3wqzJ6cJPylEcDtby8o08WQ6PHWp+aEUTf7Y
-fQIDAQAB
------END PUBLIC KEY-----
-"""
-_UPD_PUB_NEW = b"""-----BEGIN PUBLIC KEY-----
+# Phase C trust anchor: accept only manifests signed by the post-rotation
+# update key. The retired leaked key and editable on-disk key fallback are not
+# trust sources anymore.
+_UPD_PUB_CURRENT = b"""-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtNfNVOVQEvO2RXwWjtjt
 YrAuUi4oLgygVUTM9Is68zrXoUfXbyQUmez9mna3icl6f5T+in0idMVcXP3M0aBm
 H2Bd3eYoNdejYxeCNWWqZFtu2758XCk5MPobeOxdeT9x/9G+orNeNDrkDLGMr5Pl
@@ -103,26 +90,16 @@ _pub_keys_cache = None
 
 
 def _load_pub_keys():
-    """Accepted update-manifest public keys: pinned old+new, plus the on-disk file
-    (dev fallback). A manifest is trusted if any of these verifies it."""
+    """Load the single pinned post-rotation update-manifest trust anchor."""
     global _pub_keys_cache
     if _pub_keys_cache is not None:
         return _pub_keys_cache
     from cryptography.hazmat.primitives import serialization
     keys = []
-    for pem in (_UPD_PUB_OLD, _UPD_PUB_NEW):
-        if pem.strip():
-            try:
-                keys.append(serialization.load_pem_public_key(pem))
-            except Exception as exc:
-                logger.error("Embedded update key failed to load: {}", exc)
-    key_path = Path(os.getenv("UPDATE_PUBLIC_KEY_PATH", str(_PUB_KEY_PATH)))
-    if key_path.exists():
-        try:
-            with open(key_path, "rb") as f:
-                keys.append(serialization.load_pem_public_key(f.read()))
-        except Exception as exc:
-            logger.error("Failed to load update_public.pem: {}", exc)
+    try:
+        keys.append(serialization.load_pem_public_key(_UPD_PUB_CURRENT))
+    except Exception as exc:
+        logger.error("Pinned update key failed to load: {}", exc)
     _pub_keys_cache = keys
     return keys
 

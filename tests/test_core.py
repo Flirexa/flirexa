@@ -290,6 +290,10 @@ class TestServerManager:
         assert updated.lifecycle_status == "degraded"
 
     def test_create_hysteria2_server_persists_proxy_auth_password(self, db_session):
+        from src.core import hysteria2
+
+        if getattr(hysteria2, "FLIREXA_COMMERCIAL_STUB", False):
+            pytest.skip("proxy protocol implementation is private in the open core")
         sm = ServerManager(db_session)
         server = sm.create_server(
             name="hy2-1",

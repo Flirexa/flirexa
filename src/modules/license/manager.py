@@ -78,6 +78,11 @@ _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     # Legacy keys may carry `telegram_admin_bot`, `telegram_client_bot`,
     # or the original `client_tg_bot` — any of those satisfies `telegram_bots`.
     "telegram_bots":      ("client_tg_bot", "telegram_admin_bot", "telegram_client_bot"),
+    # The paid self-service bot used `client_tg_bot` before the current
+    # entitlement name was introduced.  Keep that one-way compatibility so a
+    # previously issued Business/Enterprise key cannot lose the client bot
+    # merely because the implementation moved into the protected bundle.
+    "telegram_client_bot": ("client_tg_bot",),
     # Mikrotik adapter ships in 1.6.x as a paid feature. Existing Pro+
     # lifetime licences don't have the new flag explicitly, but every
     # Pro+ tier carries `multi_server` — accept that as proof of
@@ -110,6 +115,10 @@ _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     # re-issuing.
     "corporate_vpn":      ("white_label",),
     "manager_rbac":       ("white_label",),
+    # App visibility/integration was added after the first Enterprise lifetime
+    # keys had already been sold.  `white_label` is the legacy
+    # Enterprise-only marker, so it is safe to use as the compatibility proof.
+    "app_integration":    ("white_label",),
 }
 
 
@@ -329,6 +338,7 @@ LICENSE_TIERS = {
             "manager_rbac",
             "promo_codes",
             "auto_renewal",
+            "app_integration",
         ]
     },
 }

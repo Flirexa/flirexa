@@ -57,8 +57,13 @@ def _db_context():
 def test_restore_command_success(monkeypatch, tmp_path):
     archive = tmp_path / "vpnmanager-backup-20260327-100000.tar.gz"
     archive.write_bytes(b"test")
-    statuses = iter([_status(tmp_path), _status(tmp_path)])
-    monkeypatch.setattr("src.modules.restore_cli.collect_system_status", lambda: next(statuses))
+    initial_status = _status(tmp_path)
+    post_status = _status(tmp_path)
+    monkeypatch.setattr("src.modules.restore_cli.collect_system_status", lambda: initial_status)
+    monkeypatch.setattr(
+        "src.modules.restore_cli._collect_post_restore_status_payload",
+        lambda: post_status.to_dict(),
+    )
     monkeypatch.setattr("src.modules.restore_cli.get_db_context", _db_context)
     monkeypatch.setattr("src.modules.restore_cli.os.geteuid", lambda: 0)
     monkeypatch.setattr("src.modules.restore_cli.os.access", lambda path, mode: True)
@@ -131,6 +136,10 @@ def test_restore_command_fails_when_backend_reports_error(monkeypatch, tmp_path)
     archive = tmp_path / "vpnmanager-backup-20260327-100000.tar.gz"
     archive.write_bytes(b"test")
     monkeypatch.setattr("src.modules.restore_cli.collect_system_status", lambda: _status(tmp_path))
+    monkeypatch.setattr(
+        "src.modules.restore_cli._collect_post_restore_status_payload",
+        lambda: _status(tmp_path).to_dict(),
+    )
     monkeypatch.setattr("src.modules.restore_cli.get_db_context", _db_context)
     monkeypatch.setattr("src.modules.restore_cli.os.geteuid", lambda: 0)
     monkeypatch.setattr("src.modules.restore_cli.os.access", lambda path, mode: True)
@@ -173,8 +182,13 @@ def test_restore_command_fails_when_backend_reports_error(monkeypatch, tmp_path)
 def test_restore_command_honors_existing_maintenance(monkeypatch, tmp_path):
     archive = tmp_path / "vpnmanager-backup-20260327-100000.tar.gz"
     archive.write_bytes(b"test")
-    statuses = iter([_status(tmp_path, mode="maintenance"), _status(tmp_path, mode="maintenance")])
-    monkeypatch.setattr("src.modules.restore_cli.collect_system_status", lambda: next(statuses))
+    initial_status = _status(tmp_path, mode="maintenance")
+    post_status = _status(tmp_path, mode="maintenance")
+    monkeypatch.setattr("src.modules.restore_cli.collect_system_status", lambda: initial_status)
+    monkeypatch.setattr(
+        "src.modules.restore_cli._collect_post_restore_status_payload",
+        lambda: post_status.to_dict(),
+    )
     monkeypatch.setattr("src.modules.restore_cli.get_db_context", _db_context)
     monkeypatch.setattr("src.modules.restore_cli.os.geteuid", lambda: 0)
     monkeypatch.setattr("src.modules.restore_cli.os.access", lambda path, mode: True)

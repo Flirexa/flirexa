@@ -1,6 +1,6 @@
 # Plugins
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-07-27._
 
 How the plugin system works, how to write your own community plugin, and what makes paid plugins different.
 
@@ -46,19 +46,26 @@ Example: a community plugin that POSTs every new client signup to a Discord webh
 
 A separate, simpler plugin format dating from before the generic loader. Each
 `.py` file in `plugins/payments/` defining a `PROVIDER_CLASS` is auto-registered.
-NOWPayments is the FREE provider in the core. CryptoPay and the public PayLio
-provider are licence-gated; additional card/local provider modules can be
-delivered separately under the commercial licence.
+NOWPayments is the FREE provider in the core. PayLio, CryptoPay, Stripe,
+Mollie, Razorpay, Payme, PayPal, and other card/local providers are commercial
+implementations; the public paths are compatibility stubs only.
 
 To add a new payment provider, copy `plugins/payments/_template.py`, fill in the `create_invoice` / `check_payment` methods, configure credentials in `.env`, restart.
 
 ### 3. Paid plugins (license-gated)
 
 Paid capabilities declare a non-`community` `requires_license_feature` and only
-load when that feature is granted. Hysteria2, TUIC, VLESS-Reality, Corporate VPN,
-and most other gated implementations are present in this MIT repository.
-Separately delivered exceptions include the working remote agent and some
-third-party payment-provider modules.
+load when that feature is granted. The public repository contains marked
+compatibility stubs, not the Hysteria2, TUIC, VLESS-Reality, Corporate VPN,
+multi-server, RBAC, automation, or third-party payment implementations. Those
+implementations are separately licensed and supplied through official customer
+builds.
+
+The current compatibility migration uses one universal protected commercial
+runtime for paid installations. The signed licence still decides which
+features load. Physical per-entitlement packages will replace that transition
+model only after they can preserve existing Business and Enterprise feature
+and limit contracts during update and rollback.
 
 ---
 

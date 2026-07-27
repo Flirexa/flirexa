@@ -15,7 +15,6 @@ psycopg2-binary>=2.9.9
 python-telegram-bot>=20.7
 
 # Security
-python-jose[cryptography]>=3.3.0
 cryptography>=41.0.0
 
 # SSH Remote Management
@@ -40,7 +39,6 @@ black>=23.0.0
 ruff>=0.1.0
 
 # Client Portal & Crypto Payments
-aiocryptopay>=0.4.8
 bcrypt>=4.0.0
 PyJWT>=2.8.0
 email-validator>=2.0.0

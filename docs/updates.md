@@ -1,6 +1,6 @@
 # Updates
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-07-27._
 
 Flirexa has a built-in update system with signed manifests, checksum-verified
 packages, channel-based distribution, and rollback on failure.
@@ -114,6 +114,20 @@ The rollback:
 - Runs a smoke check
 
 Rollback is also triggered automatically if the update smoke check fails.
+
+## Paid-runtime migration safety
+
+An update does not reset or reissue a paid licence. The root `.env`, `data/`,
+local database, licence cache, signed licence-server list, virtual environment,
+and operator backups are excluded from the runtime-tree synchronization.
+Business and Enterprise limits and signed feature flags therefore remain
+unchanged when an official package replaces an older implementation layout.
+
+The updater takes a rollback snapshot before replacing code and deletes stale
+files from the active runtime so source omitted by the new package cannot stay
+active accidentally. The new runtime is accepted only after dependency,
+migration, service, and health checks; otherwise the previous runtime and the
+database backup, when present, are restored.
 
 ### Smoke Check
 

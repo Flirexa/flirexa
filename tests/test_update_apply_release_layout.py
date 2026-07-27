@@ -71,6 +71,11 @@ def _prepare_staging(tmp_path: Path, target_version: str, with_vpnmanager_units:
     _write(pkg_root / "alembic.ini", "[alembic]\nscript_location = alembic\n")
     (pkg_root / "src").mkdir(parents=True, exist_ok=True)
     _write(pkg_root / "src" / "__init__.py", "")
+    _write(
+        pkg_root / "src" / "core" / "server_manager.py",
+        "from pyarmor_runtime_000000 import __pyarmor__\n"
+        "__pyarmor__(__name__, __file__, b'protected-commercial-runtime')\n",
+    )
     _write(pkg_root / "main.py", "print('ok')\n")
     if with_vpnmanager_units:
         unit_body = """[Service]\nWorkingDirectory=/opt/vpnmanager/current\nEnvironmentFile=/opt/vpnmanager/.env\nExecStart=/opt/vpnmanager/venv/bin/python /opt/vpnmanager/current/main.py api\n"""
@@ -177,3 +182,69 @@ def test_update_apply_falls_back_to_inplace_when_release_layout_templates_missin
     assert (tmp_path / "backup" / "phase_symlink_switched").read_text() == "compat-inplace"
     assert (install_dir / "VERSION").read_text() == "1.2.83"
     assert current.resolve() == install_dir.resolve()
+
+
+def _seed_paid_install_state(install_dir: Path) -> dict[Path, bytes]:
+    state = {
+        Path(".env"): b"API_SERVICE=vpnmanager-api\nLICENSE_KEY=signed-paid-license\n",
+        Path("data/license_cache.json"): b'{"plan":"enterprise","features":["corporate_vpn"]}\n',
+        Path("data/license_servers.signed"): b"signed-license-server-list\n",
+        Path("data/vpnmanager.db"): b"customer-database-bytes\n",
+    }
+    for relative, payload in state.items():
+        path = install_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+
+    _write(
+        install_dir / "src/core/server_manager.py",
+        "# old readable commercial implementation\n",
+    )
+    _write(
+        install_dir / "src/web/frontend/src/design2/screens/D2Applications.vue",
+        "<!-- old commercial Vue source -->\n",
+    )
+    return state
+
+
+def _assert_paid_state_unchanged(install_dir: Path, state: dict[Path, bytes]) -> None:
+    for relative, expected in state.items():
+        assert (install_dir / relative).read_bytes() == expected
+
+
+def test_release_layout_migration_preserves_paid_license_data_and_replaces_sources(tmp_path: Path):
+    install_dir = tmp_path / "install"
+    install_dir.mkdir()
+    _write(install_dir / "VERSION", "2.2.59")
+    state = _seed_paid_install_state(install_dir)
+    (install_dir / "releases").mkdir()
+    current = install_dir / "current"
+    current.symlink_to(install_dir)
+
+    staging_dir, package_path = _prepare_staging(tmp_path, "2.2.60", with_vpnmanager_units=True)
+    proc = _run_apply(tmp_path, install_dir, staging_dir, package_path, "2.2.60")
+
+    assert proc.returncode == 0, proc.stderr + "\n" + proc.stdout
+    _assert_paid_state_unchanged(install_dir, state)
+    runtime = current.resolve()
+    protected = (runtime / "src/core/server_manager.py").read_text()
+    assert "protected-commercial-runtime" in protected
+    assert "old readable commercial implementation" not in protected
+    assert not (runtime / "src/web/frontend").exists()
+
+
+def test_inplace_migration_preserves_paid_license_data_and_prunes_obsolete_sources(tmp_path: Path):
+    install_dir = tmp_path / "install"
+    install_dir.mkdir()
+    _write(install_dir / "VERSION", "2.2.59")
+    state = _seed_paid_install_state(install_dir)
+
+    staging_dir, package_path = _prepare_staging(tmp_path, "2.2.60", with_vpnmanager_units=False)
+    proc = _run_apply(tmp_path, install_dir, staging_dir, package_path, "2.2.60")
+
+    assert proc.returncode == 0, proc.stderr + "\n" + proc.stdout
+    _assert_paid_state_unchanged(install_dir, state)
+    protected = (install_dir / "src/core/server_manager.py").read_text()
+    assert "protected-commercial-runtime" in protected
+    assert "old readable commercial implementation" not in protected
+    assert not (install_dir / "src/web/frontend").exists()

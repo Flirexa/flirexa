@@ -1,6 +1,6 @@
 # FREE vs paid
 
-_Last verified: 2026-07-24. Current checkout pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
+_Last verified: 2026-07-27. Current checkout pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
 
 Honest, unhedged answer to "what do I get for free and what do I have to pay for?"
 
@@ -12,7 +12,7 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 
 **FREE** is a complete VPN service for one operator on one physical host with up to 80 clients. WireGuard + AmneziaWG, panel, client portal, crypto payments via NOWPayments, Telegram admin bot, manual backups. MIT-licensed, install once, run forever — no payment, no expiry.
 
-**Starter (from $12/mo)** adds Hysteria2, TUIC, VLESS-Reality, promo codes, and auto-renewal.
+**Starter (from $12/mo)** adds Hysteria2/TUIC/VLESS-Reality protocols, promo codes, and auto-renewal.
 
 **Business (from $49/mo)** adds multi-server, white-label, traffic rules, scheduled backups, full client Telegram bot.
 
@@ -95,7 +95,9 @@ For ISPs, MSPs, and companies who don't run an end-user VPN service but need sit
 
 ## How the gating works in practice
 
-The core installer is the same for every tier. Public implementations are activated by licence feature flags; separately delivered commercial components are installed through the official package channel.
+The public repository contains the MIT open core plus marked compatibility
+stubs. Official customer packages supply protected commercial implementations;
+their runtime activation still depends on the signed licence feature set.
 
 **On a FREE install:**
 
@@ -108,10 +110,13 @@ The core installer is the same for every tier. Public implementations are activa
 **On a paid install:**
 
 - `LICENSE_KEY` is set in `.env`.
-- `LicenseManager` validates the RSA-signed key against the local public key, then heartbeats with the license server to check for revocation. Local cache + 72-hour grace period mean a license-server outage doesn't break paid customers' running installs.
+- `LicenseManager` validates the RSA-signed key against the embedded public key. Subscription licences use online enforcement with a 72-hour outage grace window; Lifetime licences remain operational offline and use a once-daily heartbeat only for clone detection and update/support state.
 - Plugin loader picks up the matching plugin manifests and mounts their routers.
 - Paid feature endpoints return real responses.
-- For `extra-protocols` (Hysteria2/TUIC/VLESS-Reality) and `corporate-vpn`, the implementation ships in this public MIT tree but stays inert until the matching licence feature flag is granted.
+- Commercial implementations such as extra protocols, multi-server orchestration, Corporate VPN, RBAC, paid automation, and third-party payment providers are not published in this MIT tree.
+- An update of an already licensed installation preserves `.env`, the database,
+  licence cache, signed server list, limits, and feature flags. It replaces the
+  implementation/runtime tree without reactivating or reissuing the licence.
 
 If your subscription expires or is cancelled, the paid plugins refuse to load on the next restart. Your FREE-tier features keep working unchanged.
 
@@ -134,8 +139,8 @@ A few things people sometimes ask about that are FREE forever:
 
 A few things to know up front:
 
-- **Paid features rely on the license server.** If you lose connection to `flirexa.biz` for more than 72 hours, paid plugins disable themselves. This is intentional — it's how subscription validation works. FREE installs are not affected.
-- **Most paid product features are gates over public code.** Hysteria2, TUIC, VLESS-Reality, and Corporate VPN live in this MIT repository. Remote-agent code and some third-party payment-provider modules are genuine separately delivered exceptions. NOWPayments is built in and free.
+- **Subscription and Lifetime licences behave differently.** Subscriptions use online enforcement with a 72-hour outage grace window. Lifetime installations remain operational offline; their daily heartbeat is detection/support telemetry, not a kill switch. FREE installs are unaffected.
+- **Commercial implementations are separately licensed.** The open core exposes marked compatibility stubs and feature interfaces. Official customer archives protect the commercial backend; NOWPayments and the documented FREE functionality remain in the MIT core.
 - **Billing periods vary.** Monthly, annual, and lifetime options can be offered by the current checkout. Consult [flirexa.biz](https://flirexa.biz) for the combinations available for each tier.
 
 ---

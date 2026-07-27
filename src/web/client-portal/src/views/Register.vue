@@ -103,6 +103,7 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
+import { setPortalUser } from '../session'
 import FxIcon from '../components/FxIcon.vue'
 import bundledLogo from '../assets/flirexa-logo.png'
 
@@ -161,8 +162,7 @@ const handleRegister = async () => {
     const payload = { ...form.value }
     if (!payload.email || !payload.email.trim()) delete payload.email
     const response = await portalApi.register(payload)
-    localStorage.setItem('client_access_token', response.data.access_token)
-    localStorage.setItem('client_user', JSON.stringify(response.data.user))
+    setPortalUser(response.data.user)
     // Honor ?next= so a customer who hit "Choose plan" on the
     // marketing landing (deep-link target /register?next=/plans)
     // lands on the plans picker immediately after signup, with no

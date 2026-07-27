@@ -116,6 +116,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api/index.js'
+import { clearPortalSession, portalSession } from '../session.js'
 import FxIcon from './FxIcon.vue'
 import bundledLogo from '../assets/flirexa-logo.png'
 
@@ -199,12 +200,8 @@ function setLang(code) {
 }
 
 const userName = computed(() => {
-  try {
-    const user = JSON.parse(localStorage.getItem('client_user') || '{}')
-    return user.username || user.email || ''
-  } catch {
-    return ''
-  }
+  const user = portalSession.user || {}
+  return user.username || user.email || ''
 })
 const userInitials = computed(() => {
   const n = userName.value
@@ -215,10 +212,13 @@ const userInitials = computed(() => {
   return (parts[0][0] + parts[1][0]).toUpperCase()
 })
 
-function logout() {
-  localStorage.removeItem('client_access_token')
-  localStorage.removeItem('client_user')
-  router.push('/login')
+async function logout() {
+  try {
+    await portalApi.logout()
+  } finally {
+    clearPortalSession()
+    router.push('/login')
+  }
 }
 
 // GitHub promo: default ON. Admin can hide it via branding flag
@@ -246,7 +246,7 @@ async function dismissNotification(id) {
 }
 
 async function loadFeatures() {
-  if (!localStorage.getItem('client_access_token')) return
+  if (!portalSession.user) return
   try {
     const { data } = await portalApi.getFeatures()
     featureFlags.value = { corp_networks: !!data?.features?.corp_networks }
@@ -254,7 +254,7 @@ async function loadFeatures() {
 }
 
 async function loadNotifications() {
-  if (!localStorage.getItem('client_access_token')) return
+  if (!portalSession.user) return
   try {
     const { data } = await portalApi.getNotifications()
     notifications.value = Array.isArray(data) ? data : []

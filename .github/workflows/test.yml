@@ -36,9 +36,8 @@ jobs:
         env:
           DATABASE_URL: "sqlite:///:memory:"
         run: |
-          # The public mirror intentionally omits the working remote agent
-          # and some commercial payment-provider modules. Tests that depend
-          # on those components or real provider calls run in private CI.
+          # The public mirror intentionally omits commercial implementations
+          # and seller/release tooling. Their tests run in private CI.
           pytest tests/ \
             --ignore tests/test_payment_flow.py \
             --ignore tests/test_bootstrap.py \

@@ -122,12 +122,52 @@ class ClientUser(Base):
     # Relationships
     subscription = relationship("ClientPortalSubscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
     payments = relationship("ClientPortalPayment", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship(
+        "ClientRefreshToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     wireguard_clients = relationship("Client", secondary="client_user_clients")  # Link to WG clients
     referred_by = relationship("ClientUser", remote_side="ClientUser.id", foreign_keys=[referred_by_id])
     referrals = relationship("ClientUser", foreign_keys=[referred_by_id], back_populates="referred_by", viewonly=True)
 
     def __repr__(self):
         return f"<ClientUser {self.username} ({self.email})>"
+
+
+class ClientRefreshToken(Base):
+    """Hashed, rotating refresh-token state for browser portal sessions.
+
+    The opaque token sent to the browser is never persisted.  A family groups
+    every rotation descended from one login so replay of an already-consumed
+    token can revoke the complete session chain.
+    """
+    __tablename__ = "client_refresh_tokens"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("client_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash = Column(String(64), unique=True, nullable=False, index=True)
+    family_id = Column(String(64), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    replaced_by_hash = Column(String(64), nullable=True)
+
+    user = relationship("ClientUser", back_populates="refresh_tokens")
+
+    __table_args__ = (
+        Index("ix_client_refresh_tokens_user_family", "user_id", "family_id"),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

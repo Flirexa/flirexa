@@ -4,6 +4,76 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.59 — 2026-07-25
+
+### Security
+
+- Moved browser portal sessions out of `localStorage` and into short-lived
+  HttpOnly, Secure, SameSite=Strict cookies.
+- Added rotating opaque refresh tokens stored only as hashes, with replay
+  detection and whole-session-family revocation.
+- Added double-submit CSRF protection for state-changing cookie-authenticated
+  requests.
+- Password changes and resets now revoke active browser refresh sessions.
+
+### Compatibility
+
+- Kept Bearer authentication available for existing mobile clients while the
+  browser portal migrates to cookie sessions.
+- Added automatic single-flight refresh and request retry in the web portal.
+
+### Database
+
+- Added migration 053 for browser refresh-token session state.
+
+---
+
+## v2.2.58 — 2026-07-24
+
+### Security
+
+- Retired transitional trust for the pre-rotation server-response and update
+  signing keys. Panels now accept only signatures made with the current
+  embedded vendor keys.
+- Removed editable public-key files from the runtime trust path, preventing a
+  local file replacement from restoring a retired signing key.
+
+### Fixed
+
+- Signed license-server configuration now includes both canonical service
+  origins so validation failover remains available after a fresh installation
+  or update.
+
+### Build
+
+- Release and manifest tooling now refuses to sign when the selected private
+  key does not match the tracked current public key.
+- License-server tests can use an ephemeral signing pair in clean CI
+  environments without requiring production release secrets.
+
+---
+
+## v2.2.57 — 2026-07-24
+
+### Security
+
+- Replaced legacy JWT and Crypto Pay dependency chains with maintained,
+  directly audited implementations.
+- Added reproducible, hash-locked Python production dependencies and automated
+  Python and npm vulnerability checks.
+
+### Fixed
+
+- Validated existing TLS DH parameters and regenerated incomplete files through
+  an atomic replacement before nginx reload.
+
+### Build
+
+- Expanded CI to install exact dependency graphs, run backend regression
+  suites, audit production dependencies, and build both production frontends.
+
+---
+
 ## v2.2.54 — 2026-07-24
 
 ### Security

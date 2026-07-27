@@ -207,6 +207,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
+import { portalSession } from '../session'
 import FxIcon from '../components/FxIcon.vue'
 import PaymentModal from './PaymentModal.vue'
 
@@ -266,9 +267,7 @@ const nextChargeMeta = computed(() => {
 })
 
 const userEmail = computed(() => {
-  try {
-    return JSON.parse(localStorage.getItem('client_user') || '{}').email || '—'
-  } catch { return '—' }
+  return portalSession.user?.email || '—'
 })
 
 // "Default" = the provider used for the most recent successful payment.

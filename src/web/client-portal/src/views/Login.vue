@@ -177,6 +177,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
+import { setPortalUser } from '../session'
 import FxIcon from '../components/FxIcon.vue'
 import bundledLogo from '../assets/flirexa-logo.png'
 
@@ -255,8 +256,7 @@ const handleLogin = async () => {
       identifier: form.value.identifier.trim(),
       password: form.value.password,
     })
-    localStorage.setItem('client_access_token', response.data.access_token)
-    localStorage.setItem('client_user', JSON.stringify(response.data.user))
+    setPortalUser(response.data.user)
     if (remember.value) localStorage.setItem('remember_me', 'true')
     // Honor ?next= so the landing-site "Choose plan" deep-link
     // (→ /register?next=/plans) lands the user where they expected

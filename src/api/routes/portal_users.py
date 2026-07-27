@@ -27,7 +27,7 @@ from ...database.models import (
 from ...modules.subscription.subscription_models import (
     ClientUser, ClientPortalSubscription, ClientPortalPayment,
     SubscriptionPlan, SubscriptionStatus, ClientUserClients,
-    SupportMessage, DeviceSlot,
+    SupportMessage, DeviceSlot, ClientRefreshToken,
 )
 from ...modules.subscription.subscription_manager import SubscriptionManager
 from ..middleware.auth import get_current_admin
@@ -1284,6 +1284,17 @@ def set_portal_user_password(
     ).decode("utf-8")
     user.password_reset_token = None
     user.password_reset_token_created_at = None
+    revoked_sessions = (
+        db.query(ClientRefreshToken)
+        .filter(
+            ClientRefreshToken.user_id == user.id,
+            ClientRefreshToken.revoked_at.is_(None),
+        )
+        .update(
+            {ClientRefreshToken.revoked_at: datetime.now(timezone.utc)},
+            synchronize_session=False,
+        )
+    )
 
     db.add(AuditLog(
         user_id=current_admin.get("user_id"),
@@ -1295,6 +1306,7 @@ def set_portal_user_password(
         details={
             "action": "admin_password_reset",
             "reset_token_revoked": reset_token_revoked,
+            "browser_sessions_revoked": revoked_sessions,
         },
     ))
     db.commit()

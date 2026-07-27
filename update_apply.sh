@@ -772,9 +772,13 @@ else
     sync_release_tree "$EXTRACT_ROOT" "$INSTALL_DIR"
 fi
 
-if [[ -f "$INSTALL_DIR/venv/bin/pip" && -f "$TARGET_RELEASE_DIR/requirements.txt" ]]; then
+target_requirements="$TARGET_RELEASE_DIR/requirements.lock"
+if [[ ! -f "$target_requirements" ]]; then
+    target_requirements="$TARGET_RELEASE_DIR/requirements.txt"
+fi
+if [[ -f "$INSTALL_DIR/venv/bin/pip" && -f "$target_requirements" ]]; then
     log "[S3] Updating Python dependencies …"
-    "$INSTALL_DIR/venv/bin/pip" install -q -r "$TARGET_RELEASE_DIR/requirements.txt" 2>&1 | tail -5 || {
+    "$INSTALL_DIR/venv/bin/pip" install -q -r "$target_requirements" 2>&1 | tail -5 || {
         log_err "Dependency install failed"
         exit 1
     }

@@ -8,6 +8,7 @@ import subprocess
 import time
 import random
 import asyncio
+import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from collections import defaultdict
@@ -394,11 +395,9 @@ def get_me(
     db: Session = Depends(get_db)
 ):
     """Get current admin user info."""
-    from jose import JWTError, jwt as jose_jwt
-
     try:
-        payload = jose_jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     user_id = payload.get("user_id")
@@ -423,11 +422,9 @@ def change_password(
     db: Session = Depends(get_db)
 ):
     """Change admin password."""
-    from jose import JWTError, jwt as jose_jwt
-
     try:
-        payload = jose_jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     user_id = payload.get("user_id")
@@ -453,11 +450,9 @@ def create_admin(
     db: Session = Depends(get_db)
 ):
     """Create a new admin account. Only existing admins can create new ones."""
-    from jose import JWTError, jwt as jose_jwt
-
     try:
-        payload = jose_jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     caller_id = payload.get("user_id")
@@ -511,10 +506,9 @@ def list_admins(
     db: Session = Depends(get_db)
 ):
     """List all admin accounts."""
-    from jose import JWTError, jwt as jose_jwt
     try:
-        payload = jose_jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     caller_id = payload.get("user_id")
@@ -542,10 +536,9 @@ def delete_admin(
     db: Session = Depends(get_db)
 ):
     """Delete an admin account. Only superadmins can delete. Cannot delete yourself."""
-    from jose import JWTError, jwt as jose_jwt
     try:
-        payload = jose_jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     caller_id = payload.get("user_id")

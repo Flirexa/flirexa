@@ -7,7 +7,7 @@ from typing import Optional
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+import jwt
 from sqlalchemy.orm import Session
 import bcrypt
 import os
@@ -66,7 +66,7 @@ def verify_refresh_token(token: str) -> dict:
         if "user_id" not in payload:
             raise HTTPException(status_code=401, detail="Invalid refresh token")
         return payload
-    except JWTError:
+    except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
 
@@ -115,7 +115,7 @@ async def get_current_admin(
         if payload.get("type") == "refresh":
             raise HTTPException(status_code=401, detail="Refresh token cannot be used for access")
         return payload
-    except JWTError:
+    except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired token",

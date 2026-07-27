@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ensurePortalSession } from '../session'
 
 const routes = [
   {
@@ -56,25 +57,10 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('client_access_token')
-  let hasToken = !!token
+router.beforeEach(async (to) => {
+  const hasSession = await ensurePortalSession()
 
-  // Check JWT expiry
-  if (hasToken) {
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
-      if (payload.exp && payload.exp * 1000 < Date.now()) {
-        localStorage.removeItem('client_access_token')
-        hasToken = false
-      }
-    } catch {
-      localStorage.removeItem('client_access_token')
-      hasToken = false
-    }
-  }
-
-  if (to.meta.requiresAuth && !hasToken) {
+  if (to.meta.requiresAuth && !hasSession) {
     // Preserve the originally requested URL so the auth views can
     // bounce there after a successful login / register. Customers
     // who don't have an account yet click "Sign up" on the login
@@ -83,12 +69,12 @@ router.beforeEach((to, from, next) => {
     // sign back in.
     const next_url = to.fullPath
     if (next_url && next_url !== '/') {
-      return next({ path: '/login', query: { next: next_url } })
+      return { path: '/login', query: { next: next_url } }
     }
-    return next('/login')
+    return '/login'
   }
 
-  if ((to.path === '/login' || to.path === '/register') && hasToken) {
+  if ((to.path === '/login' || to.path === '/register') && hasSession) {
     // Already authenticated — if they came in with a next= hint,
     // honor it so the marketing-landing → register → /plans loop
     // works even on the second visit when the user happened to
@@ -96,10 +82,8 @@ router.beforeEach((to, from, next) => {
     const hinted = typeof to.query.next === 'string' && to.query.next.startsWith('/')
       ? to.query.next
       : '/'
-    return next(hinted)
+    return hinted
   }
-
-  next()
 })
 
 export default router

@@ -644,6 +644,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
+import { portalSession } from '../session'
 import PaymentModal from './PaymentModal.vue'
 import FxIcon from '../components/FxIcon.vue'
 import Sparkline from '../components/Sparkline.vue'
@@ -744,10 +745,10 @@ const welcomeText = computed(() => {
   return n ? t('dash.welcomeBack', { name: n }) : t('dash.welcomeAnon')
 })
 function userFirstName() {
-  try {
-    const u = JSON.parse(localStorage.getItem('client_user') || '{}')
-    return (u.username || (u.email || '').split('@')[0] || '').slice(0, 32)
-  } catch { return '' }
+  const user = portalSession.user || {}
+  return (
+    user.username || (user.email || '').split('@')[0] || ''
+  ).slice(0, 32)
 }
 
 const isFreeUser = computed(() => (subscription.value.tier || 'free').toLowerCase() === 'free')
@@ -1212,27 +1213,8 @@ const confirmDeleteWithPassword = async () => {
   deleting.value = true
   deleteError.value = null
   try {
-    // Verify password by replaying the login flow. Stateless JWT means a
-    // fresh access token from this call is harmless — we just discard it.
-    // Reusing /auth/login keeps password-hash comparison in one place
-    // instead of adding a one-off verify endpoint.
-    let userEmail = ''
     try {
-      const u = JSON.parse(localStorage.getItem('client_user') || '{}')
-      userEmail = u.email || ''
-    } catch { /* ignore */ }
-    if (!userEmail) {
-      deleteError.value = t('common.error')
-      deleting.value = false
-      return
-    }
-    try {
-      // skip-401-interceptor: see api/index.js — wrong password on this
-      // verify-only login must NOT yank the customer's existing session.
-      await portalApi.login(
-        { email: userEmail, password: deletePassword.value },
-        { _skipAuthInterceptor: true },
-      )
+      await portalApi.verifyPassword(deletePassword.value)
     } catch (verifyErr) {
       if (verifyErr.response?.status === 400 || verifyErr.response?.status === 401) {
         deleteError.value = t('dash.deletePasswordWrong')
@@ -1362,7 +1344,6 @@ const regenerateSubLink = async () => {
 }
 
 onMounted(() => {
-  if (!localStorage.getItem('client_access_token')) { router.push('/login'); return }
   loadData()
   loadReferral()
   loadServers()
