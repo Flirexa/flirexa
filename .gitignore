@@ -84,3 +84,9 @@ id_*.priv
 
 # Vite temp config artifacts
 src/web/frontend/vite.config.js.timestamp-*.mjs
+
+# Public update trust anchor. Keep the rest of data/ and every other PEM
+# ignored; source checkouts need this key to verify signed update manifests.
+!data/
+data/*
+!data/update_public.pem
