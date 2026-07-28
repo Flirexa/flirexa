@@ -12,10 +12,6 @@ from sqlalchemy.orm import Session
 from src.database.connection import get_db_context
 from src.database.models import AuditAction, AuditLog, SystemConfig, UpdateHistory, UpdateStatus
 from src.modules.license.online_validator import get_online_status, is_license_blocked
-try:
-    from src.modules.license.online_validator import _warmup_from_cache as _license_warmup_from_cache
-except ImportError:  # pragma: no cover
-    _license_warmup_from_cache = None
 
 
 OperationalMode = Literal[
@@ -173,11 +169,12 @@ def derive_license_mode() -> str:
     except Exception:
         pass
 
-    if _license_warmup_from_cache is not None:
-        try:
-            _license_warmup_from_cache()
-        except Exception:
-            pass
+    # get_online_status() lazily warms an uninitialised process once.  Do not
+    # call _warmup_from_cache() here: this resolver runs in request middleware,
+    # and re-applying the last successful payload would overwrite
+    # server_reachable=False after a real network failure.  That made the UI
+    # report a healthy licence-server connection during an outage even though
+    # the bounded cached lease was correctly keeping the panel operational.
     raw = get_online_status()
     blocked, _ = is_license_blocked()
     if blocked:

@@ -112,7 +112,9 @@ class TestLicenseGateDependency:
         with pytest.raises(HTTPException) as exc:
             await gate()
         assert exc.value.status_code == 403
-        assert "multi_server" in exc.value.detail
+        assert exc.value.detail["license_feature_required"] == "multi_server"
+        assert exc.value.detail["upgrade_tier"] == "business"
+        assert exc.value.detail["upgrade_url"].endswith("#pricing")
 
     @pytest.mark.asyncio
     async def test_passes_when_feature_present(self):

@@ -1,6 +1,15 @@
 .git
 .gitignore
 .env
+.env.*
+*.key
+*.pem
+*.token
+.flirexa-secrets/
+secrets/
+data/*.json
+data/*.db
+data/*.sqlite
 *.tar.gz
 *.pyc
 __pycache__

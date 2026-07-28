@@ -189,24 +189,19 @@ async def lifespan(app: FastAPI):
 
     # Load payment plugins from plugins/payments/
     #
-    # Must go through `importlib.import_module` (not the older
-    # `spec_from_file_location` path), otherwise protected plugin bundles
-    # can import as no-op stubs: `spec_from_file_location`
-    # bypasses Python's package import hooks, so the pyarmor runtime never
-    # initializes and the module body executes without ever setting
-    # PROVIDER_CLASS. The plain-source development tree works either way,
-    # which can hide the packaging-specific failure.
+    # Must go through the package importer. Official customer builds contain
+    # Cython `.abi3.so` providers while development/open-core trees contain
+    # `.py`; package imports support both without executing a readable copy.
     try:
         import importlib
         from pathlib import Path as _P
+        from ..modules.payment.plugin_discovery import importable_payment_modules
         _plugins_dir = _P(__file__).resolve().parents[2] / "plugins" / "payments"
         if _plugins_dir.is_dir():
             _loaded = 0
-            for _pf in sorted(_plugins_dir.glob("*.py")):
-                if _pf.name.startswith("_"):
-                    continue  # skip __init__.py and _template.py
+            for _module_name, _pf in importable_payment_modules(_plugins_dir):
                 try:
-                    _mod = importlib.import_module(f"plugins.payments.{_pf.stem}")
+                    _mod = importlib.import_module(f"plugins.payments.{_module_name}")
                     _cls = getattr(_mod, "PROVIDER_CLASS", None)
                     if _cls:
                         _instance = _cls()
@@ -587,8 +582,8 @@ def create_app(
                 # CryptoPay) happens inside the router against the `payments`
                 # feature so FREE can transact via crypto but cannot use the
                 # paid provider plugins.
-                "/api/v1/traffic": ("traffic_rules", "pro"),
-                "/api/v1/payments": ("nowpayments", "pro"),
+                "/api/v1/traffic": ("traffic_rules", "business"),
+                "/api/v1/payments": ("nowpayments", "business"),
                 "/api/v1/promo-codes": ("promo_codes", "starter"),
             }
             for route_prefix, (feature_name, upgrade_tier) in feature_routes.items():

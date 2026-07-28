@@ -202,3 +202,35 @@ def test_service_prefix_prefers_active_legacy_units(monkeypatch, tmp_path):
 
     monkeypatch.setattr("src.modules.system_status.collector.subprocess.run", fake_run)
     assert _service_prefix() == legacy_prefix
+
+
+def test_license_summary_preserves_unreachable_validator_state(monkeypatch):
+    from src.modules.system_status import collector
+
+    replay_calls = []
+    monkeypatch.setenv("LICENSE_KEY", "signed-paid-license")
+    monkeypatch.setattr(
+        collector,
+        "get_online_status",
+        lambda: {
+            "status": "ok",
+            "tier": "enterprise",
+            "server_reachable": False,
+            "last_check": "2026-07-28T13:40:00+00:00",
+            "message": "",
+        },
+    )
+    monkeypatch.setattr(collector, "is_license_blocked", lambda: (False, ""))
+    monkeypatch.setattr(
+        collector,
+        "_license_warmup_from_cache",
+        lambda: replay_calls.append(True),
+        raising=False,
+    )
+
+    summary = collector._license_summary(api_active=True)
+
+    assert summary.mode == "license_grace"
+    assert summary.grace is True
+    assert summary.server_reachable is False
+    assert replay_calls == []

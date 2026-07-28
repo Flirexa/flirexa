@@ -20,10 +20,6 @@ from sqlalchemy.orm import Session
 from src.database.connection import DATABASE_URL, check_db_connection, engine, get_db_context
 from src.database.models import SystemConfig, UpdateHistory, UpdateStatus
 from src.modules.license.online_validator import get_online_status, is_license_blocked
-try:
-    from src.modules.license.online_validator import _warmup_from_cache as _license_warmup_from_cache
-except ImportError:  # pragma: no cover
-    _license_warmup_from_cache = None
 from src.modules.operational_mode import (
     ExplicitMaintenanceState,
     get_explicit_maintenance_state,
@@ -454,11 +450,6 @@ def _worker_heartbeat(db_ok: bool, db_session: Session | None = None) -> tuple[s
 
 
 def _license_summary(api_active: bool) -> LicenseStatusSummary:
-    if _license_warmup_from_cache is not None:
-        try:
-            _license_warmup_from_cache()
-        except Exception:
-            pass
     if not os.getenv("LICENSE_KEY", "").strip():
         return LicenseStatusSummary(
             mode="normal",
@@ -471,6 +462,10 @@ def _license_summary(api_active: bool) -> LicenseStatusSummary:
             server_reachable=None,
             message="License not activated",
         )
+    # get_online_status() performs a one-time lazy cache warmup when needed.
+    # Replaying the cache on every status collection would erase a freshly
+    # observed server_reachable=False state and falsely report the licensing
+    # origins as reachable during an outage.
     raw = get_online_status()
     blocked, blocked_reason = is_license_blocked()
     status = raw.get("status") or "unknown"

@@ -1,11 +1,10 @@
 """
-Tests for the 1.5.64 lifetime_protected license type:
+Compatibility tests for the lifetime_protected license type:
 
-  • license_generator emits owner_name, owner_email, license_type,
-    migration_secret in the signed payload
+  • new license generation omits the retired customer-side migration secret
   • migration_code generates / verifies / rejects tampered codes
   • is_decommissioned() flips True after the 3-day deadline
-  • online_validator is_license_blocked returns False for lifetime / lifetime_protected
+  • Lifetime uses a daily heartbeat and a signed bounded offline lease
   • heartbeat interval is selected per license_type
 """
 
@@ -112,12 +111,12 @@ def test_heartbeat_interval_lifetime_protected_is_24h(monkeypatch):
     assert _HEARTBEAT_INTERVAL_BY_TYPE["lifetime_protected"] == 86_400
 
 
-def test_heartbeat_interval_lifetime_disabled(monkeypatch):
+def test_heartbeat_interval_legacy_lifetime_is_24h(monkeypatch):
     monkeypatch.setenv("LICENSE_KEY", _fake_license_key({
         **_make_protected_payload(), "license_type": "lifetime"
     }))
     assert _read_license_type_from_env() == "lifetime"
-    assert _HEARTBEAT_INTERVAL_BY_TYPE["lifetime"] is None
+    assert _HEARTBEAT_INTERVAL_BY_TYPE["lifetime"] == 86_400
 
 
 # ── online_validator blocking gate ───────────────────────────────────────────
@@ -233,8 +232,8 @@ def test_cancel_migration_clears_record(monkeypatch, tmp_path):
 # ── license_generator payload roundtrip ──────────────────────────────────────
 
 @_requires_license_server
-def test_license_generator_emits_protected_fields(tmp_path):
-    """Round-trip through generate_license_key — verify new fields are signed."""
+def test_license_generator_emits_protected_fields_without_self_transfer_secret(tmp_path):
+    """New keys keep ownership/type but cannot self-sign a transfer."""
     from license_server.services.license_generator import generate_license_key
 
     # Generate a throwaway RSA key for the test
@@ -264,13 +263,12 @@ def test_license_generator_emits_protected_fields(tmp_path):
     assert payload["license_type"] == "lifetime_protected"
     assert payload["owner_name"] == "Acme Holdings"
     assert payload["owner_email"] == "owner@example.com"
-    assert "migration_secret" in payload
-    assert len(payload["migration_secret"]) >= 32
+    assert "migration_secret" not in payload
     # Roundtrip via key string
     head = key.split(".", 1)[0] + "==="
     decoded = json.loads(base64.urlsafe_b64decode(head).decode())
     assert decoded["license_type"] == "lifetime_protected"
-    assert decoded["migration_secret"] == payload["migration_secret"]
+    assert "migration_secret" not in decoded
 
 
 @_requires_license_server

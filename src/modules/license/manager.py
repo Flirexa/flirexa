@@ -106,9 +106,15 @@ _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     "auto_renewal":       ("multi_server", "proxy_protocols"),
     # Pro+ tier features. Legacy keys with `multi_server` get them all.
     "auto_backup":        ("multi_server",),
-    "white_label_basic":  ("multi_server", "white_label"),
     "traffic_rules":      ("multi_server",),
-    "android_app":        ("multi_server",),
+    # Appearance and the official app package are Enterprise-only for new
+    # licences.  Some already-sold Business keys explicitly carry
+    # `white_label_basic` and/or `android_app`; honour only those signed flags
+    # so an update does not remove a purchased capability.  Never infer either
+    # entitlement from Business' generic `multi_server` marker.
+    "white_label":        ("white_label_basic",),
+    "white_label_basic":  ("white_label",),
+    "android_app":        ("white_label",),
     # Enterprise-only features. `white_label` is the legacy Enterprise
     # marker (only Enterprise tier ever carried it). Legacy Enterprise
     # keys with that flag get corporate_vpn and manager_rbac without
@@ -118,7 +124,7 @@ _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     # App visibility/integration was added after the first Enterprise lifetime
     # keys had already been sold.  `white_label` is the legacy
     # Enterprise-only marker, so it is safe to use as the compatibility proof.
-    "app_integration":    ("white_label",),
+    "app_integration":    ("white_label", "android_app"),
 }
 
 
@@ -136,16 +142,16 @@ class LicenseInfo:
     hardware_id: str = ""
     grace_period: bool = False
     billing_type: str = "lifetime"   # monthly / lifetime / annual
-    # license_type controls enforcement model (1.5.64+):
-    #   "subscription"       — online enforcement, can be revoked
-    #   "lifetime"           — pure offline, no heartbeat, no online check
-    #   "lifetime_protected" — offline-tolerant + telemetry heartbeat for clone
-    #                          detection; online_validator never blocks
+    # license_type controls enforcement mode:
+    #   "subscription"       — bounded online enforcement
+    #   "lifetime"           — legacy spelling, upgraded to signed leases
+    #   "lifetime_protected" — perpetual entitlement with a signed, bound
+    #                          30-day offline lease and daily validation
     license_type: str = "subscription"
     owner_name: Optional[str] = None
     owner_email: Optional[str] = None
-    # `migration_secret` is sensitive — never expose it via API responses or
-    # logs. Only the migration-code generator reads it.
+    # `migration_secret` exists only for compatibility with previously issued
+    # keys. New keys do not mint it and public self-transfer routes reject it.
     migration_secret: Optional[str] = None
 
     @property
@@ -214,8 +220,7 @@ LICENSE_TIERS = {
     #   • Split crypto-only NOWPayments from full payment-provider suite:
     #     `nowpayments` is on FREE and every paid tier; `payments` is Pro+
     #     only (card processors are paid plugins from flirexa-pro).
-    #   • Added `android_app` to BUSINESS (it was missing — gap between
-    #     PRO and ENTERPRISE in the ladder).
+    #   • Appearance controls and official customer apps are Enterprise-only.
     LicenseType.FREE: {
         "max_clients": 80,
         # FREE: one server per protocol (WireGuard + AmneziaWG = up to 2).
@@ -269,8 +274,6 @@ LICENSE_TIERS = {
             "multi_server",
             "mikrotik_adapter",
             "traffic_rules",
-            "android_app",
-            "white_label_basic",
             "auto_backup",
             "promo_codes",
             "auto_renewal",
@@ -308,8 +311,6 @@ LICENSE_TIERS = {
             "multi_server",
             "mikrotik_adapter",
             "traffic_rules",
-            "android_app",
-            "white_label_basic",
             "auto_backup",
             "promo_codes",
             "auto_renewal",
@@ -594,24 +595,16 @@ class LicenseManager:
             # No network calls, no expiry, full free feature set.
             return self._create_free_license("No license key — running in FREE mode")
 
-        # Self-decommission gate: if THIS server has handed out a migration
-        # code more than OLD_SERVER_DECOMMISSION_DAYS ago, refuse to grant
-        # paid features even though the signature still verifies. The
-        # customer chose to migrate; this is the burning bridge that
-        # prevents the old install from staying up forever.
+        # Retire any pending local self-transfer countdown created by an older
+        # release. The vendor no longer accepts customer-signed move receipts,
+        # so allowing that countdown to decommission this paid installation
+        # would strand the buyer without completing a transfer.
         try:
-            from .migration_code import is_decommissioned, get_migration_initiated
-            if is_decommissioned():
-                rec = get_migration_initiated() or {}
-                logger.warning(
-                    "License self-decommissioned: migration to new server initiated at {} — falling back to FREE mode",
-                    rec.get("initiated_at", "?"),
-                )
-                return self._create_free_license(
-                    "Server migrated — this install was decommissioned. Use the new server."
-                )
+            from .migration_code import cancel_migration
+            if cancel_migration():
+                logger.warning("Removed retired self-service transfer countdown")
         except Exception as e:
-            logger.debug("migration_code check skipped: {}", e)
+            logger.debug("retired migration-state cleanup skipped: {}", e)
 
         try:
             return self._parse_and_validate(key, skip_signature=False)
@@ -722,33 +715,14 @@ class LicenseManager:
         if not hardware_id:
             return self._create_free_license("License has no hardware binding (hardware_id required)")
         if not hmac.compare_digest(hardware_id, self.get_server_id()):
-            # The embedded hardware_id doesn't match this machine. Before
-            # falling back to FREE, honor a previously-applied migration:
-            # a lifetime_protected license that was legitimately moved
-            # here (operator applied a migration code) carries a local
-            # applied-migration record that re-verifies against the key's
-            # migration_secret. This is what lets the move actually
-            # complete offline — without it the immutable, old-hardware-
-            # bound LICENSE_KEY would keep the panel on FREE forever.
-            # The check is self-gating: a non-lifetime_protected key has no
-            # migration_secret, so the HMAC re-verify inside returns False.
-            # No need to branch on the (normalized) license_type here.
-            migration_ok = False
-            try:
-                from .migration_code import current_hardware_authorized_by_migration
-                migration_ok = current_hardware_authorized_by_migration(
-                    payload, self.get_server_id()
-                )
-            except Exception as _mig_err:
-                logger.debug("migration authorization check errored: {}", _mig_err)
-            if migration_ok:
-                logger.info(
-                    "License hardware mismatch overridden by a verified applied-migration "
-                    "record — this machine is the authorized home of the migrated license"
-                )
-            else:
-                logger.warning("License hardware ID mismatch")
-                return self._create_free_license("License not valid for this server")
+            # Local customer-created migration records are not an authority:
+            # anyone holding an old key also holds its retired HMAC secret and
+            # could clone that state repeatedly. A legitimate move is a vendor
+            # revocation/reissue whose newly signed key names this hardware.
+            logger.warning("License hardware ID mismatch")
+            return self._create_free_license(
+                "License not valid for this server — contact support for a verified transfer"
+            )
 
         # Check expiry. Trials (<= 14 days total) get no grace window — the
         # 7-day grace is meant for transient lic-server outages on paid
@@ -1058,22 +1032,6 @@ class LicenseManager:
             "grace_period": license_info.grace_period,
             "message":      license_info.validation_message,
         }
-
-        # Migration state (lifetime_protected only): expose to the UI so
-        # the operator can see "this server self-decommissions in N days"
-        # after they've kicked off a migration.
-        try:
-            from .migration_code import get_migration_initiated, time_to_decommission, is_decommissioned
-            rec = get_migration_initiated()
-            if rec:
-                ttd = time_to_decommission()
-                result["migration_pending"] = {
-                    "initiated_at":         rec.get("initiated_at"),
-                    "decommission_seconds": int(ttd.total_seconds()) if ttd else None,
-                    "decommissioned":       is_decommissioned(),
-                }
-        except Exception:
-            pass
 
         # Append online validation state if the validator is running
         try:

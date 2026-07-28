@@ -1,4 +1,4 @@
-"""white-label-basic — custom logo + colors gate."""
+"""Enterprise white-label appearance gate."""
 
 from fastapi import APIRouter
 
@@ -21,8 +21,8 @@ class WhiteLabelBasicPlugin(Plugin):
 _MANIFEST = {
     "name": "white-label-basic",
     "version": "1.0.0",
-    "display_name": "White-Label Branding (Basic)",
-    "requires_license_feature": "white_label_basic",
+    "display_name": "White-Label Branding",
+    "requires_license_feature": "white_label",
 }
 
 PLUGIN = WhiteLabelBasicPlugin(_MANIFEST)

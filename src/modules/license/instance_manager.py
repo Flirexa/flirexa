@@ -270,13 +270,13 @@ async def send_heartbeat() -> bool:
         "uptime_seconds":  int(time.time() - _start_time),
         "timestamp":       int(time.time()),
     }
-    # If a migration receipt was activated locally (lifetime_protected
-    # self-migration), include it in heartbeats until the lic-server
-    # acknowledges it. The pending file is consumed on the first 200 OK
-    # response carrying `migration_acknowledged=true`.
+    # Retire any pending customer-side migration receipt. Old releases put an
+    # HMAC secret in the customer key, which cannot serve as vendor authority
+    # for a hardware move. Verified support reissue is now the only transfer.
     pending = _load_pending_migration()
     if pending:
-        body["migration_receipt"] = pending
+        _clear_pending_migration()
+        logger.warning("Removed retired pending self-service migration receipt")
     sig = _sign_heartbeat(body, machine_id, instance_id)
 
     servers = _get_server_urls()
@@ -292,11 +292,6 @@ async def send_heartbeat() -> bool:
                 backups = result.get("backup_license_servers", [])
                 if primary:
                     _save_server_list(primary, backups)
-                # Lic-server acked the migration receipt — drop the local
-                # pending file so subsequent heartbeats stop sending it.
-                if pending and result.get("migration_acknowledged"):
-                    _clear_pending_migration()
-                    logger.info("Migration receipt acknowledged by lic-server — cleared local pending state")
                 return True
 
     logger.debug("Heartbeat failed: all {} server(s) unreachable", len(servers))
@@ -351,11 +346,12 @@ def _clear_pending_migration() -> None:
 # Heartbeat cadence per license_type. Subscription customers get the
 # tight default (5 min) so a revocation reaches them quickly; lifetime_
 # protected customers don't need that latency — 24h is plenty for clone
-# detection and keeps lic-server load low. Pure lifetime never beats.
+# detection and keeps lic-server load low. Legacy Lifetime joins the same
+# cadence so an old key cannot remain an invisible permanent clone.
 _HEARTBEAT_INTERVAL_BY_TYPE = {
     "subscription":       _HEARTBEAT_INTERVAL,   # 300 s
     "lifetime_protected": 86_400,                # 24 h
-    "lifetime":           None,                  # no heartbeat
+    "lifetime":           86_400,                # legacy Lifetime joins clone telemetry
 }
 
 
@@ -402,14 +398,13 @@ async def _heartbeat_loop():
             interval = _HEARTBEAT_INTERVAL_BY_TYPE.get(lic_type, _HEARTBEAT_INTERVAL)
             if license_key and interval is not None:
                 await send_heartbeat()
-            # else: dormant — license server stays asleep
-            # (no LICENSE_KEY, OR license_type="lifetime" pure-offline)
+            # else: dormant — an unactivated FREE install never phones home.
         except asyncio.CancelledError:
             break
         except Exception as e:
             logger.debug("Heartbeat error: {}", e)
-        # When lifetime (no heartbeat), still poll the env once a minute
-        # so an upgrade activation doesn't have to wait 24 h to be noticed.
+        # Unknown/future modes fall back to a short poll rather than sleeping
+        # forever, so a later activation is noticed without a restart.
         sleep_s = interval if interval is not None else 60
         try:
             await asyncio.sleep(sleep_s)

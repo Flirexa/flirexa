@@ -106,7 +106,7 @@
             <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.smtpPort') || 'Port' }}</label><input :value="smtp.port" @input="smtp.port = $event.target.value" inputmode="numeric" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
             <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.smtpUser') || 'Username' }}</label><input :value="smtp.username" @input="smtp.username = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
             <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.smtpPass') || 'Password' }}</label><input type="password" :value="smtp.password" @input="smtp.password = $event.target.value" :placeholder="smtp.passwordSet ? '••••••••' : ''" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
-            <div style="grid-column:1 / -1"><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.smtpFrom') || 'From address' }}</label><input :value="smtp.from" @input="smtp.from = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
+            <div style="grid-column:1 / -1"><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.smtpFrom') || 'From address' }} <span style="color:var(--accent);font-weight:600">· Enterprise</span></label><input :value="smtp.from" @input="smtp.from = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
           </div>
           <div style="display:flex;gap:22px;margin-top:14px">
             <div style="display:flex;align-items:center;gap:10px"><button @click="smtp.tls = !smtp.tls" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background:tgBg(smtp.tls), transition:'background .15s', flex:'none' }"><span :style="{ position:'absolute', top:'2px', left:tgX(smtp.tls), width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button><span style="font-size:13px;color:var(--text-2)">{{ tr('settings.smtpTls') || 'Use TLS' }}</span></div>
@@ -342,7 +342,7 @@
                   <div style="height:40px;border-radius:9px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ tr('common.signIn') || 'Sign in' }}</div>
                 </div>
                 <div v-if="brand.footer_text" style="font-size:10.5px;color:var(--text-3);margin-top:16px;text-align:center">{{ brand.footer_text }}</div>
-                <div v-if="brand.powered_by" style="font-size:10px;color:var(--text-3);margin-top:6px;opacity:.7">Powered by {{ brand.brand_name || brand.app_name }}</div>
+                <div v-if="brand.powered_by" style="font-size:10px;color:var(--text-3);margin-top:6px;opacity:.7">Powered by Flirexa</div>
               </div>
             </div>
             <div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)">
@@ -506,6 +506,23 @@ function tgX(v) { return v ? '18px' : '2px' }
 const busy = reactive({})
 const msg = reactive({})
 function flash(k, m) { msg[k] = m; setTimeout(() => { msg[k] = '' }, 3000) }
+function errorText(e, fallback = 'Error') {
+  const detail = e?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object') return detail.message || fallback
+  return e?.response?.data?.message || fallback
+}
+
+function requestUpgrade(feature, tier = 'enterprise') {
+  window.dispatchEvent(new CustomEvent('flirexa:upgrade-required', {
+    detail: {
+      message: `This setting requires ${tier.charAt(0).toUpperCase() + tier.slice(1)}.`,
+      tier,
+      feature,
+      url: 'https://flirexa.biz/#pricing',
+    },
+  }))
+}
 
 // ── active tab ──
 const active = ref('license')
@@ -541,11 +558,11 @@ const settingsTabs = computed(() => [
   { key: 'payments', label: tr('settings.paymentProviders') || 'Payments' },
   { key: 'smtp', label: tr('settings.smtpTitle') || 'Email (SMTP)' },
   { key: 'notif', label: tr('notifications.title') || 'Telegram' },
-  { key: 'apps', label: tr('settings.appsTitle') || 'Apps & FCM' },
+  { key: 'apps', label: tr('settings.appsTitle') || 'Apps & FCM', feature: 'app_integration', tier: 'enterprise' },
   { key: 'limits', label: tr('settings.deviceLimitsTitle') || 'Limits' },
   { key: 'web', label: tr('common.webAccessTitle') || 'Web access' },
   { key: 'tools', label: tr('settings.systemTools') || 'System tools' },
-  { key: 'branding', label: tr('settings.branding') || 'Branding' },
+  { key: 'branding', label: tr('settings.branding') || 'Branding', feature: 'white_label', tier: 'enterprise' },
   { key: 'donate', label: tr('settings.donateWallets') || 'Donation wallets' },
   { key: 'updates', label: tr('updates.channel') || 'Updates' },
   { key: 'interface', label: tr('settings.interface') || 'Interface' },
@@ -555,11 +572,20 @@ const settingsTabs = computed(() => [
   bg: active.value === s.key ? 'var(--accent-soft)' : 'transparent',
   color: active.value === s.key ? 'var(--accent)' : 'var(--text-2)',
   weight: active.value === s.key ? 600 : 500,
-  on: () => { active.value = s.key },
+  on: () => {
+    if (s.feature && !hasLicenseFeature(s.feature)) {
+      requestUpgrade(s.feature, s.tier)
+      return
+    }
+    active.value = s.key
+  },
 })))
 
 // ═══════════════ LICENSE ═══════════════
 const license = reactive({ type: '', tier: '', max_clients: null, max_servers: null, days_remaining: null, features: [], current_clients: 0, current_servers: 0, server_id: '', owner: '', newKey: '' })
+function hasLicenseFeature(feature) {
+  return Array.isArray(license.features) && license.features.includes(feature)
+}
 const licServer = reactive({ primary_url: '', backup_url: '', last_check: '', online_status: '', server_reachable: false })
 const msgLicTone = ref('ok')
 const licTier = computed(() => license.tier || license.type || '—')
@@ -677,7 +703,7 @@ const smtpBadge = computed(() => smtp.enabled ? (tr('settings.enabled') || 'Enab
 const smtpBadgeColor = computed(() => smtp.enabled ? 'var(--green)' : 'var(--text-3)')
 const smtpBadgeBg = computed(() => smtp.enabled ? 'var(--green-soft)' : 'var(--panel-3)')
 async function loadSmtp() { try { const r = await systemApi.getSmtpSettings(); const d = r.data; smtp.enabled = !!d.smtp_enabled; smtp.host = d.smtp_host || ''; smtp.port = d.smtp_port || 587; smtp.username = d.smtp_username || ''; smtp.passwordSet = !!d.smtp_password_set; smtp.tls = d.smtp_tls !== false; smtp.from = d.smtp_from || '' } catch (_) {} }
-async function saveSmtp() { busy.smtp = true; try { const p = { smtp_host: smtp.host, smtp_port: Number(smtp.port), smtp_username: smtp.username, smtp_tls: smtp.tls, smtp_from: smtp.from, smtp_enabled: smtp.enabled }; if (smtp.password) p.smtp_password = smtp.password; await systemApi.updateSmtpSettings(p); smtp.password = ''; await loadSmtp(); flash('smtp', tr('common.saved') || 'Saved') } catch (e) { flash('smtp', e.response?.data?.detail || 'Error') } finally { busy.smtp = false } }
+async function saveSmtp() { busy.smtp = true; try { const p = { smtp_host: smtp.host, smtp_port: Number(smtp.port), smtp_username: smtp.username, smtp_tls: smtp.tls, smtp_from: smtp.from, smtp_enabled: smtp.enabled }; if (smtp.password) p.smtp_password = smtp.password; await systemApi.updateSmtpSettings(p); smtp.password = ''; await loadSmtp(); flash('smtp', tr('common.saved') || 'Saved') } catch (e) { flash('smtp', errorText(e)) } finally { busy.smtp = false } }
 async function testSmtp() { try { const r = await systemApi.testSmtp(); flash('smtp', r.data?.ok === false ? (r.data?.message || 'Test failed') : (tr('settings.testOk') || 'Test email sent')) } catch (e) { flash('smtp', e.response?.data?.detail || 'Test failed') } }
 async function disconnectSmtp() { if (!await d2confirm(tr('settings.disconnect') || 'Disable SMTP?')) return; try { await systemApi.updateSmtpSettings({ smtp_enabled: false }); smtp.enabled = false; flash('smtp', tr('common.done') || 'Disabled') } catch (e) { flash('smtp', e.response?.data?.detail || 'Error') } }
 
@@ -717,15 +743,15 @@ const webNginxColor = computed(() => web.nginx_installed ? 'var(--green)' : 'var
 const webSslColor = computed(() => web.certbot_installed ? 'var(--green)' : 'var(--red)')
 const WEB_MODES = [
   ['none', 'common.webAccessModeNoneTitle', 'No web access setup', false],
-  ['portal_admin_ip', 'common.webAccessModePortalIpTitle', 'Portal + admin over IP', false],
-  ['portal_admin_domain', 'common.webAccessModeBothTitle', 'Portal + admin over domain (HTTPS)', true],
+  ['portal_admin_ip', 'common.webAccessModePortalIpTitle', 'Portal domain + admin over IP', false, true],
+  ['portal_admin_domain', 'common.webAccessModeBothTitle', 'Portal + admin over domain (HTTPS)', true, true],
 ]
-const webModes = computed(() => WEB_MODES.map(([k, i18n, fb, rec]) => {
+const webModes = computed(() => WEB_MODES.map(([k, i18n, fb, rec, enterpriseOnly]) => {
   const on = web.setup_mode === k
-  return { key: k, label: tr(i18n) || fb, recommended: rec, on: () => { web.setup_mode = k }, border: on ? 'var(--accent)' : 'var(--border-strong)', bg: on ? 'var(--accent-soft)' : 'var(--panel)', dotBorder: on ? 'var(--accent)' : 'var(--border-strong)', dotBg: on ? 'var(--accent)' : 'transparent' }
+  return { key: k, label: (tr(i18n) || fb) + (enterpriseOnly && !hasLicenseFeature('white_label') ? ' · Enterprise' : ''), recommended: rec, on: () => { if (enterpriseOnly && !hasLicenseFeature('white_label')) return requestUpgrade('white_label'); web.setup_mode = k }, border: on ? 'var(--accent)' : 'var(--border-strong)', bg: on ? 'var(--accent-soft)' : 'var(--panel)', dotBorder: on ? 'var(--accent)' : 'var(--border-strong)', dotBg: on ? 'var(--accent)' : 'transparent' }
 }))
 async function loadWebAccess() { try { const r = await systemApi.getWebAccessSettings(); Object.assign(web, r.data) } catch (_) {} }
-async function saveWebAccess() { web.applying = true; try { await systemApi.applyWebAccessSettings({ setup_mode: web.setup_mode, client_portal_domain: web.client_portal_domain, admin_panel_domain: web.admin_panel_domain, certbot_email: web.certbot_email }); await loadWebAccess(); flash('web', tr('common.saved') || 'Applied') } catch (e) { flash('web', e.response?.data?.detail || 'Error') } finally { web.applying = false } }
+async function saveWebAccess() { web.applying = true; try { await systemApi.applyWebAccessSettings({ setup_mode: web.setup_mode, client_portal_domain: web.client_portal_domain, admin_panel_domain: web.admin_panel_domain, certbot_email: web.certbot_email }); await loadWebAccess(); flash('web', tr('common.saved') || 'Applied') } catch (e) { flash('web', errorText(e)) } finally { web.applying = false } }
 async function refreshWebAccess() { await loadWebAccess(); flash('web', tr('common.done') || 'Refreshed') }
 
 // ═══════════════ SYSTEM TOOLS ═══════════════
@@ -760,11 +786,6 @@ const msgAdmTone = ref('ok')
 async function createAdmin() { busy.adm = true; msgAdmTone.value = 'ok'; try { await systemApi.createAdmin({ username: newAdmin.username, password: newAdmin.password }); msg.adm = tr('settings.adminCreated') || 'Admin created'; newAdmin.username = ''; newAdmin.password = '' } catch (e) { msgAdmTone.value = 'err'; msg.adm = e.response?.data?.detail || 'Error' } finally { busy.adm = false } }
 
 // ═══════════════ BRANDING ═══════════════
-// NOTE: brand_name / tagline / powered_by have no dedicated backend field
-// (BrandingUpdateRequest only accepts the branding_* keys wired in saveBranding).
-// They are kept as local UI state to match the designer's identity grid + preview;
-// TODO: add branding_brand_name / branding_tagline / branding_powered_by to the
-// backend BrandingUpdateRequest + BRANDING_DEFAULTS to persist them.
 const brand = reactive({ app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', footer_text: '', powered_by: false, customer_logo_url: '', logo_url: '', favicon_url: '', primary_color: '#6366f1' })
 const brandInitial = computed(() => (brand.brand_name || brand.company_name || brand.app_name || 'P').trim().charAt(0).toUpperCase() || 'P')
 const BRAND_PRESETS = ['#6366f1', '#2563eb', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6']
@@ -782,8 +803,8 @@ const logoSlots = computed(() => [
   { key: 'customer', label: tr('settings.customerLogo') || 'Customer logo', url: brand.customer_logo_url, onFile: e => uploadSlot(e, 'customer'), onRemove: () => removeSlot('customer') },
   { key: 'favicon', label: tr('settings.favicon') || 'Favicon', url: brand.favicon_url, onFile: e => uploadSlot(e, 'favicon'), onRemove: () => removeSlot('favicon') },
 ])
-async function loadBranding() { try { const r = await systemApi.getBranding(); const d = r.data; brand.app_name = d.branding_app_name || ''; brand.customer_app_name = d.branding_customer_app_name || ''; brand.company_name = d.branding_company_name || ''; brand.login_title = d.branding_login_title || ''; brand.support_email = d.branding_support_email || ''; brand.support_url = d.branding_support_url || ''; brand.footer_text = d.branding_footer_text || ''; brand.customer_logo_url = d.branding_customer_logo_url || ''; brand.logo_url = d.branding_logo_url || ''; brand.favicon_url = d.branding_favicon_url || ''; brand.primary_color = d.branding_primary_color || '#6366f1' } catch (_) {} }
-async function saveBranding() { busy.brand = true; try { await systemApi.updateBranding({ branding_app_name: brand.app_name, branding_customer_app_name: brand.customer_app_name, branding_company_name: brand.company_name, branding_login_title: brand.login_title, branding_support_email: brand.support_email, branding_support_url: brand.support_url, branding_footer_text: brand.footer_text, branding_customer_logo_url: brand.customer_logo_url, branding_primary_color: brand.primary_color }); branding.commitAccent(brand.primary_color); flash('brand', tr('common.saved') || 'Saved') } catch (e) { flash('brand', e.response?.data?.detail || 'Error') } finally { busy.brand = false } }
+async function loadBranding() { try { const r = await systemApi.getBranding(); const d = r.data; brand.app_name = d.branding_app_name || ''; brand.customer_app_name = d.branding_customer_app_name || ''; brand.brand_name = brand.customer_app_name; brand.tagline = d.branding_tagline || ''; brand.company_name = d.branding_company_name || ''; brand.login_title = d.branding_login_title || ''; brand.support_email = d.branding_support_email || ''; brand.support_url = d.branding_support_url || ''; brand.footer_text = d.branding_footer_text || ''; brand.powered_by = d.branding_powered_by === true || String(d.branding_powered_by).toLowerCase() === 'true'; brand.customer_logo_url = d.branding_customer_logo_url || ''; brand.logo_url = d.branding_logo_url || ''; brand.favicon_url = d.branding_favicon_url || ''; brand.primary_color = d.branding_primary_color || '#6366f1' } catch (_) {} }
+async function saveBranding() { busy.brand = true; try { await systemApi.updateBranding({ branding_app_name: brand.app_name, branding_customer_app_name: brand.brand_name, branding_tagline: brand.tagline, branding_company_name: brand.company_name, branding_login_title: brand.login_title, branding_support_email: brand.support_email, branding_support_url: brand.support_url, branding_footer_text: brand.footer_text, branding_powered_by: brand.powered_by, branding_customer_logo_url: brand.customer_logo_url, branding_primary_color: brand.primary_color }); brand.customer_app_name = brand.brand_name; branding.commitAccent(brand.primary_color); flash('brand', tr('common.saved') || 'Saved') } catch (e) { flash('brand', errorText(e)) } finally { busy.brand = false } }
 async function uploadSlot(event, slot) {
   const file = event.target.files && event.target.files[0]; if (!file) return
   if (file.size > 1024 * 1024) { flash('brand', tr('settings.fileTooLarge') || 'File too large (max 1MB)'); return }

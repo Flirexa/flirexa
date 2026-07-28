@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-# Add project root and src/ to path (src/ needed for PyArmor runtime lookup)
+# Add project root and src/ to the package search path.
 _root = Path(__file__).parent
 sys.path.insert(0, str(_root))
 sys.path.insert(0, str(_root / "src"))
@@ -143,20 +143,18 @@ async def lifespan(app: FastAPI):
     # admin process loading plugins doesn't help here: it's a separate
     # PID with its own client_portal module instance.
     #
-    # Uses importlib.import_module (not spec_from_file_location) so the
-    # pyarmor package hooks fire correctly on packaged installs — same
-    # rationale as the fix in 1.6.20.
+    # Use package imports for both source plugins in development and compiled
+    # `.abi3.so` providers in official customer archives.
     try:
         import importlib
         from pathlib import Path as _P
+        from src.modules.payment.plugin_discovery import importable_payment_modules
         _plugins_dir = _P(__file__).resolve().parent / "plugins" / "payments"
         if _plugins_dir.is_dir():
             _loaded = 0
-            for _pf in sorted(_plugins_dir.glob("*.py")):
-                if _pf.name.startswith("_"):
-                    continue
+            for _module_name, _pf in importable_payment_modules(_plugins_dir):
                 try:
-                    _mod = importlib.import_module(f"plugins.payments.{_pf.stem}")
+                    _mod = importlib.import_module(f"plugins.payments.{_module_name}")
                     _cls = getattr(_mod, "PROVIDER_CLASS", None)
                     if _cls:
                         _instance = _cls()

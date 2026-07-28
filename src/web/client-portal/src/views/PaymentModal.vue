@@ -55,7 +55,7 @@
             </div>
           </div>
           <!-- Promo Code -->
-          <div class="mt-3">
+          <div v-if="operatorFeatures.promo_codes" class="mt-3">
             <div class="input-group input-group-sm">
               <input type="text" class="form-control" v-model="promoCode" :placeholder="$t('pay.promoPlaceholder')" :disabled="promoApplied">
               <button class="btn btn-outline-primary" @click="applyPromo" :disabled="!promoCode || promoApplied || promoChecking">
@@ -184,6 +184,7 @@ const promoChecking = ref(false)
 const promoMessage = ref('')
 const promoError = ref('')
 const promoDiscount = ref(0)
+const operatorFeatures = ref({ promo_codes: false })
 
 const stepTitle = computed(() => {
   if (step.value === 1) return t('pay.choosePlan')
@@ -382,6 +383,16 @@ onMounted(async () => {
     ])
     plans.value = plansRes.data.filter(p => p.tier !== 'free')
     providers.value = providersRes.data
+    // Feature decoration must never block the working purchase flow. The
+    // backend still enforces promo/provider entitlements if this optional
+    // request fails.
+    try {
+      const featuresRes = await portalApi.getFeatures()
+      operatorFeatures.value = {
+        ...operatorFeatures.value,
+        ...(featuresRes.data?.features || {}),
+      }
+    } catch (_) { /* keep commercial controls hidden */ }
     // Honor the parent's preselectProvider if it matches a configured one,
     // otherwise fall back to the first available provider.
     const wanted = (props.preselectProvider || '').trim()

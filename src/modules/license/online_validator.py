@@ -3,7 +3,8 @@ Online License Validator — periodic background check against the central serve
 
 Runs as an asyncio task started from FastAPI lifespan.
 Stores the last valid server response in a local cache file so the product
-can survive temporary server downtime (up to GRACE_PERIOD_HOURS).
+can survive temporary server downtime. Subscriptions use the configured grace
+window; Lifetime licences use a vendor-signed 30-day offline lease.
 """
 
 import asyncio
@@ -32,6 +33,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 _CHECK_INTERVAL  = int(os.getenv("LICENSE_CHECK_INTERVAL",    "14400"))  # 4h default
 _RETRY_INTERVAL  = int(os.getenv("LICENSE_CHECK_RETRY",       "900"))    # 15 min on fail
 _GRACE_PERIOD_H  = int(os.getenv("LICENSE_GRACE_PERIOD_HOURS", "72"))   # 3 days
+_LIFETIME_OFFLINE_DAYS = 30
 _REQUEST_TIMEOUT = 15   # seconds
 
 
@@ -98,7 +100,14 @@ class LicenseState:
     max_servers: int               = 0
     features: list                 = field(default_factory=list)
     expires_at: Optional[str]      = None
+    billing_type: str              = ""
+    license_type: str              = ""
+    server_time: Optional[datetime] = None
     valid_until: Optional[datetime] = None   # cache expiry (server-signed)
+    lease_kind: str                = ""
+    license_uid: Optional[str]     = None
+    hardware_id: Optional[str]     = None
+    instance_id: Optional[str]     = None
     last_check: Optional[datetime] = None
     server_reachable: bool         = True
 
@@ -172,7 +181,11 @@ def get_online_status() -> dict:
         "max_servers":   s.max_servers,
         "features":      s.features,
         "expires_at":    s.expires_at,
+        "billing_type":  s.billing_type,
+        "license_type":  s.license_type,
+        "server_time":   s.server_time.isoformat() if s.server_time else None,
         "valid_until":   s.valid_until.isoformat() if s.valid_until else None,
+        "lease_kind":    s.lease_kind or None,
         "last_check":    s.last_check.isoformat()  if s.last_check  else None,
         "server_reachable":          s.server_reachable,
         "license_server_url":        _SERVER_URL or None,
@@ -205,32 +218,28 @@ def is_license_blocked() -> tuple[bool, str]:
     if not _SERVER_URL and not _SERVER_URL_BACKUP:
         return False, ""   # No server configured — middleware handles activation check
 
-    # license_type=lifetime_protected is offline-tolerant by design: lic-server
-    # is for clone-detection telemetry only, never the kill switch. A pure
-    # "lifetime" key never even runs this check (heartbeat loop returns early),
-    # but if it ever reaches here we honour the same rule.
     lic_type = _local_license_type()
-    if lic_type in ("lifetime", "lifetime_protected"):
-        return False, ""
 
     # ── 0. Clock rollback detection ─────────────────────────────────────────
     # If wall clock moved backwards by > 5 min since last successful check,
     # attackers may be trying to extend valid_until window via clock manipulation.
-    if _last_apply_wall_time > 0 and time.time() < _last_apply_wall_time - 300:
-        delta = int(_last_apply_wall_time - time.time())
+    signed_server_ts = s.server_time.timestamp() if s.server_time else 0.0
+    rollback_reference = max(_last_apply_wall_time, signed_server_ts)
+    if rollback_reference > 0 and time.time() < rollback_reference - 300:
+        delta = int(rollback_reference - time.time())
         logger.error(
             "SECURITY: System clock rollback detected ({}s) — blocking license",
             delta
         )
         _send_tamper_report_sync("clock_rollback", {
             "delta_seconds": delta,
-            "last_check_wall": _last_apply_wall_time,
+            "last_check_wall": rollback_reference,
             "current_wall":    time.time(),
         })
         return True, f"System clock rollback detected ({delta}s) — re-verification required"
 
     # ── 1. Hard blocks — no grace period possible ────────────────────────────
-    if s.status in ("revoked", "suspended"):
+    if s.status in ("revoked", "suspended", "expired", "not_found", "invalid_key", "invalid_timestamp"):
         return True, s.message or f"License {s.status}"
 
     # ── 2. Normalise valid_until — handle naive datetimes and corrupt types ──
@@ -242,13 +251,32 @@ def is_license_blocked() -> tuple[bool, str]:
             _vuntil = _vuntil.replace(tzinfo=timezone.utc)
     # Non-datetime types (str, int, None) are treated as "no expiry info"
 
-    # ── 3. Within server-signed cache window (valid_until not yet expired) ───
-    if _vuntil and now <= _vuntil:
-        # Any status — still inside the signed validity window
+    # ── 3. Lifetime signed offline lease ────────────────────────────────────
+    if lic_type in ("lifetime", "lifetime_protected"):
+        if s.status in ("ok", "valid_with_warning") and s.server_time:
+            # New responses explicitly sign a 30-day valid_until.  A legacy
+            # response signed before this protocol used a four-day cache; use
+            # its signed server_time as the anchor during the rolling upgrade.
+            offline_end = (
+                _vuntil
+                if s.lease_kind in ("online", "emergency") and _vuntil
+                else s.server_time + timedelta(days=_LIFETIME_OFFLINE_DAYS)
+            )
+            if now <= offline_end:
+                return False, ""
+            return True, "Lifetime offline allowance expired; online re-verification is required"
+
+        # A missing cache must not grant a fresh window. The background check
+        # starts immediately; until it succeeds the paid surface stays
+        # readonly instead of creating a restart/reinstall bypass.
+        return True, "No valid signed Lifetime offline lease is available"
+
+    # ── 4. Subscription cache window ────────────────────────────────────────
+    if s.status in ("ok", "valid_with_warning") and _vuntil and now <= _vuntil:
         return False, ""
 
     # ── 4. Cache window expired (past valid_until) ───────────────────────────
-    if s.status == "ok":
+    if s.status in ("ok", "valid_with_warning"):
         if not _vuntil:
             # No expiry set in server response — cannot enforce expiry
             return False, ""
@@ -262,9 +290,6 @@ def is_license_blocked() -> tuple[bool, str]:
             f"License cache expired {elapsed_h}h ago — "
             f"server unreachable, please restore connectivity to license server"
         )
-
-    if s.status in ("expired", "not_found", "invalid_key"):
-        return True, s.message or f"License {s.status}"
 
     # ── 5. Never successfully checked (status is None) ──────────────────────
     # When last_check is None it means no valid cache was loaded at startup
@@ -386,15 +411,112 @@ def _verify_response(payload_b64: str, sig_b64: str) -> Optional[dict]:
 # ── Cache ─────────────────────────────────────────────────────────────────────
 
 def _save_cache(payload: dict, payload_b64: str, sig_b64: str):
+    """Atomically persist a verified server envelope.
+
+    A power loss must leave either the previous complete lease or the new
+    complete lease, never a truncated JSON file that turns a legitimate
+    customer into FREE/readonly on restart.
+    """
+    temp_path: Optional[Path] = None
     try:
         _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _CACHE_PATH.write_text(json.dumps({
+        temp_path = _CACHE_PATH.with_name(f".{_CACHE_PATH.name}.{uuid.uuid4().hex}.tmp")
+        data = json.dumps({
             "payload":   payload_b64,
             "signature": sig_b64,
             "cached_at": datetime.now(timezone.utc).isoformat(),
-        }))
+        })
+        with temp_path.open("x", encoding="utf-8") as handle:
+            os.chmod(temp_path, 0o600)
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, _CACHE_PATH)
+        dir_fd = os.open(_CACHE_PATH.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     except Exception as exc:
         logger.warning("Could not save license cache: {}", exc)
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def reset_validation_state_for_license_change() -> None:
+    """Invalidate the previous key's in-memory and on-disk lease state."""
+    global _state, _cache_warmed, _last_apply_wall_time
+    with _state_lock:
+        _state = LicenseState()
+        # Do not warm from the deliberately removed old-key cache. The
+        # immediate validation task below is the only way to obtain a lease.
+        _cache_warmed = True
+        _last_apply_wall_time = 0.0
+    try:
+        _CACHE_PATH.unlink(missing_ok=True)
+    except Exception as exc:
+        logger.warning("Could not remove previous-key license cache: {}", exc)
+
+
+def _read_local_license_payload() -> dict:
+    raw = os.getenv("LICENSE_KEY", "").strip()
+    if not raw or "." not in raw:
+        return {}
+    try:
+        payload_b64 = raw.split(".", 1)[0]
+        payload_b64 += "=" * (-len(payload_b64) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload_b64).decode())
+    except Exception:
+        return {}
+
+
+def _validate_lease_binding(payload: dict, *, expected_instance_id: str | None = None) -> tuple[bool, str]:
+    """Validate additive v1 lease binding after the vendor signature check.
+
+    Responses from the previous server version have no `lease_version` and
+    remain accepted during rollout.  Once present, every binding field is
+    mandatory and a cache copied to another machine/instance is rejected.
+    """
+    if payload.get("lease_version") is None:
+        return True, "legacy signed response"
+    if payload.get("lease_version") != 1:
+        return False, "unsupported lease version"
+
+    local_payload = _read_local_license_payload()
+    expected_hw = _get_hardware_id()
+    if payload.get("hardware_id") != expected_hw:
+        return False, "lease hardware binding mismatch"
+
+    lease_kind = payload.get("lease_kind")
+    if lease_kind not in ("online", "emergency"):
+        return False, "invalid lease kind"
+    expected_inst = expected_instance_id or _instance_id
+    if payload.get("instance_id") != expected_inst:
+        return False, "lease instance binding mismatch"
+
+    local_uid = local_payload.get("lid")
+    lease_uid = payload.get("license_uid")
+    if local_uid and lease_uid != local_uid:
+        return False, "lease license id mismatch"
+
+    try:
+        server_time = datetime.fromisoformat(payload["server_time"])
+        valid_until = datetime.fromisoformat(payload["valid_until"])
+        if server_time.tzinfo is None:
+            server_time = server_time.replace(tzinfo=timezone.utc)
+        if valid_until.tzinfo is None:
+            valid_until = valid_until.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False, "invalid lease timestamps"
+    if valid_until <= server_time:
+        return False, "lease validity window is empty"
+    if (payload.get("billing_type") == "lifetime" or _local_license_type() in ("lifetime", "lifetime_protected")):
+        if valid_until - server_time > timedelta(days=_LIFETIME_OFFLINE_DAYS, minutes=5):
+            return False, "Lifetime lease exceeds maximum offline allowance"
+    return True, ""
 
 
 def _load_cache() -> Optional[dict]:
@@ -402,7 +524,15 @@ def _load_cache() -> Optional[dict]:
         if not _CACHE_PATH.exists():
             return None
         data = json.loads(_CACHE_PATH.read_text())
-        return _verify_response(data["payload"], data["signature"])
+        payload = _verify_response(data["payload"], data["signature"])
+        if payload is None:
+            return None
+        valid, reason = _validate_lease_binding(payload)
+        if not valid:
+            logger.error("Rejected signed license cache: {}", reason)
+            _send_tamper_report_sync("lease_binding_invalid", {"reason": reason})
+            return None
+        return payload
     except Exception as exc:
         logger.warning("Could not load license cache: {}", exc)
         return None
@@ -412,10 +542,21 @@ def _apply_payload(payload: dict):
     global _last_apply_wall_time
 
     valid_until: Optional[datetime] = None
+    server_time: Optional[datetime] = None
     valid_until_str = payload.get("valid_until")
     if valid_until_str:
         try:
             valid_until = datetime.fromisoformat(valid_until_str)
+            if valid_until.tzinfo is None:
+                valid_until = valid_until.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+    server_time_str = payload.get("server_time")
+    if server_time_str:
+        try:
+            server_time = datetime.fromisoformat(server_time_str)
+            if server_time.tzinfo is None:
+                server_time = server_time.replace(tzinfo=timezone.utc)
         except Exception:
             pass
 
@@ -427,7 +568,14 @@ def _apply_payload(payload: dict):
         max_servers  = payload.get("max_servers", 0),
         features     = payload.get("features", []),
         expires_at   = payload.get("expires_at"),
+        billing_type = payload.get("billing_type", ""),
+        license_type = payload.get("license_type", ""),
+        server_time  = server_time,
         valid_until  = valid_until,
+        lease_kind   = payload.get("lease_kind", ""),
+        license_uid  = payload.get("license_uid"),
+        hardware_id  = payload.get("hardware_id"),
+        instance_id  = payload.get("instance_id"),
         last_check   = datetime.now(timezone.utc),
         server_reachable = True,
     )
@@ -491,7 +639,12 @@ def _send_tamper_report_sync(report_type: str, details: dict):
 
 # ── Main check loop ───────────────────────────────────────────────────────────
 
-async def _try_server(url: str, payload: dict) -> Optional[bool]:
+async def _try_server(
+    url: str,
+    payload: dict,
+    *,
+    accept_negative_status: bool = True,
+) -> Optional[bool]:
     """
     Try one license server URL.
     Returns True on success, False on bad response, None on network error.
@@ -509,6 +662,36 @@ async def _try_server(url: str, payload: dict) -> Optional[bool]:
             data = resp.json()
             verified = _verify_response(data.get("payload", ""), data.get("signature", ""))
             if verified:
+                if payload.get("license_key") != os.getenv("LICENSE_KEY", "").strip():
+                    logger.warning("Discarding validation response for a superseded local key")
+                    return None
+                binding_ok, binding_reason = _validate_lease_binding(
+                    verified, expected_instance_id=payload.get("instance_id")
+                )
+                if not binding_ok:
+                    logger.error("License server {} returned a mis-bound lease: {}", url, binding_reason)
+                    asyncio.create_task(_send_tamper_report(
+                        "lease_binding_invalid", {"url": url, "reason": binding_reason}
+                    ))
+                    return False
+                if (
+                    not accept_negative_status
+                    and verified.get("status") in {
+                        "revoked", "suspended", "expired", "not_found",
+                        "invalid_key", "invalid_timestamp",
+                    }
+                ):
+                    # A fallback origin may be healthy while its licence DB is
+                    # stale or still restoring. It may extend availability
+                    # with a signed positive record, but it must not overwrite
+                    # a good primary lease with a false negative. The primary
+                    # remains the revocation authority; the existing bounded
+                    # lease governs until it is reachable again.
+                    logger.warning(
+                        "Ignoring non-authoritative fallback status={} from {}",
+                        verified.get("status"), url,
+                    )
+                    return None
                 _apply_payload(verified)
                 _save_cache(verified, data["payload"], data["signature"])
                 logger.info("Online license check via {}: status={} tier={}",
@@ -555,7 +738,7 @@ async def _do_check():
 
     # Try primary server first
     if _SERVER_URL:
-        result = await _try_server(_SERVER_URL, payload)
+        result = await _try_server(_SERVER_URL, payload, accept_negative_status=True)
         if result is not None:          # got a definitive answer (True=ok, False=bad sig)
             with _state_lock:
                 _state.server_reachable = True
@@ -565,7 +748,9 @@ async def _do_check():
     # Try backup server
     if _SERVER_URL_BACKUP:
         logger.info("Primary license server unreachable, trying backup: {}", _SERVER_URL_BACKUP)
-        result = await _try_server(_SERVER_URL_BACKUP, payload)
+        result = await _try_server(
+            _SERVER_URL_BACKUP, payload, accept_negative_status=False
+        )
         if result is not None:
             with _state_lock:
                 _state.server_reachable = True
@@ -612,6 +797,40 @@ def _warmup_from_cache() -> bool:
     return False
 
 
+def install_offline_lease(envelope: dict) -> tuple[bool, str]:
+    """Verify and atomically install a vendor-issued emergency lease.
+
+    The envelope is the same `{payload, signature}` format as `/api/validate`.
+    It grants no new entitlement: the signed payload must be an active Lifetime
+    lease bound to this machine and to the current signed licence id.
+    """
+    if not isinstance(envelope, dict):
+        return False, "Offline lease must be a JSON object"
+    payload_b64 = str(envelope.get("payload") or "")
+    signature = str(envelope.get("signature") or "")
+    payload = _verify_response(payload_b64, signature)
+    if payload is None:
+        return False, "Offline lease signature is invalid"
+    valid, reason = _validate_lease_binding(payload)
+    if not valid:
+        return False, reason
+    if payload.get("lease_kind") != "emergency":
+        return False, "Only an emergency offline lease can be imported"
+    if payload.get("status") != "ok" or payload.get("billing_type") != "lifetime":
+        return False, "Offline lease is not an active Lifetime entitlement"
+    try:
+        expires = datetime.fromisoformat(payload["valid_until"])
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False, "Offline lease expiry is invalid"
+    if datetime.now(timezone.utc) >= expires:
+        return False, "Offline lease has expired"
+    _save_cache(payload, payload_b64, signature)
+    _apply_payload(payload)
+    return True, f"Emergency offline lease accepted until {expires.isoformat()}"
+
+
 def _ensure_state_loaded() -> None:
     global _cache_warmed
     if _cache_warmed:
@@ -649,26 +868,10 @@ async def run_validator_loop():
         logger.info("LICENSE_SERVER_URL not set — online validation disabled")
         return
 
-    # license_type=lifetime → pure offline, never poll.
-    # license_type=lifetime_protected → no blocking validator loop, but DO
-    # run a slow once-a-day rotation-only check so re-issues at higher
-    # tier still propagate. The check is non-enforcing: a failure (server
-    # down, signature mismatch) never blocks the panel — it just leaves
-    # the existing license in place until the next tick.
-    lic_type = _local_license_type()
-    if lic_type == "lifetime":
-        logger.info("License type lifetime — online validator disabled (offline-tolerant by design)")
-        return
-    if lic_type == "lifetime_protected":
-        logger.info("License type lifetime_protected — running daily rotation-only check")
-        await asyncio.sleep(5)
-        while True:
-            try:
-                await _do_check()
-            except Exception as e:
-                logger.warning("Rotation-only check raised: {}", e)
-            # Server can answer fast; rotation rarely happens; once-a-day is plenty.
-            await asyncio.sleep(int(os.getenv("LICENSE_ROTATION_CHECK_INTERVAL", "86400")))
+    initial_type = _local_license_type()
+    lifetime_interval = int(os.getenv("LICENSE_LIFETIME_CHECK_INTERVAL", "86400"))
+    if initial_type in ("lifetime", "lifetime_protected"):
+        logger.info("Lifetime signed-lease validator enabled (interval: {}s)", lifetime_interval)
 
     _warmup_from_cache()
 
@@ -677,8 +880,15 @@ async def run_validator_loop():
     while True:
         await _do_check()
 
-        if _state.server_reachable and _state.status == "ok":
-            await asyncio.sleep(_CHECK_INTERVAL)
+        # A key can be activated or rotated without restarting the service, so
+        # choose the cadence from the current local key on every iteration.
+        lic_type = _local_license_type()
+        if _state.server_reachable and _state.status in ("ok", "valid_with_warning"):
+            await asyncio.sleep(
+                lifetime_interval
+                if lic_type in ("lifetime", "lifetime_protected")
+                else _CHECK_INTERVAL
+            )
         else:
             await asyncio.sleep(_RETRY_INTERVAL)
 

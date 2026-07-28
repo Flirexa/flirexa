@@ -20,7 +20,10 @@ from ...database.connection import get_db
 from ...database.models import Server, Client, ServerStatus, ServerLifecycleStatus, ClientStatus
 from ...core.management import ManagementCore
 from ...core.wireguard import WireGuardManager
-from ..middleware.license_gate import require_license_feature
+from ..middleware.license_gate import (
+    raise_feature_required,
+    require_license_feature,
+)
 
 
 router = APIRouter()
@@ -29,6 +32,73 @@ router = APIRouter()
 # Server creation has its own inline check (it also needs to count existing
 # servers against the per-tier max), so we don't gate the create endpoint here.
 _multi_server_gate = Depends(require_license_feature("multi_server"))
+
+
+_PROXY_SERVER_TYPES = {"hysteria2", "tuic", "vless-reality"}
+
+
+def _enforce_server_creation_entitlement(
+    info,
+    *,
+    current_count: int,
+    same_type_count: int,
+    server_type: str,
+    is_remote: bool,
+) -> None:
+    """Enforce the signed server quota and the feature split.
+
+    Kept as a side-effect-free helper so the policy can be exhaustively tested
+    without provisioning a real VPN host.  The caller must hold the server
+    creation advisory lock while it counts rows and calls this helper.
+    """
+
+    current_plan = getattr(getattr(info, "type", None), "value", None)
+
+    # Every remote/agent-managed node participates in multi-server
+    # orchestration, even when it would be the first row in the database.
+    if is_remote and not info.has_feature("multi_server"):
+        raise_feature_required(
+            "multi_server",
+            current_plan=current_plan,
+            message="Remote server management requires the Business plan.",
+        )
+
+    if server_type in _PROXY_SERVER_TYPES and not info.has_feature("proxy_protocols"):
+        raise_feature_required(
+            "proxy_protocols",
+            current_plan=current_plan,
+            message=(
+                f"{server_type.upper()} requires the Starter plan or higher."
+            ),
+        )
+
+    # The signed max_servers value is authoritative for every tier.  This is
+    # important for current Starter keys (one server), and also preserves any
+    # custom limits issued to an existing customer.
+    if current_count >= info.max_servers:
+        raise_feature_required(
+            "multi_server",
+            current_plan=current_plan,
+            upgrade_tier=(
+                "enterprise" if info.has_feature("multi_server") else "business"
+            ),
+            message=(
+                f"License server limit reached: {current_count}/{info.max_servers}."
+            ),
+        )
+
+    # FREE can run one local WireGuard and one local AmneziaWG.  A tier without
+    # multi_server can never create a second row of the same protocol by
+    # crafting a direct API request.
+    if not info.has_feature("multi_server") and same_type_count >= 1:
+        raise_feature_required(
+            "multi_server",
+            current_plan=current_plan,
+            message=(
+                f"A {server_type} server already exists. Additional servers "
+                "require the Business plan."
+            ),
+        )
 
 
 def _safe_filename(name: str) -> str:
@@ -531,15 +601,13 @@ async def create_server(
     from loguru import logger
     import os
 
-    # License enforcement: check server limits and multi_server feature.
+    # License enforcement: check signed limits and paid feature boundaries.
     # Advisory lock (key 1000002) prevents concurrent requests from both
     # passing the check.
     #
-    # FREE / Starter tier policy: exactly one server per protocol type. So a
-    # FREE user gets the auto-provisioned WireGuard out of the box AND can
-    # add one AmneziaWG alongside it (DPI-resistance is core FREE value).
-    # They cannot add a second server of the *same* type without the
-    # `multi_server` feature flag (Business+).
+    # FREE gets one local WireGuard + one local AmneziaWG. Starter keeps the
+    # exact signed server limit. Remote nodes require Business regardless of
+    # whether the database is currently empty.
     try:
         from sqlalchemy import text as _sql_text
         from ...modules.license.manager import get_license_manager
@@ -551,71 +619,23 @@ async def create_server(
             Server.server_type == server_data.server_type
         ).count()
 
-        if not info.has_feature("multi_server"):
-            # No multi-server: cap is one of each protocol type.
-            if same_type_count >= 1:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "message": (
-                            f"You already have a {server_data.server_type} server. "
-                            f"FREE tier allows one server per protocol type "
-                            f"(WireGuard + AmneziaWG). Adding more requires the "
-                            f"multi-server feature (Business or Enterprise tier)."
-                        ),
-                        "license_feature_required": "multi_server",
-                        "upgrade_url": "https://flirexa.biz/#pricing",
-                        "upgrade_tier": "business",
-                    },
-                )
-        elif not info.can_add_server(current_count):
-            # Multi-server is on, but the absolute max_servers cap was reached.
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "message": f"License limit reached: {current_count}/{info.max_servers} servers. Upgrade your license.",
-                    "license_feature_required": "multi_server",
-                    "upgrade_url": "https://flirexa.biz/#pricing",
-                    "upgrade_tier": "enterprise",
-                },
-            )
+        _enforce_server_creation_entitlement(
+            info,
+            current_count=current_count,
+            same_type_count=same_type_count,
+            server_type=server_data.server_type,
+            is_remote=bool(
+                server_data.ssh_host
+                or server_data.mikrotik_url
+                or server_data.agent_mode in {"agent", "mikrotik"}
+            ),
+        )
     except HTTPException:
         raise
     except Exception as _lic_err:
         from loguru import logger
         logger.error(f"License check failed during server creation: {_lic_err}")
         raise HTTPException(status_code=503, detail="License verification unavailable")
-
-    # License enforcement: per-protocol feature gating.
-    # FREE tier supports WireGuard + AmneziaWG (per docs/free-vs-paid.md).
-    # Hysteria2/TUIC require the `proxy_protocols` feature (Starter+).
-    # Trial — handled separately below as a hard wireguard-only restriction.
-    if server_data.server_type != "wireguard":
-        try:
-            _proto_feature_map = {
-                # AmneziaWG is FREE; no feature flag required.
-                "hysteria2":     "proxy_protocols",
-                "tuic":          "proxy_protocols",
-                "vless-reality": "proxy_protocols",
-            }
-            _required = _proto_feature_map.get(server_data.server_type)
-            if _required and not info.has_feature(_required):
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "message": (
-                            f"{server_data.server_type.upper()} protocol requires the "
-                            f"'{_required}' feature. Upgrade your plan to enable it."
-                        ),
-                        "license_feature_required": _required,
-                        "upgrade_url": "https://flirexa.biz/#pricing",
-                        "upgrade_tier": "starter",
-                    },
-                )
-        except HTTPException:
-            raise
-        except Exception:
-            pass  # If license check unavailable, allow (fail-open)
 
     core = ManagementCore(db)
 
@@ -663,17 +683,10 @@ async def create_server(
         # `mikrotik_adapter` aliases to `multi_server` in `_FEATURE_ALIASES`
         # so existing Pro+ lifetime keys are honored without re-issue.
         if not info.has_feature("mikrotik_adapter"):
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "message": (
-                        "Mikrotik / RouterOS management requires the "
-                        "'mikrotik_adapter' feature. Upgrade to Pro or higher to enable it."
-                    ),
-                    "license_feature_required": "mikrotik_adapter",
-                    "upgrade_url": "https://flirexa.biz/#pricing",
-                    "upgrade_tier": "pro",
-                },
+            raise_feature_required(
+                "mikrotik_adapter",
+                current_plan=info.type.value,
+                message="Mikrotik / RouterOS management requires the Business plan.",
             )
         if not server_data.mikrotik_url:
             raise HTTPException(400, "mikrotik_url is required when agent_mode=mikrotik")
@@ -1419,6 +1432,30 @@ async def install_proxy_on_server(
         raise HTTPException(status_code=404, detail="Source server not found")
     if not src.ssh_host:
         raise HTTPException(status_code=400, detail="Source server has no SSH credentials")
+
+    # This action creates a second, remote-managed server row. Enforce both
+    # the protocol entitlement and the signed absolute quota before generating
+    # keys or touching the customer's host.
+    try:
+        from sqlalchemy import text as _sql_text
+        from ...modules.license.manager import get_license_manager
+
+        db.execute(_sql_text("SELECT pg_advisory_xact_lock(1000002)"))
+        info = get_license_manager().get_license_info()
+        _enforce_server_creation_entitlement(
+            info,
+            current_count=db.query(Server).count(),
+            same_type_count=db.query(Server).filter(
+                Server.server_type == req.protocol
+            ).count(),
+            server_type=req.protocol,
+            is_remote=True,
+        )
+    except HTTPException:
+        raise
+    except Exception as _lic_err:
+        logger.error("License check failed during proxy installation: {}", _lic_err)
+        raise HTTPException(status_code=503, detail="License verification unavailable")
     from ...core.hysteria2 import (
         Hysteria2Manager,
         DEFAULT_CONFIG_PATH as HY2_CFG, DEFAULT_SERVICE_NAME as HY2_SVC,
@@ -1630,26 +1667,27 @@ async def install_awg_on_server(
     if not src.ssh_host:
         raise HTTPException(status_code=400, detail="Source server has no SSH credentials")
 
-    # License: AmneziaWG is FREE-tier — only check the multi_server cap.
+    # This alongside-install is remote multi-server orchestration even though
+    # AmneziaWG itself is available on FREE when installed locally.
     try:
         from sqlalchemy import text as _sql_text
         from ...modules.license.manager import get_license_manager
         db.execute(_sql_text("SELECT pg_advisory_xact_lock(1000002)"))
         info = get_license_manager().get_license_info()
-        same_type = db.query(Server).filter(Server.server_type == "amneziawg").count()
-        if not info.has_feature("multi_server") and same_type >= 1:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "message": "FREE tier allows one AmneziaWG server. Upgrade for multi-server.",
-                    "license_feature_required": "multi_server",
-                    "upgrade_tier": "business",
-                },
-            )
+        _enforce_server_creation_entitlement(
+            info,
+            current_count=db.query(Server).count(),
+            same_type_count=db.query(Server).filter(
+                Server.server_type == "amneziawg"
+            ).count(),
+            server_type="amneziawg",
+            is_remote=True,
+        )
     except HTTPException:
         raise
-    except Exception:
-        pass  # license-check unavailable → fail-open
+    except Exception as _lic_err:
+        logger.error("License check failed during AmneziaWG installation: {}", _lic_err)
+        raise HTTPException(status_code=503, detail="License verification unavailable")
 
     # Pick interface name — first free awgN
     used_ifaces = {s.interface for s in db.query(Server).all()}

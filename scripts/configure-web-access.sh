@@ -99,6 +99,34 @@ require_root() {
     [[ $EUID -eq 0 ]] || die "Run as root"
 }
 
+read_env_value() {
+    local key="$1" line value
+    line="$(grep -m1 "^${key}=" "$ENV_FILE" 2>/dev/null || true)"
+    [[ -n "$line" ]] || return 0
+    value="${line#*=}"
+    value="${value%$'\r'}"
+    # The installer writes explanatory inline comments for a few values.
+    # These allowlisted web settings never legitimately contain whitespace,
+    # so keep only the dotenv value token and remove optional matching quotes.
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%%[[:space:]]*}"
+    [[ "$value" == \#* ]] && value=""
+    if [[ ${#value} -ge 2 ]]; then
+        if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then
+            value="${value:1:${#value}-2}"
+        fi
+    fi
+    printf '%s' "$value"
+}
+
+validate_port() {
+    local value="$1"
+    local numeric
+    [[ "$value" =~ ^[0-9]{1,5}$ ]] || return 1
+    numeric=$((10#$value))
+    (( numeric >= 1 && numeric <= 65535 ))
+}
+
 load_env() {
     if [[ -z "$ENV_FILE" ]]; then
         ENV_FILE="$APP_DIR/.env"
@@ -112,19 +140,27 @@ load_env() {
     local cli_portal="$PORTAL_DOMAIN"
     local cli_admin="$ADMIN_DOMAIN"
 
-    set -a
-    # shellcheck disable=SC1090
-    . "$ENV_FILE"
-    set +a
+    # .env is configuration data, not shell code. Read only the keys this
+    # helper needs; sourcing the file as root would execute substitutions or
+    # turn an innocent unquoted value/comment into a command.
+    local env_email env_portal env_admin
+    env_email="$(read_env_value CERTBOT_EMAIL)"
+    env_portal="$(read_env_value CLIENT_PORTAL_DOMAIN)"
+    env_admin="$(read_env_value ADMIN_PANEL_DOMAIN)"
+    API_PORT="$(read_env_value API_PORT)"
+    CLIENT_PORTAL_PORT="$(read_env_value CLIENT_PORTAL_PORT)"
+    SERVER_ENDPOINT="$(read_env_value SERVER_ENDPOINT)"
 
     # CLI args take precedence over .env. Only fall back to .env when the
-    # CLI didn't supply a value.
-    [[ -n "$cli_email"  ]] && CERTBOT_EMAIL="$cli_email"
-    [[ -n "$cli_portal" ]] && PORTAL_DOMAIN="$cli_portal"
-    [[ -n "$cli_admin"  ]] && ADMIN_DOMAIN="$cli_admin"
+    # CLI did not supply a value.
+    CERTBOT_EMAIL="${cli_email:-$env_email}"
+    PORTAL_DOMAIN="${cli_portal:-$env_portal}"
+    ADMIN_DOMAIN="${cli_admin:-$env_admin}"
 
     API_PORT="${API_PORT:-10086}"
     CLIENT_PORTAL_PORT="${CLIENT_PORTAL_PORT:-10090}"
+    validate_port "$API_PORT" || die "Invalid API_PORT in $ENV_FILE"
+    validate_port "$CLIENT_PORTAL_PORT" || die "Invalid CLIENT_PORTAL_PORT in $ENV_FILE"
 }
 
 # ── Network discovery ────────────────────────────────────────────────────────
@@ -209,12 +245,87 @@ update_env_file() {
 
 # ── Package install ──────────────────────────────────────────────────────────
 
+wait_for_package_manager() {
+    command -v fuser >/dev/null 2>&1 || return 0
+    local locks=(
+        /var/lib/dpkg/lock-frontend
+        /var/lib/dpkg/lock
+        /var/cache/apt/archives/lock
+    )
+    local waited=0 lock busy
+    while (( waited < 180 )); do
+        busy=0
+        for lock in "${locks[@]}"; do
+            if fuser "$lock" >/dev/null 2>&1; then
+                busy=1
+                break
+            fi
+        done
+        (( busy == 0 )) && return 0
+        if (( waited == 0 || waited % 30 == 0 )); then
+            warn "Waiting for another package-manager process (${waited}s)..."
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+    warn "Package-manager lock did not clear within 180 seconds"
+    return 1
+}
+
+apt_retry() {
+    local description="$1"
+    shift
+    local attempt apt_log delay
+    apt_log="$(mktemp /tmp/vpnmanager-web-apt.XXXXXX)" \
+        || die "Could not create a temporary apt log"
+
+    for attempt in 1 2 3 4 5; do
+        wait_for_package_manager || true
+        if DEBIAN_FRONTEND=noninteractive \
+            apt-get -o DPkg::Lock::Timeout=60 "$@" >"$apt_log" 2>&1; then
+            rm -f -- "$apt_log"
+            return 0
+        fi
+
+        warn "Could not ${description} (attempt ${attempt}/5)."
+        tail -n 8 "$apt_log" >&2 2>/dev/null || true
+        if (( attempt < 5 )); then
+            delay=$((attempt * 2))
+            sleep "$delay"
+        fi
+    done
+
+    rm -f -- "$apt_log"
+    return 1
+}
+
 install_packages() {
-    log "Installing nginx/certbot dependencies..."
-    apt-get update -qq >/dev/null 2>&1 || true
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-        nginx certbot python3-certbot-nginx openssl >/dev/null 2>&1 \
-        || die "Failed to install nginx/certbot packages"
+    local required=(nginx openssl)
+    local missing=()
+    local package
+    if [[ "$MODE" == "portal_admin_ip" || "$MODE" == "portal_admin_domain" ]]; then
+        required+=(certbot python3-certbot-nginx)
+    fi
+    for package in "${required[@]}"; do
+        dpkg-query -W -f='${db:Status-Abbrev}' "$package" 2>/dev/null \
+            | grep -q '^ii ' || missing+=("$package")
+    done
+
+    if (( ${#missing[@]} > 0 )); then
+        log "Installing web dependencies: ${missing[*]}"
+        apt_retry "refresh package lists" update -qq \
+            || die "Failed to refresh package lists for web access"
+        apt_retry "install web dependencies" install -y -qq "${missing[@]}" \
+            || die "Failed to install web dependencies after 5 attempts"
+    else
+        log "Web dependencies are already installed"
+    fi
+
+    command -v nginx >/dev/null 2>&1 || die "nginx is missing after package installation"
+    command -v openssl >/dev/null 2>&1 || die "openssl is missing after package installation"
+    if [[ "$MODE" == "portal_admin_ip" || "$MODE" == "portal_admin_domain" ]]; then
+        command -v certbot >/dev/null 2>&1 || die "certbot is missing after package installation"
+    fi
     systemctl enable nginx >/dev/null 2>&1 || true
 }
 

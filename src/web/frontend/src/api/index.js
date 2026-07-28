@@ -91,8 +91,14 @@ api.interceptors.response.use(
     // a "Buy {tier}" toast / modal. Detail can be either a string (legacy)
     // or an object with {message, upgrade_url, upgrade_tier,
     // license_feature_required}; normalize both shapes.
-    if (error.response?.status === 403 && error.response?.data?.upgrade_url) {
-      const data = error.response.data
+    const upgradePayload = error.response?.data
+    const upgradeDetail = upgradePayload?.detail
+    const hasUpgradeHint = error.response?.status === 403 && (
+      upgradePayload?.upgrade_url ||
+      (typeof upgradeDetail === 'object' && upgradeDetail?.upgrade_url)
+    )
+    if (hasUpgradeHint) {
+      const data = upgradePayload
       const detail = data.detail
       const message = (typeof detail === 'object' && detail?.message)
         ? detail.message

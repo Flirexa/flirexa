@@ -1,7 +1,7 @@
 """Tests for the Phase 5 batch of license-gated plugins.
 
 Covered plugins (all gate-only — the implementation lives in core):
-- white-label-basic       (white_label_basic, Business+)
+- white-label-basic       (white_label, Enterprise)
 - client-tg-bot           (telegram_client_bot, Business+)
 - traffic-rules           (traffic_rules, Business+)
 - promo-codes             (promo_codes, Starter+)
@@ -29,8 +29,7 @@ from src.modules.plugin_loader import PluginLoader
 
 PLUGINS = [
     # (plugin_name, required_feature, tiers_with_feature)
-    ("white-label-basic", "white_label_basic",
-     [LicenseType.PRO, LicenseType.BUSINESS, LicenseType.ENTERPRISE]),
+    ("white-label-basic", "white_label", [LicenseType.ENTERPRISE]),
     ("client-tg-bot", "telegram_client_bot",
      [LicenseType.BUSINESS, LicenseType.ENTERPRISE]),
     ("traffic-rules", "traffic_rules",
@@ -133,14 +132,16 @@ def test_all_phase5_plugins_load_on_enterprise(repo_plugins_dir):
 def test_starter_does_not_get_business_features():
     """STARTER must not include Business-only features."""
     starter = LICENSE_TIERS[LicenseType.STARTER]["features"]
-    business_only = ["multi_server", "telegram_client_bot",
-                     "white_label_basic", "auto_backup", "traffic_rules"]
+    business_only = ["multi_server", "telegram_client_bot", "auto_backup", "traffic_rules"]
     leaks = [f for f in business_only if f in starter]
     assert not leaks, f"STARTER leaked Business features: {leaks}"
 
 
 def test_business_does_not_get_enterprise_features():
     business = LICENSE_TIERS[LicenseType.BUSINESS]["features"]
-    enterprise_only = ["corporate_vpn", "manager_rbac", "white_label"]
+    enterprise_only = [
+        "corporate_vpn", "manager_rbac", "white_label",
+        "white_label_basic", "android_app",
+    ]
     leaks = [f for f in enterprise_only if f in business]
     assert not leaks, f"BUSINESS leaked Enterprise features: {leaks}"

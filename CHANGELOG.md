@@ -4,6 +4,29 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.67 — 2026-07-28
+
+### Changed
+
+- Reissued the verified backup-persistence correction as a mandatory update so
+  supported installations apply it promptly.
+
+---
+
+## v2.2.66 — 2026-07-28
+
+### Fixed
+
+- Backup archives now use persistent installation storage, so they remain
+  visible after versioned updates and rollbacks.
+- Updates collect archives left in historical release directories before
+  switching versions. Identical files are deduplicated and non-identical
+  filename collisions are retained under distinct names.
+- New and rollback releases both point to the shared backup directory while
+  update rollback data remains untouched.
+
+---
+
 ## v2.2.59 — 2026-07-25
 
 ### Security

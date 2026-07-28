@@ -35,12 +35,12 @@
           :disabled="!email || loading"
           @click="startCheckout"
         >
-          {{ loading ? 'Opening NOWPayments…' : 'Pay with crypto →' }}
+          {{ loading ? 'Opening checkout…' : 'Continue to secure checkout →' }}
         </button>
         <p class="upgrade-modal__note">
-          Payment is processed by NOWPayments. After confirmation
-          (10–30 min) you receive an activation code by email — paste
-          it under <strong>Settings → License</strong>.
+          Payment is processed by our checkout provider. After confirmation,
+          you receive an activation code by email. Paste it under
+          <strong>Settings → License</strong>.
         </p>
       </div>
     </div>
@@ -54,7 +54,7 @@ const TIERS = [
   {
     id: 'starter',
     name: 'Starter',
-    price: 19,
+    price: 12,
     features: ['Hysteria2 + TUIC', 'Promo codes', 'Auto-renewal', 'Up to 500 clients'],
   },
   {
@@ -104,8 +104,19 @@ async function startCheckout() {
       }),
     })
     if (!resp.ok) {
-      const text = await resp.text()
-      throw new Error(`License server returned ${resp.status}: ${text.slice(0, 160)}`)
+      let message = `Checkout failed (${resp.status})`
+      try {
+        const data = await resp.json()
+        const detail = data?.detail
+        if (typeof detail === 'string') message = detail
+        else if (Array.isArray(detail)) {
+          const items = detail.map(x => x?.msg || x?.message).filter(Boolean)
+          if (items.length) message = items.join('; ')
+        } else if (detail && typeof detail === 'object') {
+          message = detail.message || detail.msg || message
+        }
+      } catch (_) { /* keep the status-based message */ }
+      throw new Error(message)
     }
     const data = await resp.json()
     if (data.payment_url) {
@@ -123,8 +134,12 @@ async function startCheckout() {
 }
 
 function flirexaOpenUpgrade(opts) {
-  preferredTier.value = opts?.tier || 'business'
-  selectedTier.value  = opts?.tier || 'business'
+  const aliases = { standard: 'starter', pro: 'business' }
+  const requested = String(opts?.tier || 'business').toLowerCase()
+  const canonical = aliases[requested] || requested
+  const safeTier = TIERS.some(t => t.id === canonical) ? canonical : 'business'
+  preferredTier.value = safeTier
+  selectedTier.value  = safeTier
   reason.value        = opts?.reason || (opts?.feature ? `Required for: ${opts.feature}` : '')
   open.value          = true
 }

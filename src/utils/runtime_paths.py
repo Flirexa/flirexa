@@ -34,6 +34,16 @@ def get_releases_root(install_root: Path | None = None) -> Path:
     return root / "releases"
 
 
+def get_backup_root(install_root: Path | None = None) -> Path:
+    """Return the operator-backup directory shared by every release."""
+
+    override = os.getenv("VMS_BACKUP_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    root = install_root or get_install_root()
+    return root / "backups"
+
+
 def get_version_file(install_root: Path | None = None) -> Path:
     runtime_root = get_runtime_root(install_root)
     runtime_version = runtime_root / "VERSION"

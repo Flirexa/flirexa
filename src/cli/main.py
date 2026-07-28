@@ -88,6 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
     license_subparsers = license_parser.add_subparsers(dest="license_command", required=True)
     license_status = license_subparsers.add_parser("status", help="show license status")
     license_status.add_argument("--json", action="store_true", help="machine-readable JSON output")
+    license_lease = license_subparsers.add_parser(
+        "apply-offline-lease", help="install a vendor-signed emergency Lifetime lease"
+    )
+    license_lease.add_argument("--file", required=True, help="path to the signed lease JSON")
+    license_lease.add_argument("--json", action="store_true", help="machine-readable JSON output")
 
     services_parser = subparsers.add_parser("services", help="service operations")
     services_subparsers = services_parser.add_subparsers(dest="services_command", required=True)
@@ -265,6 +270,31 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(render_services_restart_result(result))
         return 0 if result.success else 1
+
+    if args.command == "license" and args.license_command == "apply-offline-lease":
+        from src.modules.license.online_validator import install_offline_lease
+
+        lease_path = Path(args.file)
+        try:
+            if not lease_path.is_file() or lease_path.stat().st_size > 32 * 1024:
+                raise ValueError("Lease file is missing, not regular, or too large")
+            envelope = json.loads(lease_path.read_text(encoding="utf-8"))
+            success, message = install_offline_lease(envelope)
+        except Exception as exc:
+            success, message = False, str(exc)
+        payload = {
+            "success": success,
+            "action": "license_apply_offline_lease",
+            "message": message,
+        }
+        if json_output or getattr(args, "json", False):
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(
+                f"RESULT: {'SUCCESS' if success else 'FAILED'}\n"
+                f"Action: license apply-offline-lease\nMessage: {message}"
+            )
+        return 0 if success else 1
 
     status = collect_system_status()
 

@@ -93,6 +93,33 @@ def test_cli_license_status_readonly_still_returns_zero(monkeypatch, capsys):
     assert "Readonly: yes" in out
 
 
+def test_cli_applies_vendor_signed_offline_lease(monkeypatch, tmp_path, capsys):
+    lease = tmp_path / "lease.json"
+    lease.write_text('{"payload":"p","signature":"s"}', encoding="utf-8")
+    monkeypatch.setattr(
+        "src.modules.license.online_validator.install_offline_lease",
+        lambda envelope: (envelope["payload"] == "p", "accepted"),
+    )
+    rc = main(["license", "apply-offline-lease", "--file", str(lease), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload == {
+        "success": True,
+        "action": "license_apply_offline_lease",
+        "message": "accepted",
+    }
+
+
+def test_cli_rejects_oversized_offline_lease(tmp_path, capsys):
+    lease = tmp_path / "lease.json"
+    lease.write_bytes(b"x" * (32 * 1024 + 1))
+    rc = main(["license", "apply-offline-lease", "--file", str(lease), "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert payload["success"] is False
+    assert "too large" in payload["message"]
+
+
 def test_cli_services_status(monkeypatch, capsys):
     status = _status()
     status.services = []

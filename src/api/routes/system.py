@@ -3,7 +3,7 @@ System Routes — status, logs, configuration, branding
 """
 
 from typing import Optional, List, Literal, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -15,6 +15,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ...database.connection import get_db, check_db_connection
 from ...database.models import AuditLog, AuditAction
@@ -26,14 +29,43 @@ from ...modules.operational_mode import (
 )
 from ...modules.system_status.collector import collect_system_status
 from ...utils.runtime_paths import get_app_version
-from ..middleware.license_gate import require_license_feature
+from ..middleware.license_gate import (
+    ensure_current_license_feature,
+    require_license_feature,
+)
 
 
 router = APIRouter()
 
 # Feature-gated dependencies for paid-tier endpoints in this router.
-_white_label_gate = Depends(require_license_feature("white_label_basic"))
+_white_label_gate = Depends(require_license_feature("white_label"))
 _auto_backup_gate = Depends(require_license_feature("auto_backup"))
+_app_integration_gate = Depends(require_license_feature("app_integration"))
+
+
+_PAID_PAYMENT_SETTING_FIELDS = {
+    "cryptopay_api_token",
+    "cryptopay_testnet",
+    "paypal_client_id",
+    "paypal_client_secret",
+    "paypal_sandbox",
+    "paypal_webhook_id",
+    "stripe_secret_key",
+    "stripe_webhook_secret",
+    "payme_merchant_id",
+    "payme_secret_key",
+    "mollie_api_key",
+    "razorpay_key_id",
+    "razorpay_key_secret",
+    "razorpay_webhook_secret",
+}
+
+_APP_INTEGRATION_SETTING_FIELDS = {
+    "fcm_server_key",
+    "app_integration_enabled",
+    "push_enabled",
+    "app_name",
+}
 
 
 # ============================================================================
@@ -591,6 +623,17 @@ async def activate_license(data: LicenseActivateRequest):
 
     # Reset global manager to pick up new key
     reset_license_manager()
+    try:
+        import asyncio
+        from ...modules.license.online_validator import (
+            _do_check,
+            reset_validation_state_for_license_change,
+        )
+        reset_validation_state_for_license_change()
+        asyncio.create_task(_do_check())
+    except Exception as exc:
+        from loguru import logger
+        logger.warning("Immediate online validation after activation could not start: {}", exc)
 
     # Reconcile fleet to the new tier — un-suspends servers that were parked
     # because of a previous downgrade, or suspends excess if the new key is
@@ -677,6 +720,17 @@ async def replay_license(data: LicenseReplayRequest):
                 os.environ["ACTIVATION_CODE"]      = activation_code
 
                 reset_license_manager()
+                try:
+                    import asyncio
+                    from ...modules.license.online_validator import (
+                        _do_check,
+                        reset_validation_state_for_license_change,
+                    )
+                    reset_validation_state_for_license_change()
+                    asyncio.create_task(_do_check())
+                except Exception as exc:
+                    from loguru import logger
+                    logger.warning("Immediate online validation after replay could not start: {}", exc)
 
                 try:
                     from ...modules.license.enforcement import reconcile as _lic_reconcile
@@ -752,50 +806,21 @@ async def apply_license_migration(data: LicenseMigrationRequest):
     return {"status": "applied", "message": message}
 
 
-# ── Customer self-service license transfer (lifetime_protected) ──────────────
-#
-# Distinct from /license-migration above: that one re-points the panel at
-# new license servers (vendor-issued). These two endpoints let the *customer*
-# move their lifetime_protected license to a new HW without contacting us.
-#
-# Flow:
-#   1. Old panel:  POST /license/transfer/initiate   → gets MIGRATE-… code
-#                  Old panel starts a 3-day countdown to self-decommission.
-#   2. New panel:  POST /license/transfer/apply  + LICENSE_KEY in env
-#                  Panel verifies code offline, persists pending receipt,
-#                  next heartbeat carries it as proof of legitimate move.
+# ── Licence transfer compatibility endpoints ────────────────────────────────
+# Transfers are now support-controlled revocation/reissue operations. Keep the
+# old routes as explicit denials so an older UI receives a useful answer rather
+# than a 404, but do not retain the customer-side signing path here.
 
 @router.post("/license/transfer/initiate")
 async def license_transfer_initiate():
-    """Generate a one-time code that authorizes moving this license to a
-    new server. Once called, this server self-decommissions in 3 days —
-    plan to have the new server up before then.
-
-    Only works for `lifetime_protected` licenses; other types either
-    don't move (subscription — contact vendor) or don't need a code
-    (lifetime — just copy LICENSE_KEY)."""
-    from ...modules.license.migration_code import generate_migration_code, MIGRATION_CODE_TTL_DAYS, OLD_SERVER_DECOMMISSION_DAYS
-
-    mc = generate_migration_code()
-    if mc is None:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "transfer_unavailable",
-                "message": (
-                    "Self-service transfer is only available for lifetime_protected licenses. "
-                    "Either your license type doesn't support this, or no LICENSE_KEY is set."
-                ),
-            },
-        )
-    return {
-        "code":             mc.code,
-        "issued_at":        mc.issued_at.isoformat(),
-        "code_expires_at":  mc.expires_at.isoformat(),
-        "code_valid_days":  MIGRATION_CODE_TTL_DAYS,
-        "this_server_decommissions_in_days": OLD_SERVER_DECOMMISSION_DAYS,
-    }
-
+    """Direct customers to the verified support reissue workflow."""
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "support_transfer_required",
+            "message": "License transfers are verified and reissued through Flirexa support.",
+        },
+    )
 
 class LicenseTransferApplyRequest(BaseModel):
     code: str
@@ -803,83 +828,18 @@ class LicenseTransferApplyRequest(BaseModel):
 
 @router.post("/license/transfer/apply")
 async def license_transfer_apply(data: LicenseTransferApplyRequest):
-    """On the NEW server, verify a transfer code and stage it to ride
-    along the next heartbeat. The lic-server records the migration as a
-    legitimate fingerprint change (not a clone)."""
-    from ...modules.license.migration_code import (
-        verify_migration_code, parse_migration_code_metadata, _read_license_payload,
-        _license_id_from_payload, save_applied_migration,
+    """Reject retired self-signed transfer codes with a stable response."""
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "support_transfer_required",
+            "message": "Self-signed transfer codes are no longer accepted. Contact Flirexa support for a verified reissue.",
+        },
     )
-    from ...modules.license.instance_manager import save_pending_migration
-    from ...modules.license.manager import LicenseManager
-
-    code = data.code.strip().upper()
-    ok, msg = verify_migration_code(code)
-    if not ok:
-        raise HTTPException(status_code=400, detail={"error": "invalid_code", "message": msg})
-
-    payload = _read_license_payload() or {}
-    # 1. Permanent local authorization: write the applied-migration record
-    #    so the validator accepts THIS hardware for the migrated license
-    #    from now on, fully offline. This is what actually makes the move
-    #    take effect — without it the panel stays on FREE because the
-    #    LICENSE_KEY is bound to the old hardware.
-    current_hw = ""
-    try:
-        current_hw = LicenseManager().get_server_id()
-    except Exception:
-        pass
-    if not save_applied_migration(code=code, current_hw=current_hw):
-        # Refused: no license payload, or a second distinct code for the same
-        # license already lives here (replay guard). Don't half-apply.
-        raise HTTPException(status_code=409, detail={
-            "error": "not_applied",
-            "message": "Migration could not be applied on this machine "
-                       "(no license, or it is already the home of a different "
-                       "migration for this license).",
-        })
-    # 2. Transient receipt for the lic-server (clone-detection bookkeeping),
-    #    forwarded + cleared on the next acknowledged heartbeat.
-    save_pending_migration(
-        code=code,
-        from_hw_id=payload.get("hardware_id", ""),
-        license_id=_license_id_from_payload(payload),
-    )
-    # 2b. Immediately fire one heartbeat so the lic-server learns of the move
-    #     within seconds instead of up to a full heartbeat interval (≤24h for
-    #     lifetime_protected). Best-effort: offline apply still works via the
-    #     local applied-migration record, and the receipt rides the next
-    #     scheduled heartbeat if this one can't reach the server.
-    try:
-        from ...modules.license.instance_manager import send_heartbeat
-        await send_heartbeat()
-    except Exception:
-        pass
-    # 3. Refresh the cached license so paid features light up without a
-    #    restart. validate_license() re-reads the key + now sees the
-    #    applied-migration record we just wrote; license enforcement
-    #    reconcile picks the new tier up on its next cycle.
-    revalidated = None
-    try:
-        info = LicenseManager().validate_license()
-        revalidated = getattr(info, "tier", None) or getattr(info, "type", None)
-    except Exception:
-        pass
-    meta = parse_migration_code_metadata(code) or {}
-    return {
-        "status":  "applied",
-        "message": "Transfer code accepted — this server is now authorized for the migrated license.",
-        "tier":            revalidated,
-        "code_issued_at":  meta.get("issued_at"),
-        "code_expires_at": meta.get("expires_at"),
-    }
-
 
 @router.post("/license/transfer/cancel")
 async def license_transfer_cancel():
-    """Cancel a pending transfer on THIS server (stops the self-decommission
-    countdown). Already-issued codes remain cryptographically valid until
-    their TTL — only this server's countdown is cleared."""
+    """Clean up state left by the retired self-transfer workflow."""
     from ...modules.license.migration_code import cancel_migration
     cleared = cancel_migration()
     return {"status": "cancelled" if cleared else "no_pending_transfer"}
@@ -910,6 +870,7 @@ async def get_branding_settings(db: Session = Depends(get_db)):
 class BrandingUpdateRequest(BaseModel):
     branding_app_name: Optional[str] = Field(None, max_length=100)
     branding_customer_app_name: Optional[str] = Field(None, max_length=100)
+    branding_tagline: Optional[str] = Field(None, max_length=200)
     branding_company_name: Optional[str] = Field(None, max_length=200)
     branding_logo_url: Optional[str] = Field(None, max_length=500)
     branding_customer_logo_url: Optional[str] = Field(None, max_length=500)
@@ -919,6 +880,7 @@ class BrandingUpdateRequest(BaseModel):
     branding_support_email: Optional[str] = Field(None, max_length=200)
     branding_support_url: Optional[str] = Field(None, max_length=500)
     branding_footer_text: Optional[str] = Field(None, max_length=500)
+    branding_powered_by: Optional[bool] = None
 
 
 @router.post("/branding", dependencies=[_white_label_gate])
@@ -1065,6 +1027,12 @@ async def update_payment_settings(data: PaymentSettingsUpdate):
     """
     Update payment settings. Saves to .env and hot-reloads adapters.
     """
+    # NOWPayments is part of FREE. Every other provider is a Business feature.
+    # Pydantic's model_fields_set distinguishes an omitted field from a model
+    # default, so saving only NOWPayments never trips the paid gate.
+    if data.model_fields_set & _PAID_PAYMENT_SETTING_FIELDS:
+        ensure_current_license_feature("payments")
+
     from ..routes import client_portal
     from ...modules.subscription.cryptopay_adapter import CryptoPayAdapter
 
@@ -1498,6 +1466,8 @@ async def run_payment_test(provider_name: str):
     signature accept/reject paths behave correctly, plus an API ping
     where the provider supports it. Does NOT make any real charges.
     """
+    if provider_name.strip().lower() != "nowpayments":
+        ensure_current_license_feature("payments")
     return await _payment_test_for_provider(provider_name)
 
 
@@ -1629,6 +1599,16 @@ async def get_smtp_settings():
 async def update_smtp_settings(data: SmtpSettingsUpdate):
     """Update SMTP settings. Saves to .env and hot-reloads email service."""
     from ..routes import client_portal
+
+    # SMTP transport is operational configuration available to every tier.
+    # Choosing a custom customer-visible From identity is white-labeling and
+    # therefore Enterprise-only.  Re-saving the existing value is a no-op and
+    # clearing it is always allowed, which keeps downgrade/recovery safe.
+    if data.smtp_from is not None:
+        requested_from = data.smtp_from.strip()
+        current_from = os.getenv("SMTP_FROM", "").strip()
+        if requested_from and requested_from != current_from:
+            ensure_current_license_feature("white_label")
 
     env_path = _find_env_file()
     updates = {}
@@ -1834,6 +1814,12 @@ def apply_web_access_settings(data: WebAccessSettingsUpdate):
     admin_domain = (data.admin_panel_domain or "").strip()
     certbot_email = (data.certbot_email or "").strip()
 
+    # Both domain modes put a buyer-controlled domain in front of a Flirexa
+    # interface.  Raw-port/no-domain access remains available to every tier;
+    # disabling an existing domain setup is also always allowed.
+    if mode in {"portal_admin_ip", "portal_admin_domain"}:
+        ensure_current_license_feature("white_label")
+
     if mode in {"portal_admin_ip", "portal_admin_domain"}:
         portal_domain = _validate_domain_name(portal_domain, "client_portal_domain")
         if not certbot_email:
@@ -1947,6 +1933,7 @@ def get_notification_settings(db: Session = Depends(get_db)):
         # a hard-coded brand string ("<Brand> Android & Windows") which was an
         # operator-specific leak into every operator's panel).
         "app_integration_enabled",
+        "push_enabled",
         "app_name",
     ]
     rows = db.query(SystemConfig).filter(SystemConfig.key.in_(keys)).all()
@@ -1958,6 +1945,7 @@ def get_notification_settings(db: Session = Depends(get_db)):
     # Booleans need defaults that lean "off": new operators see the
     # toggle disabled until they explicitly turn it on.
     out["app_integration_enabled"] = settings.get("app_integration_enabled", "false")
+    out["push_enabled"] = settings.get("push_enabled", "false")
     out["app_name"] = settings.get("app_name", "")
     return out
 
@@ -1970,6 +1958,9 @@ def update_notification_settings(data: dict, db: Session = Depends(get_db)):
     string to clear it. Anything else is treated as a literal string
     and stored as-is.
     """
+    if set(data) & _APP_INTEGRATION_SETTING_FIELDS:
+        ensure_current_license_feature("app_integration")
+
     from ...database.models import SystemConfig
     allowed_keys = [
         "notifications_enabled",
@@ -1982,6 +1973,7 @@ def update_notification_settings(data: dict, db: Session = Depends(get_db)):
         "notify_user_payment_confirmed",
         "fcm_server_key",
         "app_integration_enabled",
+        "push_enabled",
         "app_name",
     ]
     updated = 0
@@ -2086,7 +2078,7 @@ class SendNotificationRequest(BaseModel):
     notification_type: str = "info"  # info, update, warning, promo
 
 
-@router.post("/notifications/send")
+@router.post("/notifications/send", dependencies=[_app_integration_gate])
 def send_notification(data: SendNotificationRequest, db: Session = Depends(get_db)):
     """Send a push notification to a user or broadcast to all"""
     from ...database.models import PushNotification
@@ -2104,7 +2096,7 @@ def send_notification(data: SendNotificationRequest, db: Session = Depends(get_d
     return {"id": notif.id, "status": "sent"}
 
 
-@router.get("/notifications/list")
+@router.get("/notifications/list", dependencies=[_app_integration_gate])
 def list_notifications(
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db)

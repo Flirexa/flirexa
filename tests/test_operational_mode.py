@@ -10,6 +10,7 @@ from src.database.models import AuditLog, Base, SystemConfig
 from src.modules.operational_mode import (
     ExplicitMaintenanceState,
     classify_api_request,
+    derive_license_mode,
     is_request_allowed,
     resolve_operational_mode,
     set_maintenance_mode,
@@ -77,3 +78,35 @@ def test_request_policy_license_expired_readonly_allows_restore_but_blocks_busin
     assert allowed is True
     allowed, _ = is_request_allowed("license_expired_readonly", "/api/v1/clients", "POST")
     assert allowed is False
+
+
+def test_license_grace_status_does_not_replay_cache_on_each_request(monkeypatch):
+    """A cached lease must not overwrite a freshly observed network outage."""
+    from src.modules import operational_mode as module
+    from src.modules.license import manager as license_manager
+
+    class PaidManager:
+        @staticmethod
+        def is_free():
+            return False
+
+    replay_calls = []
+    monkeypatch.setenv("LICENSE_KEY", "signed-paid-license")
+    monkeypatch.setattr(license_manager, "get_license_manager", lambda: PaidManager())
+    monkeypatch.setattr(
+        module,
+        "get_online_status",
+        lambda: {"status": "ok", "server_reachable": False},
+    )
+    monkeypatch.setattr(module, "is_license_blocked", lambda: (False, ""))
+    # Kept as a regression sentinel: the old implementation called this on
+    # every request and reset server_reachable to True from the cache payload.
+    monkeypatch.setattr(
+        module,
+        "_license_warmup_from_cache",
+        lambda: replay_calls.append(True),
+        raising=False,
+    )
+
+    assert derive_license_mode() == "license_grace"
+    assert replay_calls == []

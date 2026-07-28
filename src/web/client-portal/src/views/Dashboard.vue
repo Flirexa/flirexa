@@ -364,7 +364,7 @@
         </div>
 
         <!-- Auto-renew -->
-        <div class="fx-card fx-mob-order-6" style="padding:var(--pad-card)" v-if="subscription.tier && subscription.tier.toLowerCase() !== 'free'">
+        <div class="fx-card fx-mob-order-6" style="padding:var(--pad-card)" v-if="features.auto_renewal && subscription.tier && subscription.tier.toLowerCase() !== 'free'">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:12px">
             <div style="min-width:0">
               <h3 class="fx-section-title" style="display:inline-flex; align-items:center; gap:6px">
@@ -656,9 +656,10 @@ const { t } = useI18n()
 
 const subscription = ref({})
 const devices = ref([])
-// Per-operator portal gates (from /client-portal/features). Default everything
-// ON so a fetch hiccup never hides a capability — backend 403 is the real gate.
-const features = ref({ config_download: true, qr: true })
+// Core download capabilities stay fail-open for compatibility. Commercial
+// controls stay hidden until the operator entitlement is positively resolved;
+// the backend repeats the same check for direct API requests.
+const features = ref({ config_download: true, qr: true, auto_renewal: false })
 const showUpgradeModal = ref(false)
 const showConfigModal = ref(false)
 const configText = ref('')
@@ -1316,7 +1317,7 @@ const loadServers = async () => {
   try { const { data } = await portalApi.getServers(); servers.value = data || [] } catch { /* ignore */ }
 }
 const loadFeatures = async () => {
-  // Fail open: on any error keep the ON-by-default `features` ref untouched.
+  // On error keep the mixed safe defaults above.
   try {
     const { data } = await portalApi.getFeatures()
     if (data && data.features) features.value = { ...features.value, ...data.features }

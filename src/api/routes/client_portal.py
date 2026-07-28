@@ -23,6 +23,7 @@ import secrets
 import time
 import asyncio
 import logging
+import json
 import re
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,27 @@ email_service = None
 
 # Admin API client (initialized in client_portal_main.py)
 admin_api: Optional[AdminAPIClient] = None
+
+
+def _operator_has_feature(feature_name: str) -> bool:
+    """Resolve an operator entitlement without trusting customer input.
+
+    Client-portal routes are customer-facing, so they return a generic
+    unavailable response rather than Flirexa's admin upgrade URL.  A broken
+    license subsystem fails closed for commercial capabilities.
+    """
+
+    try:
+        from src.modules.license.manager import get_license_manager
+
+        return get_license_manager().get_license_info().has_feature(feature_name)
+    except Exception as exc:
+        logger.warning(
+            "Could not resolve operator feature %s; defaulting to unavailable: %s",
+            feature_name,
+            exc,
+        )
+        return False
 
 
 def get_cryptopay() -> CryptoPayAdapter:
@@ -1287,14 +1309,18 @@ async def get_features(
     except Exception:
         logger.warning("Failed to get corp limits for user %s, defaulting to no corporate access", user_id)
         corp_networks = False
-    # Per-operator portal gates (config download / QR). Default ON.
+    # Per-operator portal gates. Customer-plan capability alone must never
+    # expose a commercial operator feature after a downgrade.
     from ...modules.license.portal_gates import portal_gates
     gates = portal_gates()
+    corporate_enabled = _operator_has_feature("corporate_vpn")
     return {
         "features": {
-            "corp_networks": corp_networks,
+            "corp_networks": corp_networks and corporate_enabled,
             "config_download": gates["config_download"],
             "qr": gates["qr"],
+            "promo_codes": _operator_has_feature("promo_codes"),
+            "auto_renewal": _operator_has_feature("auto_renewal"),
         }
     }
 
@@ -1755,6 +1781,20 @@ async def create_invoice(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
+    # NOWPayments remains the open-core payment rail; every other provider is
+    # Business-only. Repeat the promo gate here even though the UI hides it,
+    # because a customer can call this endpoint directly.
+    if data.promo_code and not _operator_has_feature("promo_codes"):
+        raise HTTPException(
+            status_code=403,
+            detail="Promo codes are not available for this service.",
+        )
+    if data.provider != "nowpayments" and not _operator_has_feature("payments"):
+        raise HTTPException(
+            status_code=403,
+            detail="This payment method is not available for this service.",
+        )
+
     # Validate plan price
     if plan.price_monthly_usd is None or plan.price_monthly_usd <= 0:
         raise HTTPException(status_code=400, detail="This plan cannot be purchased")
@@ -1857,21 +1897,6 @@ async def create_invoice(
     payment_method = currency_to_method.get(data.currency.lower(), PaymentMethod.USDT_TRC20)
     invoice_data = None
     provider_name = data.provider
-
-    # Hard backend gate: free-tier instances can only invoice via NowPayments.
-    # The /payments/providers endpoint hides everything else, but a forged
-    # request would otherwise still go through — so we re-check here.
-    try:
-        from src.modules.license.manager import get_license_manager, LicenseType
-        _info = get_license_manager().get_license_info()
-        _is_paid = _info.type not in (LicenseType.FREE, LicenseType.TRIAL)
-    except Exception:
-        _is_paid = False
-    if not _is_paid and data.provider != "nowpayments":
-        raise HTTPException(
-            status_code=403,
-            detail="This payment method requires a paid license. Free tier supports NOWPayments only.",
-        )
 
     # ── Route to selected provider ──
     if data.provider == "paypal":
@@ -2092,7 +2117,7 @@ async def get_available_providers():
     Tier gating (matches the open-core promise):
     - FREE tier (or unlicensed instance) → only NowPayments. This is the open-core
       payment rail, so self-hosters can accept crypto without a paid plan.
-    - Any paid tier → every provider the admin has configured: NowPayments,
+    - Business or Enterprise → every provider the admin has configured: NowPayments,
       PayPal, CryptoPay, plus all auto-loaded plugins (Stripe, Mollie,
       Razorpay, Payme, …).
 
@@ -2101,13 +2126,7 @@ async def get_available_providers():
     """
     # Resolve current license tier without crashing the route if license
     # subsystem is unavailable (e.g. dev environments) — assume free in that case.
-    is_paid_tier = False
-    try:
-        from src.modules.license.manager import get_license_manager, LicenseType
-        info = get_license_manager().get_license_info()
-        is_paid_tier = info.type not in (LicenseType.FREE, LicenseType.TRIAL)
-    except Exception as _lerr:
-        logger.debug("Provider gating: could not resolve license tier (%s) — defaulting to free.", _lerr)
+    full_payments_enabled = _operator_has_feature("payments")
 
     providers = []
 
@@ -2121,7 +2140,7 @@ async def get_available_providers():
             "tier": "free",
         })
 
-    if is_paid_tier:
+    if full_payments_enabled:
         # Built-in extras
         if cryptopay_adapter:
             providers.append({
@@ -3456,6 +3475,12 @@ def validate_promo_client(
     db: Session = Depends(get_db)
 ):
     """Validate a promo code from client portal"""
+    if not _operator_has_feature("promo_codes"):
+        raise HTTPException(
+            status_code=403,
+            detail="Promo codes are not available for this service.",
+        )
+
     from src.modules.subscription.subscription_models import PromoCode
     code = (data.get("code") or "").strip().upper()
     tier = data.get("tier", "")
@@ -3493,6 +3518,12 @@ def toggle_auto_renew(
     db: Session = Depends(get_db)
 ):
     """Toggle auto-renewal for subscription"""
+    if not _operator_has_feature("auto_renewal"):
+        raise HTTPException(
+            status_code=403,
+            detail="Automatic renewal is not available for this service.",
+        )
+
     from src.modules.subscription.subscription_models import ClientPortalSubscription
     sub = db.query(ClientPortalSubscription).filter(
         ClientPortalSubscription.user_id == user_id

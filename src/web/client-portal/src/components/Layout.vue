@@ -90,7 +90,8 @@
     <footer class="fx-footer">
       <div class="fx-footer-inner">
         <div class="fx-footer-meta">
-          <span v-if="brandName">© {{ year }} {{ brandName }}</span>
+          <span v-if="footerText">{{ footerText }}</span>
+          <span v-else-if="brandName">© {{ year }} {{ brandName }}</span>
           <span v-else>© {{ year }}</span>
           <span style="color:var(--text-4)">·</span>
           <a href="#" @click.prevent>{{ $t('footer.privacy') }}</a>
@@ -141,6 +142,7 @@ function onResize() { if (window.innerWidth > 860) menuOpen.value = false }
 const brandName = computed(() => (
   window.__branding?.branding_customer_app_name || ''
 ))
+const footerText = computed(() => window.__branding?.branding_footer_text || '')
 // Build the logo URL. Customer-specific logo wins; falls back to the
 // shared admin logo; finally to the bundled platform default.
 // Path-style URLs (start with /) are served by the portal itself —
@@ -221,9 +223,12 @@ async function logout() {
   }
 }
 
-// GitHub promo: default ON. Admin can hide it via branding flag
-// (window.__branding.show_github_footer === false).
-const showGithub = computed(() => window.__branding?.show_github_footer !== false)
+// Enterprise branding can hide the Flirexa attribution. The API serializes
+// SystemConfig values as strings, so normalise both old and new shapes.
+const showGithub = computed(() => {
+  const value = window.__branding?.branding_powered_by
+  return value === undefined || value === true || String(value).toLowerCase() === 'true'
+})
 
 // Backend's /notifications returns every notification, not just unread —
 // so the red dot was lighting up for already-read items too. Filter to

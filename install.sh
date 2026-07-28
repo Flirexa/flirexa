@@ -62,6 +62,7 @@ _inner_beacon() {
         STEP="$step" STATUS="$status" EXIT_CODE="$exit_code" \
         LOG_TAIL_FILE="$tail_file" INSTALL_ID="$INSTALL_ID" \
         CHANNEL="$CHANNEL" PHASE="$CURRENT_PHASE" \
+        VERSION="${VERSION:-${APP_VERSION:-}}" \
         SUPPORT_EMAIL="$INSTALL_SUPPORT_EMAIL" \
         SUPPORT_OPT_IN="$INSTALL_SUPPORT_OPT_IN" \
         python3 - <<'PY' 2>/dev/null
@@ -83,6 +84,7 @@ out = {
     "step":       os.environ.get("STEP", ""),
     "status":     os.environ.get("STATUS", ""),
     "channel":    os.environ.get("CHANNEL", ""),
+    "version":    os.environ.get("VERSION", ""),
 }
 if os.environ.get("SUPPORT_OPT_IN") == "1" and os.environ.get("SUPPORT_EMAIL"):
     out["support_opt_in"] = True
@@ -106,18 +108,19 @@ PY
 # to whatever was running at the time.
 _phase() {
     local name="$1"; shift
+    local rc=0
     CURRENT_PHASE="$name"
     _PHASE_REPORTED=0
     _inner_beacon "$name" "begin"
-    if "$@"; then
+    "$@" || rc=$?
+    if (( rc == 0 )); then
         _PHASE_REPORTED=1
         _inner_beacon "$name" "ok"
         return 0
     fi
-    local rc=$?
     _PHASE_REPORTED=1
     _inner_beacon "$name" "fail" "$rc" "$INSTALL_LOG"
-    return $rc
+    return "$rc"
 }
 
 # Safety net: if the script dies in the middle of a phase (signal, OOM,
@@ -156,6 +159,21 @@ UPDATE_SERVER_URL="${SB_UPDATE_SERVER_URL:-https://flirexa.biz}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null || echo 1.3.0)"
 INSTALLER_VERSION="$APP_VERSION"
+# The public wrapper already knows the manifest version. Direct executions do
+# not, so use the package VERSION file as the authoritative fallback and make
+# the value available to every inner telemetry beacon.
+VERSION="${VERSION:-$APP_VERSION}"
+export VERSION
+
+# Official customer archives contain manylinux x86-64 native extensions. The
+# source-based open core has no such file and remains architecture-neutral.
+if [[ -f "$SCRIPT_DIR/src/api/main.abi3.so" ]]; then
+    MACHINE_ARCH="$(uname -m 2>/dev/null || true)"
+    if [[ "$MACHINE_ARCH" != "x86_64" && "$MACHINE_ARCH" != "amd64" ]]; then
+        echo "ERROR: This Flirexa customer build requires Linux x86_64 (found ${MACHINE_ARCH:-unknown})"
+        exit 1
+    fi
+fi
 NON_INTERACTIVE=false
 EXISTING_INSTALL=false
 DB_USER="vpnmanager"
@@ -886,22 +904,55 @@ setup_python() {
         log_info "  Created virtual environment"
     fi
 
-    # Upgrade pip
-    "$INSTALL_DIR/venv/bin/pip" install -q --upgrade pip 2>&1 | tail -1
-
     # Install requirements. Stream the full output to a log file — the
     # previous `2>&1 | tail -5` swallowed the root cause (a wheel build
     # error usually has its real `Error: …` line ~30 above the tail).
     log_info "  Installing Python packages (this may take a minute)..."
     local pip_log=/tmp/vpnmanager-pip-install.log
+    local pip_bin="$INSTALL_DIR/venv/bin/pip"
+    local runtime_bootstrap_lock="$INSTALL_DIR/requirements-runtime-bootstrap.lock"
     local requirements_file="$INSTALL_DIR/requirements.lock"
+    : > "$pip_log"
+
+    pip_install_retry() {
+        local description="$1"
+        shift
+        local attempt
+        for attempt in 1 2; do
+            if "$pip_bin" --disable-pip-version-check --timeout 60 --retries 5 \
+                install "$@" >> "$pip_log" 2>&1; then
+                return 0
+            fi
+            log_warn "  ${description} failed (attempt ${attempt}/2)."
+            (( attempt < 2 )) && sleep 3
+        done
+        return 1
+    }
+
+    # Python 3.12 venvs no longer reliably contain setuptools. Seed a small,
+    # hash-locked build backend before the main transaction so the
+    # --no-build-isolation recovery path can actually build an sdist after a
+    # transient network or PEP 517 failure.
+    if [[ ! -f "$runtime_bootstrap_lock" ]]; then
+        die "Runtime Python bootstrap lock is missing: $runtime_bootstrap_lock"
+    fi
+    if ! pip_install_retry "Runtime build-tool bootstrap" \
+        -r "$runtime_bootstrap_lock"; then
+        log_error "Runtime Python bootstrap failed. Last 40 lines:"
+        tail -40 "$pip_log" 2>&1 | sed 's/^/  /' || true
+        log_info "Full log preserved at: $pip_log"
+        die "Failed to install locked Python build tools"
+    fi
+
     if [[ ! -f "$requirements_file" ]]; then
         requirements_file="$INSTALL_DIR/requirements.txt"
         log_warn "  Dependency lock not found; using compatibility requirements"
     fi
-    if ! "$INSTALL_DIR/venv/bin/pip" install -r "$requirements_file" > "$pip_log" 2>&1; then
+    if ! pip_install_retry "Locked Python dependency installation" \
+        -r "$requirements_file"; then
         log_warn "  First pip pass failed, retrying with --no-build-isolation..."
-        if ! "$INSTALL_DIR/venv/bin/pip" install -r "$requirements_file" --no-build-isolation >> "$pip_log" 2>&1; then
+        if ! pip_install_retry "Non-isolated Python dependency installation" \
+            -r "$requirements_file" --no-build-isolation; then
             log_error "Pip install failed. Last 40 lines:"
             tail -40 "$pip_log" 2>&1 | sed 's/^/  /' || true
             log_info "Full log preserved at: $pip_log"
@@ -1941,7 +1992,8 @@ apply_web_access_setup() {
     if "${cmd[@]}"; then
         log_success "Web access configured"
     else
-        log_warn "Web access setup failed. Review nginx/certbot output and run scripts/configure-web-access.sh later."
+        log_error "Web access setup failed. Review the package/nginx output above."
+        return 1
     fi
 }
 
@@ -1953,6 +2005,36 @@ verify() {
     log_info "Verification..."
 
     local errors=0
+
+    # curl prints "000" through --write-out even when the request itself
+    # fails. Appending another fallback with `|| echo 000` therefore produced
+    # the misleading "HTTP 000000" seen during a normal API restart. Keep a
+    # single normalized code and allow freshly restarted services a bounded
+    # startup window before reporting a customer-visible warning.
+    _verification_http_code() {
+        local url="$1" code
+        if code=$(curl -s -o /dev/null -w "%{http_code}" \
+            --connect-timeout 3 --max-time 5 "$url" 2>/dev/null); then
+            printf '%s' "$code"
+        else
+            printf '000'
+        fi
+    }
+
+    _verification_wait_http_code() {
+        local url="$1" expected="$2" attempts="${3:-5}" delay="${4:-2}"
+        local attempt code="000"
+        for ((attempt=1; attempt<=attempts; attempt++)); do
+            code=$(_verification_http_code "$url")
+            if [[ "$code" =~ $expected ]]; then
+                break
+            fi
+            if (( attempt < attempts )); then
+                sleep "$delay"
+            fi
+        done
+        printf '%s' "$code"
+    }
 
     # Resolve where api actually lives. apply_web_access_setup may have
     # moved it off :10086 (the public TLS port nginx is now on) onto
@@ -1969,7 +2051,8 @@ verify() {
     # api process is loopback-bound when nginx is in front of it, so this
     # works for all WEB_SETUP_MODE values).
     local http_code
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT_LIVE}/health" 2>/dev/null || echo "000")
+    http_code=$(_verification_wait_http_code \
+        "http://127.0.0.1:${API_PORT_LIVE}/health" '^200$' 10 2)
     if [[ "$http_code" == "200" ]]; then
         log_success "  API: healthy (HTTP 200)"
     else
@@ -1978,7 +2061,8 @@ verify() {
     fi
 
     # Admin panel
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT_LIVE}/" 2>/dev/null || echo "000")
+    http_code=$(_verification_wait_http_code \
+        "http://127.0.0.1:${API_PORT_LIVE}/" '^200$' 3 2)
     if [[ "$http_code" == "200" ]]; then
         log_success "  Admin panel: OK"
     else
@@ -1987,15 +2071,9 @@ verify() {
     fi
 
     # Client portal health endpoint
-    local portal_http_code portal_try
-    portal_http_code="000"
-    for portal_try in 1 2 3 4 5; do
-        portal_http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:10090/health 2>/dev/null || echo "000")
-        if [[ "$portal_http_code" == "200" ]]; then
-            break
-        fi
-        sleep 2
-    done
+    local portal_http_code
+    portal_http_code=$(_verification_wait_http_code \
+        "http://127.0.0.1:10090/health" '^200$' 5 2)
     if [[ "$portal_http_code" == "200" ]]; then
         log_success "  Client portal: OK"
     elif systemctl is-active --quiet vpnmanager-client-portal 2>/dev/null; then
@@ -2006,7 +2084,8 @@ verify() {
     fi
 
     # API authentication (401 = no token, 403 = activation mode / no license yet — both are correct)
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT_LIVE}/api/v1/clients" 2>/dev/null || echo "000")
+    http_code=$(_verification_wait_http_code \
+        "http://127.0.0.1:${API_PORT_LIVE}/api/v1/clients" '^(401|403)$' 3 2)
     if [[ "$http_code" == "401" ]]; then
         log_success "  API auth: protected (401 without token)"
     elif [[ "$http_code" == "403" ]]; then
@@ -2220,7 +2299,7 @@ main() {
         log_info "Troubleshooting: journalctl -u vpnmanager-api -n 50"
     fi
 
-    exit 0
+    exit "$exit_code"
 }
 
 main "$@"

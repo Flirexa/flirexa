@@ -384,6 +384,162 @@ sync_release_tree() {
         chmod 644 "$dst/data/update_public.pem"
     fi
 }
+
+migrate_active_runtime_data_to_shared() {
+    # Versioned releases execute modules from releases/<version>/, and several
+    # security-sensitive paths are intentionally resolved relative to that
+    # module tree (licence cache, first-startup clock, signed server list).
+    # Older release-layout updates left a private data/ directory in each
+    # release, so the live process stopped seeing INSTALL_DIR/data after the
+    # first symlink switch. Merge the active copy into the shared directory
+    # before replacing it with the canonical link. The active runtime wins for
+    # files it owns; files present only in shared storage are retained.
+    local runtime_root runtime_data shared_data
+    runtime_root="$(active_runtime_root)"
+    runtime_data="$runtime_root/data"
+    shared_data="$INSTALL_DIR/data"
+    mkdir -p "$shared_data"
+
+    if [[ ! -d "$runtime_data" ]]; then
+        return 0
+    fi
+    if [[ "$(readlink -f "$runtime_data" 2>/dev/null || true)" == "$(readlink -f "$shared_data" 2>/dev/null || true)" ]]; then
+        return 0
+    fi
+
+    log "  Migrating active runtime data into shared storage …"
+    rsync -a --checksum "$runtime_data/" "$shared_data/"
+}
+
+link_release_runtime_data() {
+    # Every versioned release must resolve its relative data/ paths to the one
+    # persistent install-root directory. Guard the deletion target so a bad
+    # variable can never remove an arbitrary path.
+    local release_root="$1"
+    local release_data="$release_root/data"
+    case "$release_root" in
+        "$RELEASES_DIR"/*) ;;
+        *) log_err "Refusing to link runtime data outside releases/: $release_root"; return 1 ;;
+    esac
+    rm -rf -- "$release_data"
+    ln -s "$INSTALL_DIR/data" "$release_data"
+}
+
+backup_conflict_destination() {
+    local shared_dir="$1"
+    local entry_name="$2"
+    local source_label="$3"
+    local safe_label stem candidate counter
+    safe_label="$(printf '%s' "$source_label" | tr -c 'A-Za-z0-9_-' '_')"
+    [[ -n "$safe_label" ]] || safe_label="legacy"
+
+    if [[ "$entry_name" == *.tar.gz ]]; then
+        stem="${entry_name%.tar.gz}"
+        candidate="$shared_dir/${stem}-from-${safe_label}.tar.gz"
+    else
+        candidate="$shared_dir/${entry_name}-from-${safe_label}"
+    fi
+    counter=2
+    while [[ -e "$candidate" || -L "$candidate" ]]; do
+        if [[ "$entry_name" == *.tar.gz ]]; then
+            candidate="$shared_dir/${stem}-from-${safe_label}-${counter}.tar.gz"
+        else
+            candidate="$shared_dir/${entry_name}-from-${safe_label}-${counter}"
+        fi
+        counter=$((counter + 1))
+    done
+    printf '%s\n' "$candidate"
+}
+
+merge_release_backup_directory() {
+    local source_dir="$1"
+    local source_label="$2"
+    local shared_dir="$INSTALL_DIR/backups"
+    local entry name destination
+
+    [[ -e "$source_dir" || -L "$source_dir" ]] || return 0
+    if [[ -L "$source_dir" ]]; then
+        if [[ "$(readlink -f "$source_dir" 2>/dev/null || true)" == "$(readlink -f "$shared_dir" 2>/dev/null || true)" ]]; then
+            return 0
+        fi
+        log_err "Refusing unexpected backup symlink outside shared storage: $source_dir"
+        return 1
+    fi
+    [[ -d "$source_dir" ]] || {
+        log_err "Release backup path is not a directory: $source_dir"
+        return 1
+    }
+
+    while IFS= read -r -d '' entry; do
+        name="$(basename "$entry")"
+        destination="$shared_dir/$name"
+        if [[ -e "$destination" || -L "$destination" ]]; then
+            if [[ -f "$entry" && -f "$destination" ]] && cmp -s -- "$entry" "$destination"; then
+                continue
+            fi
+            if [[ -L "$entry" && -L "$destination" ]] && [[ "$(readlink "$entry")" == "$(readlink "$destination")" ]]; then
+                continue
+            fi
+            destination="$(backup_conflict_destination "$shared_dir" "$name" "$source_label")"
+            log "    Preserving name collision as $(basename "$destination")"
+        fi
+        cp -a -- "$entry" "$destination"
+    done < <(find "$source_dir" -mindepth 1 -maxdepth 1 -print0)
+}
+
+link_release_runtime_backups() {
+    local release_root="$1"
+    local release_backups="$release_root/backups"
+    case "$release_root" in
+        "$RELEASES_DIR"/*) ;;
+        *) log_err "Refusing to link backups outside releases/: $release_root"; return 1 ;;
+    esac
+    rm -rf -- "$release_backups"
+    ln -s "$INSTALL_DIR/backups" "$release_backups"
+}
+
+normalize_release_backup_storage() {
+    # Old protected modules derived the default from __file__, scattering
+    # scheduled archives across releases/<version>/backups. Copy every
+    # top-level backup object into persistent storage before replacing any
+    # directory. Identical files are deduplicated; non-identical name clashes
+    # receive a deterministic source-version suffix instead of being lost.
+    local release_root release_backups
+    mkdir -p "$INSTALL_DIR/backups"
+
+    while IFS= read -r -d '' release_root; do
+        release_backups="$release_root/backups"
+        if [[ -d "$release_backups" || -L "$release_backups" ]]; then
+            merge_release_backup_directory "$release_backups" "$(basename "$release_root")"
+        fi
+    done < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
+
+    # Only remove old directories after every copy above succeeded. All
+    # rollback releases then see the same operator archive set.
+    while IFS= read -r -d '' release_root; do
+        link_release_runtime_backups "$release_root"
+    done < <(find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
+}
+
+refresh_shared_trust_artifacts() {
+    local release_source="$1"
+    local shared_data="$INSTALL_DIR/data"
+    mkdir -p "$shared_data"
+
+    # The update verifier key follows the release. The signed licence-server
+    # list is persistent operator state: keep an existing (possibly migrated)
+    # bundle, but seed it from the package when upgrading an older layout that
+    # has no shared copy yet.
+    if [[ -f "$release_source/data/update_public.pem" ]]; then
+        cp "$release_source/data/update_public.pem" "$shared_data/update_public.pem"
+        chmod 644 "$shared_data/update_public.pem"
+    fi
+    if [[ ! -f "$shared_data/license_servers.signed" && -f "$release_source/data/license_servers.signed" ]]; then
+        cp "$release_source/data/license_servers.signed" "$shared_data/license_servers.signed"
+        chmod 644 "$shared_data/license_servers.signed"
+    fi
+}
+
 prepare_previous_release_path() {
     local runtime_root current_version snapshot_dir
     runtime_root="$(active_runtime_root)"
@@ -701,6 +857,13 @@ check_disk_space "$BACKUP_DIR" "$MIN_UPDATE_FREE_MB" "backup dir" || exit 1
 [[ -f "$EXTRACT_ROOT/VERSION" ]] || { log_err "Extracted VERSION missing"; exit 1; }
 [[ -f "$EXTRACT_ROOT/alembic.ini" ]] || { log_err "Extracted alembic.ini missing"; exit 1; }
 [[ -d "$EXTRACT_ROOT/src" ]] || { log_err "Extracted src/ missing"; exit 1; }
+if [[ -f "$EXTRACT_ROOT/src/api/main.abi3.so" ]]; then
+    machine_arch="$(uname -m 2>/dev/null || true)"
+    if [[ "$machine_arch" != "x86_64" && "$machine_arch" != "amd64" ]]; then
+        log_err "Protected update requires Linux x86_64 (found ${machine_arch:-unknown})"
+        exit 1
+    fi
+fi
 
 if [[ -n "$TARGET_VERSION" ]]; then
     extracted_version=$(cat "$EXTRACT_ROOT/VERSION" 2>/dev/null || true)
@@ -732,6 +895,9 @@ log "[S1] Creating backup …"
 [[ -f "$INSTALL_DIR/.env" ]] && cp "$INSTALL_DIR/.env" "$BACKUP_DIR/dotenv" || true
 if [[ "$APPLY_MODE" == "release-layout" ]]; then
     PREVIOUS_RELEASE_PATH="$(prepare_previous_release_path)"
+    normalize_release_backup_storage
+    migrate_active_runtime_data_to_shared
+    link_release_runtime_data "$PREVIOUS_RELEASE_PATH"
     printf '%s\n' "$PREVIOUS_RELEASE_PATH" > "$BACKUP_DIR/previous_release_path"
     tar -czf "$BACKUP_DIR/code.tar.gz" -C "$PREVIOUS_RELEASE_PATH" .
 else
@@ -767,6 +933,9 @@ if [[ "$APPLY_MODE" == "release-layout" ]]; then
     rm -rf "$TARGET_RELEASE_DIR"
     mkdir -p "$TARGET_RELEASE_DIR"
     sync_release_tree "$EXTRACT_ROOT" "$TARGET_RELEASE_DIR"
+    refresh_shared_trust_artifacts "$EXTRACT_ROOT"
+    link_release_runtime_data "$TARGET_RELEASE_DIR"
+    link_release_runtime_backups "$TARGET_RELEASE_DIR"
     install_service_units_from_release "$TARGET_RELEASE_DIR"
 else
     sync_release_tree "$EXTRACT_ROOT" "$INSTALL_DIR"
@@ -798,7 +967,12 @@ if [[ "$REQUIRES_MIGRATION" == "true" ]]; then
     fi
     log "[S4] Running DB migrations using $local_alembic …"
     write_marker "phase_migration_started" "$(date --iso-8601=seconds)"
-    if ! (cd "$TARGET_RELEASE_DIR" && "$local_alembic" upgrade head 2>&1 | tee -a "$STATE_DIR/apply.log"); then
+    migration_db_url="$(load_db_url)"
+    if [[ -z "$migration_db_url" ]]; then
+        log_err "Migration required but DATABASE_URL is unavailable"
+        exit 1
+    fi
+    if ! (cd "$TARGET_RELEASE_DIR" && DATABASE_URL="$migration_db_url" "$local_alembic" upgrade head 2>&1 | tee -a "$STATE_DIR/apply.log"); then
         log_err "Migration failed — starting auto rollback"
         if rollback_from_backup; then
             exit 2

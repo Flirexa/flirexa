@@ -36,3 +36,17 @@ def test_release_builder_includes_production_lock():
 
     assert "--exclude='requirements.lock'" not in source
     assert 'rm -rf "$BUILD_DIR/requirements.lock"' not in source
+    assert "--exclude='requirements-runtime-bootstrap.lock'" not in source
+    assert 'rm -rf "$BUILD_DIR/requirements-runtime-bootstrap.lock"' not in source
+
+
+def test_fresh_installer_seeds_locked_build_backend_before_fallback():
+    source = (ROOT / "install.sh").read_text(encoding="utf-8")
+    bootstrap = source.index('$INSTALL_DIR/requirements-runtime-bootstrap.lock')
+    main_lock = source.index('$INSTALL_DIR/requirements.lock', bootstrap)
+    fallback = source.index("--no-build-isolation", main_lock)
+
+    assert bootstrap < main_lock < fallback
+    assert "--timeout 60 --retries 5" in source
+    assert "pip_install_retry" in source
+    assert (ROOT / "requirements-runtime-bootstrap.lock").is_file()

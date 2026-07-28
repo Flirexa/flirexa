@@ -1,6 +1,6 @@
 # Roadmap
 
-_Last verified: 2026-07-24_
+_Last verified: 2026-07-28_
 
 What's next for Flirexa, organised by quarter. Items higher in each section are higher priority. Dates are aspirational; items move when reality intervenes.
 
@@ -11,7 +11,15 @@ If you'd like to see something prioritised, [open a discussion](https://github.c
 ## 2026 Q3 — Distribution and community
 
 - [ ] **Signed plugin distribution**
-  Separately delivered commercial extensions use an authenticated, integrity-checked distribution channel. Protocol and Corporate VPN implementations that already live in the MIT tree remain licence-gated in place.
+  Move from the current universal protected customer archive to authenticated,
+  integrity-checked, entitlement-specific commercial bundles. The public tree
+  contains compatibility stubs; the readable commercial implementation source
+  remains in the private repository.
+- [ ] **License-service replication and restore drill**
+  Replicate the authoritative license database to the warm backup, move verified
+  backups off-host, restore them on a disposable node, and prove that newly
+  issued licenses, payment/admin configuration, and recovery procedures survive
+  a primary outage.
 - [ ] **Plugin marketplace**
   A community-curated list of third-party plugins (notification integrations, custom payment providers, monitoring exporters, etc.). Submission via PR.
 - [ ] **First community plugin examples**
@@ -36,7 +44,8 @@ Items that are interesting but not committed yet:
 
 - **WireGuard inside WARP** transport for installs that need to look like ordinary HTTPS to a network observer
 - **OAuth providers** (Google, GitHub) for the admin panel
-- **API rate limiting** and quota tiers
+- **Broader API rate limiting** and quota tiers beyond the current login,
+  registration, support, checkout, FCM, and subscription-link protections
 - **PostgreSQL replication** support for HA installs
 - **Kubernetes Helm chart** for installs that prefer cluster deployment over systemd
 
@@ -66,10 +75,14 @@ Wiring up the commercial loop after the repository went public:
 
 For reference — what shipped in the open-core launch:
 
-- FREE tier: 80 clients on one host with WireGuard + AmneziaWG local endpoints, MIT-licensed, no licence expiry or heartbeat
+- FREE tier: 80 clients with one local WireGuard and one local AmneziaWG server,
+  MIT-licensed, with no license key or expiry
 - Generic plugin loader with manifest validation and license-feature gating
-- Nine paid-plugin shells declared (`extra-protocols`, `multi-server`, `corporate-vpn`, …)
-- Hysteria2/TUIC and Corporate VPN implementations included in the MIT tree behind license feature gates
-- PyArmor / `integrity` / kill-switch removed from open core
+- Paid-plugin declarations and deterministic public compatibility stubs for
+  closed commercial implementations
+- Hysteria2/TUIC/VLESS-Reality, Corporate VPN, multi-server, traffic, payment,
+  branding, app, and other paid implementations maintained in the private
+  source inventory and compiled in official customer archives
+- Legacy PyArmor / `integrity` / kill-switch removed from open core; official customer builds use the separate Cython/Nuitka native pipeline
 - MIT license, CONTRIBUTING.md, SECURITY.md, CI workflow
 - Automated tests and secret scanning in public CI

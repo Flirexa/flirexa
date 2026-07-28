@@ -11,15 +11,16 @@ from sqlalchemy.orm import Session
 
 from ...database.connection import get_db
 from ...database.models import Payment, PaymentStatus, Plan
+from ..middleware.license_gate import ensure_current_license_feature
 
 
 router = APIRouter()
 
 
-# Provider IDs gated behind the `payments` feature (Pro+). Anything not in
-# this set is treated as crypto / mock and is allowed for FREE customers who
-# have `nowpayments` via the prefix-level middleware gate.
-_PAID_PROVIDERS = {"stripe", "mollie", "payme", "razorpay", "paypal", "cryptopay"}
+# The two explicitly open-core provider IDs. Unknown/plugin providers fail into
+# the Business gate; treating an unknown name as FREE would be an entitlement
+# bypass whenever a new commercial provider is installed.
+_FREE_PROVIDERS = {"nowpayments", "mock"}
 
 
 def _require_paid_provider(provider: str) -> None:
@@ -27,30 +28,9 @@ def _require_paid_provider(provider: str) -> None:
     licence lacks the `payments` feature. NOWPayments and `mock` are open
     to anyone whose licence has `nowpayments` (FREE+).
     """
-    if not provider or provider.lower() not in _PAID_PROVIDERS:
+    if provider and provider.lower() in _FREE_PROVIDERS:
         return
-    try:
-        from ...modules.license.manager import get_license_manager
-        info = get_license_manager().get_license_info()
-    except Exception:
-        # Fail closed for paid providers if licence layer is broken
-        raise HTTPException(
-            status_code=503,
-            detail="License verification unavailable. Please retry shortly.",
-        )
-    if not info.has_feature("payments"):
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "message": (
-                    f"Payment provider '{provider}' requires the 'payments' feature. "
-                    "Upgrade to Pro or higher to enable card processors."
-                ),
-                "license_feature_required": "payments",
-                "upgrade_url": "https://flirexa.biz/#pricing",
-                "upgrade_tier": "pro",
-            },
-        )
+    ensure_current_license_feature("payments")
 
 
 # ============================================================================

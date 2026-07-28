@@ -22,7 +22,6 @@ Legacy format v1: backup_YYYYMMDD_HHMMSS/ directories (read-only, listed alongsi
 import os
 import re
 import json
-import gzip
 import shutil
 import hashlib
 import socket
@@ -37,14 +36,13 @@ from sqlalchemy.orm import Session, load_only
 from loguru import logger
 
 from src.database.models import Server, Client, AuditLog, AuditAction
-from src.database.connection import SessionLocal
+from src.utils.runtime_paths import get_backup_root
 
 
-# Canonical default backup directory: <project_root>/backups (three .parent
-# climbs from this file at src/modules/backup_manager.py). Aligned with
-# src/api/scheduler.py so manual and scheduled backups land in the same
-# place when SystemConfig.backup_path is unset.
-BACKUP_DIR = os.getenv("VMS_BACKUP_DIR", str(Path(__file__).parent.parent.parent / "backups"))
+# Manual and scheduled backups must outlive releases.  Deriving this path from
+# this module's __file__ placed archives in releases/<version>/backups and made
+# the UI appear empty after every update.
+BACKUP_DIR = str(get_backup_root())
 CURRENT_VERSION = "5.2"
 
 

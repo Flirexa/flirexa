@@ -646,7 +646,6 @@ class ServerManager:
         # 403 with an Upgrade hint; in core we just refuse silently.
         from ..database.models import ServerLifecycleStatus
         if server.lifecycle_status == ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value:
-            from loguru import logger
             logger.info(
                 "start_server refused: server id={} is suspended (no license)",
                 server_id,

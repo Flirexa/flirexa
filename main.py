@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 # Load .env file
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
-# Add project root and src/ to path (src/ needed for PyArmor runtime lookup)
+# Add project root and src/ to the package search path.
 _root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _root)
 sys.path.insert(0, os.path.join(_root, "src"))

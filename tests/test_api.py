@@ -134,7 +134,7 @@ class TestSystemEndpoints:
         data = response.json()
         assert data["status"] == "healthy"
 
-    def test_client_portal_features_reports_corporate_access(self, client, db_for_test):
+    def test_client_portal_features_requires_customer_and_operator_corporate_access(self, client, db_for_test):
         from src.modules.corporate import manager as corporate_manager
 
         if getattr(corporate_manager, "FLIREXA_COMMERCIAL_STUB", False):
@@ -170,7 +170,18 @@ class TestSystemEndpoints:
         from src.api.routes import client_portal as cp_module
 
         client.app.dependency_overrides[cp_module.get_current_user] = lambda: user.id
+        # A corporate-capable customer tariff alone cannot bypass the
+        # operator's Enterprise entitlement.
         response = client.get("/client-portal/features")
+        assert response.status_code == 200
+        assert response.json()["features"]["corp_networks"] is False
+
+        with patch.object(
+            cp_module,
+            "_operator_has_feature",
+            side_effect=lambda feature: feature == "corporate_vpn",
+        ):
+            response = client.get("/client-portal/features")
         assert response.status_code == 200
         assert response.json()["features"]["corp_networks"] is True
 
