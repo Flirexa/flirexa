@@ -24,7 +24,9 @@
     <!-- Connection status banner — real data only, no fabricated metrics. -->
     <div class="fx-status-card fx-card">
       <div class="fx-status-row">
-        <span class="fx-status-orb" :class="orbClass"></span>
+        <span class="fx-status-symbol" :class="statusVisualClass" aria-hidden="true">
+          <FxIcon :name="statusVisualIcon" :size="22" :stroke-width="1.9" />
+        </span>
         <div class="fx-status-info">
           <div class="fx-status-title">{{ statusTitle }}</div>
           <div class="fx-status-sub">
@@ -285,8 +287,7 @@
             <h3 class="fx-section-title">{{ $t('dash.quickActions') }}</h3>
           </div>
           <div class="fx-actions-grid">
-            <router-link to="/devices" class="fx-action primary"
-                         :class="{ 'fx-action-disabled': subscription.status !== 'active' }">
+            <router-link :to="deviceActionPath" class="fx-action primary">
               <span class="fx-action-icon"><FxIcon name="plus" :size="16" /></span>
               <span class="fx-action-text">
                 <span class="fx-action-title">{{ $t('dash.addDevice') }}</span>
@@ -317,7 +318,7 @@
               {{ $t('dash.myDevices') }}
               <span style="color:var(--text-3); font-weight:500; margin-left:6px">{{ deviceCount }} / {{ subscription.max_devices || 1 }}</span>
             </h3>
-            <router-link to="/devices" class="fx-btn fx-btn-ghost fx-btn-sm">
+            <router-link :to="deviceActionPath" class="fx-btn fx-btn-ghost fx-btn-sm">
               <FxIcon name="plus" :size="13" /> {{ $t('common.add') }}
             </router-link>
           </div>
@@ -385,28 +386,6 @@
           </div>
         </div>
 
-        <!-- Subscription URL -->
-        <div class="fx-card fx-mob-order-7" style="padding:var(--pad-card)" v-if="subscription.tier && subscription.tier.toLowerCase() !== 'free'">
-          <h3 class="fx-section-title">{{ $t('dash.subscriptionLink') }}</h3>
-          <p style="font-size:12px; color:var(--text-3); margin:6px 0 12px; line-height:1.5">
-            {{ $t('dash.subscriptionLinkDesc') }}
-          </p>
-          <div v-if="subLinkToken">
-            <div class="fx-copy-field" style="margin-bottom:8px">
-              <span class="fx-copy-text">{{ subLinkUrl }}</span>
-              <button class="fx-btn fx-btn-primary fx-btn-sm" @click="copySubLink">
-                <FxIcon name="copy" :size="12" />
-                {{ subLinkCopied ? $t('common.copied') : $t('common.copy') }}
-              </button>
-            </div>
-            <button class="fx-btn fx-btn-ghost fx-btn-sm" @click="regenerateSubLink">
-              <FxIcon name="refresh" :size="12" /> {{ $t('dash.regenerate') }}
-            </button>
-          </div>
-          <button v-else class="fx-btn fx-btn-secondary fx-btn-sm" @click="loadSubLink">
-            {{ $t('dash.generateLink') }}
-          </button>
-        </div>
       </div>
     </div>
 
@@ -650,6 +629,7 @@ import FxIcon from '../components/FxIcon.vue'
 import Sparkline from '../components/Sparkline.vue'
 import TrafficChart from '../components/TrafficChart.vue'
 import { useEscapeClose } from '../composables/useEscapeClose.js'
+import { apiErrorMessage, copyText } from '../utils.js'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -680,8 +660,6 @@ const copyFeedback = ref(false)
 const showAddDeviceModal = ref(false)
 const servers = ref([])
 const selectedServerId = ref(null)
-const subLinkToken = ref(null)
-const subLinkCopied = ref(false)
 const refreshing = ref(false)
 
 // Password-gated device delete — prevents an accidental tap from wiping
@@ -753,6 +731,7 @@ function userFirstName() {
 }
 
 const isFreeUser = computed(() => (subscription.value.tier || 'free').toLowerCase() === 'free')
+const deviceActionPath = computed(() => subscription.value.status === 'active' ? '/devices' : '/plans')
 const planName = computed(() => {
   const tier = subscription.value.tier || 'free'
   if (subscription.value.needs_plan || tier === 'none') {
@@ -803,12 +782,17 @@ const primaryDevice = computed(() => {
 // `enabled` flag stays True after the user disconnects in their VPN app,
 // so using it alone made the orb look online forever — switch to `online`
 // (handshake within ~3 min, computed server-side in /clients/by-ids).
-const orbClass = computed(() => {
-  if (subscription.value.status !== 'active') return 'off'
-  if (!primaryDevice.value) return 'warn'
-  if (!primaryDevice.value.enabled) return 'warn'
-  if (!primaryDevice.value.online) return 'warn'
-  return ''
+const statusVisualClass = computed(() => {
+  if (subscription.value.status !== 'active') return 'danger'
+  if (primaryDevice.value && !primaryDevice.value.enabled) return 'warning'
+  if (primaryDevice.value?.online) return 'online'
+  return 'ready'
+})
+const statusVisualIcon = computed(() => {
+  if (subscription.value.status !== 'active') return 'warning'
+  if (primaryDevice.value && !primaryDevice.value.enabled) return 'power'
+  if (primaryDevice.value?.online) return 'checkCircle'
+  return 'shield'
 })
 
 const statusTitle = computed(() => {
@@ -966,9 +950,6 @@ const downloadConfigButtonText = computed(() => {
   }
 })
 
-const subLinkUrl = computed(() => subLinkToken.value
-  ? `${window.location.origin}/client-portal/sub/${subLinkToken.value}` : '')
-
 // ─── Actions ───
 const loadData = async () => {
   refreshing.value = true
@@ -978,6 +959,7 @@ const loadData = async () => {
     autoRenew.value = !!data.auto_renew
   } catch (error) {
     if (error.response?.status === 401) router.push('/login')
+    else showToast(t('common.error') + ': ' + apiErrorMessage(error, t('common.loadError')), 'error')
   } finally {
     refreshing.value = false
   }
@@ -1019,7 +1001,11 @@ const loadDevices = async () => {
   try {
     const { data } = await portalApi.getDevices()
     devices.value = data
-  } catch { /* ignore */ }
+  } catch (error) {
+    if (error.response?.status !== 401) {
+      showToast(t('common.error') + ': ' + apiErrorMessage(error, t('common.loadError')), 'error')
+    }
+  }
 }
 
 // Region-aware QR opener. Slot-backed device → first show the region
@@ -1056,7 +1042,7 @@ const openConfigModalForPeer = async (device) => {
       qrUrl.value = URL.createObjectURL(qrRes.data)
     } catch { qrUrl.value = null }
   } catch (err) {
-    showToast(t('common.error') + ': ' + (err.response?.data?.detail || err.message), 'error')
+    showToast(t('common.error') + ': ' + apiErrorMessage(err, t('common.error')), 'error')
   }
 }
 
@@ -1114,7 +1100,7 @@ const downloadOnePeer = async (peer) => {
     a.href = url; a.download = fname; a.click()
     URL.revokeObjectURL(url)
   } catch (err) {
-    showToast(t('common.error') + ': ' + (err.response?.data?.detail || err.message), 'error')
+    showToast(t('common.error') + ': ' + apiErrorMessage(err, t('common.error')), 'error')
   }
 }
 
@@ -1159,8 +1145,8 @@ const downloadAllRegions = async () => {
 }
 const copyConfigUri = async () => {
   if (!configUri.value) return
-  try { await navigator.clipboard.writeText(configUri.value); showToast(t('common.copied')) }
-  catch (e) { showToast(t('common.error') + ': ' + (e.message || 'copy failed'), 'error') }
+  if (await copyText(configUri.value)) showToast(t('common.copied'))
+  else showToast(t('common.error') + ': copy failed', 'error')
 }
 
 const createDevice = async () => {
@@ -1186,11 +1172,10 @@ const createDevice = async () => {
       const max  = detail.max_devices  ?? 1
       const msg = t('dash.deviceLimitReached', { used, max }) ||
         `Device limit reached (${used}/${max}). Upgrade your plan or remove a device.`
-      if (confirm(msg + '\n\n' + (t('dash.openUpgrade') || 'Open Upgrade plan?'))) {
-        showUpgradeModal.value = true
-      }
+      showToast(msg, 'error')
+      showUpgradeModal.value = true
     } else {
-      showToast(t('common.error') + ': ' + (typeof detail === 'string' ? detail : (detail?.message || error.message)), 'error')
+      showToast(t('common.error') + ': ' + apiErrorMessage(error, t('common.error')), 'error')
     }
   } finally {
     creatingDevice.value = false
@@ -1220,9 +1205,7 @@ const confirmDeleteWithPassword = async () => {
       if (verifyErr.response?.status === 400 || verifyErr.response?.status === 401) {
         deleteError.value = t('dash.deletePasswordWrong')
       } else {
-        deleteError.value = (typeof verifyErr.response?.data?.detail === 'string'
-          ? verifyErr.response.data.detail
-          : verifyErr.message) || t('common.error')
+        deleteError.value = apiErrorMessage(verifyErr, t('common.error'))
       }
       deleting.value = false
       return
@@ -1245,9 +1228,7 @@ const confirmDeleteWithPassword = async () => {
     await loadDevices()
     await loadData()
   } catch (error) {
-    deleteError.value = (typeof error.response?.data?.detail === 'string'
-      ? error.response.data.detail
-      : error.message) || t('common.error')
+    deleteError.value = apiErrorMessage(error, t('common.error'))
   } finally {
     deleting.value = false
   }
@@ -1261,7 +1242,7 @@ const cancelSubscription = async () => {
     await loadData()
     showToast(t('dash.cancelDone'))
   } catch (error) {
-    showToast(t('common.error') + ': ' + (error.response?.data?.detail || error.message), 'error')
+    showToast(t('common.error') + ': ' + apiErrorMessage(error, t('common.error')), 'error')
   } finally {
     cancellingSub.value = false
   }
@@ -1276,7 +1257,7 @@ const changePassword = async () => {
     passwordForm.value = { current_password: '', new_password: '' }
     setTimeout(() => { showChangePassword.value = false; passwordSuccess.value = null }, 1800)
   } catch (error) {
-    passwordError.value = error.response?.data?.detail || t('common.error')
+    passwordError.value = apiErrorMessage(error, t('common.error'))
   } finally {
     changingPassword.value = false
   }
@@ -1285,11 +1266,12 @@ const loadReferral = async () => {
   try { const { data } = await portalApi.getReferral(); referral.value = data } catch { /* ignore */ }
 }
 const copyReferralLink = async () => {
-  try {
-    await navigator.clipboard.writeText(referralLink.value)
+  if (await copyText(referralLink.value)) {
     copyFeedback.value = true
     setTimeout(() => { copyFeedback.value = false }, 2000)
-  } catch { /* ignore */ }
+  } else {
+    showToast(t('common.error') + ': copy failed', 'error')
+  }
 }
 const autoRenewBusy = ref(false)
 const toggleAutoRenew = async () => {
@@ -1303,7 +1285,7 @@ const toggleAutoRenew = async () => {
     await portalApi.toggleAutoRenew(autoRenew.value)
   } catch (e) {
     autoRenew.value = !autoRenew.value
-    showToast(t('common.error') + ': ' + (e.response?.data?.detail || e.message), 'error')
+    showToast(t('common.error') + ': ' + apiErrorMessage(e, t('common.error')), 'error')
   } finally {
     autoRenewBusy.value = false
   }
@@ -1323,33 +1305,11 @@ const loadFeatures = async () => {
     if (data && data.features) features.value = { ...features.value, ...data.features }
   } catch { /* ignore */ }
 }
-const loadSubLink = async () => {
-  try { const { data } = await portalApi.getSubscriptionLink(); subLinkToken.value = data.token }
-  catch { /* ignore */ }
-}
-const copySubLink = async () => {
-  try {
-    await navigator.clipboard.writeText(subLinkUrl.value)
-    subLinkCopied.value = true
-    setTimeout(() => { subLinkCopied.value = false }, 2000)
-  } catch { /* ignore */ }
-}
-const regenerateSubLink = async () => {
-  try {
-    const { data } = await portalApi.regenerateSubscriptionLink()
-    subLinkToken.value = data.token
-    showToast(t('dash.linkRegenerated'))
-  } catch {
-    showToast(t('dash.linkRegenerateFailed'), 'error')
-  }
-}
-
 onMounted(() => {
   loadData()
   loadReferral()
   loadServers()
   loadFeatures()
-  loadSubLink()
   loadTrafficSeries()
 })
 </script>

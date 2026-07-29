@@ -14,6 +14,7 @@ import './assets/design-tokens.css'
 
 import VueApexCharts from 'vue3-apexcharts'
 import HelpTooltip from './components/HelpTooltip.vue'
+import { applyPortalBranding, applyPortalDocumentBranding } from './branding.js'
 
 // Pre-fetch branding BEFORE mounting Vue. The previous flow let App.vue
 // kick off the branding fetch in onMounted, then Login/Register/Layout
@@ -34,10 +35,16 @@ async function prefetchBranding() {
       timeout: 2500,
     })
     window.__branding = data
+    // Apply the complete accent ramp before Vue mounts, so Login/Register and
+    // the authenticated shell render in the operator's colour on first paint.
+    applyPortalBranding(data)
+    applyPortalDocumentBranding(data)
   } catch {
     // Fall through with no branding — components default to bundled
     // assets, which is exactly what an untouched fresh install gets too.
     window.__branding = {}
+    applyPortalBranding({})
+    applyPortalDocumentBranding({})
   }
 }
 

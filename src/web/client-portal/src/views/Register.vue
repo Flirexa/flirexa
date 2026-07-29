@@ -89,11 +89,15 @@
     </main>
 
     <div class="fx-login-meta">
-      <a href="#" @click.prevent>{{ $t('footer.privacy') }}</a>
-      <span class="sep">·</span>
-      <a href="#" @click.prevent>{{ $t('footer.terms') }}</a>
-      <span class="sep">·</span>
-      <router-link to="/support">{{ $t('nav.support') }}</router-link>
+      <a v-if="privacyUrl" :href="privacyUrl" :target="privacyExternal ? '_blank' : undefined" rel="noreferrer">{{ $t('footer.privacy') }}</a>
+      <template v-if="termsUrl">
+        <span v-if="privacyUrl" class="sep">·</span>
+        <a :href="termsUrl" :target="termsExternal ? '_blank' : undefined" rel="noreferrer">{{ $t('footer.terms') }}</a>
+      </template>
+      <template v-if="supportHref">
+        <span v-if="privacyUrl || termsUrl" class="sep">·</span>
+        <a :href="supportHref" :target="supportExternal ? '_blank' : undefined" rel="noreferrer">{{ $t('nav.support') }}</a>
+      </template>
     </div>
   </div>
 </template>
@@ -106,10 +110,20 @@ import { portalApi } from '../api'
 import { setPortalUser } from '../session'
 import FxIcon from '../components/FxIcon.vue'
 import bundledLogo from '../assets/flirexa-logo.png'
+import { brandingUrl, isExternalHref, legalDocumentHref } from '../branding'
+import { safePortalPath } from '../utils.js'
 
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
+const privacyUrl = computed(() => legalDocumentHref('privacy'))
+const termsUrl = computed(() => legalDocumentHref('terms'))
+const privacyExternal = computed(() => isExternalHref(privacyUrl.value))
+const termsExternal = computed(() => isExternalHref(termsUrl.value))
+const supportUrl = computed(() => brandingUrl('branding_support_url'))
+const supportEmail = computed(() => String(window.__branding?.branding_support_email || '').trim())
+const supportHref = computed(() => supportUrl.value || (supportEmail.value ? `mailto:${supportEmail.value}` : ''))
+const supportExternal = computed(() => /^https?:/i.test(supportHref.value))
 
 // Show only the operator's customer-facing name. Empty → hide text.
 const brandName = computed(() => (
@@ -129,7 +143,11 @@ const isCustomLogo = computed(() => (
   !!window.__branding?.branding_customer_logo_url
 ))
 
-const form = ref({ email: '', username: '', full_name: '', password: '' })
+const referralCode = typeof route.query.ref === 'string'
+  && /^[A-Z0-9]{8}$/i.test(route.query.ref.trim())
+  ? route.query.ref.trim().toUpperCase()
+  : ''
+const form = ref({ email: '', username: '', full_name: '', password: '', referral_code: referralCode })
 const passwordConfirm = ref('')
 const loading = ref(false)
 const error = ref(null)
@@ -161,16 +179,15 @@ const handleRegister = async () => {
     // duplicates after the second username-only signup).
     const payload = { ...form.value }
     if (!payload.email || !payload.email.trim()) delete payload.email
+    if (!payload.referral_code) delete payload.referral_code
     const response = await portalApi.register(payload)
     setPortalUser(response.data.user)
     // Honor ?next= so a customer who hit "Choose plan" on the
     // marketing landing (deep-link target /register?next=/plans)
     // lands on the plans picker immediately after signup, with no
-    // detour through the dashboard. The router guard's whitelist
-    // (path must start with /) prevents open-redirect abuse.
-    const nextParam = typeof route.query.next === 'string' && route.query.next.startsWith('/')
-      ? route.query.next
-      : '/'
+    // detour through the dashboard. The shared path validator rejects
+    // protocol-relative and backslash-based redirect targets.
+    const nextParam = safePortalPath(route.query.next)
     router.push(nextParam)
   } catch (err) {
     if (err.response?.data?.detail) {

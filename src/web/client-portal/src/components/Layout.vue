@@ -44,7 +44,7 @@
             <span v-if="unreadCount > 0" class="fx-bell-dot" />
           </button>
           <div class="fx-lang-wrap">
-            <button class="fx-lang-pill" @click="langOpen = !langOpen">
+            <button class="fx-lang-pill" @click="toggleLanguage">
               <FxIcon name="globe" :size="12" /> {{ currentLangFlag }}
             </button>
             <div v-if="langOpen" class="fx-lang-menu" @mouseleave="langOpen = false">
@@ -60,25 +60,45 @@
               </button>
             </div>
           </div>
-          <div class="fx-avatar" :title="userName">{{ userInitials }}</div>
-          <button class="fx-icon-btn" :title="$t('nav.logout')" @click="logout">
-            <FxIcon name="logout" :size="16" />
-          </button>
+          <div ref="accountWrap" class="fx-account-wrap">
+            <button
+              type="button"
+              class="fx-avatar"
+              :title="$t('nav.account')"
+              :aria-label="$t('nav.account')"
+              :aria-expanded="accountOpen"
+              @click="toggleAccount"
+            >{{ userInitials }}</button>
+            <div v-if="accountOpen" class="fx-account-menu">
+              <div class="fx-account-summary">
+                <span class="fx-account-avatar">{{ userInitials }}</span>
+                <div>
+                  <strong>{{ $t('nav.account') }}</strong>
+                  <span>{{ userName }}</span>
+                </div>
+              </div>
+              <button type="button" class="fx-account-action" @click="logout">
+                <FxIcon name="logout" :size="15" />
+                <span>{{ $t('nav.logout') }}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       <!-- Notifications dropdown -->
-      <div v-if="notifsOpen && notifications.length" class="fx-notif-panel" @mouseleave="notifsOpen = false">
+      <div v-if="notifsOpen" class="fx-notif-panel" @mouseleave="notifsOpen = false">
         <div class="fx-notif-head">
           <strong>{{ $t('nav.notifications') }}</strong>
           <span class="fx-text-3">{{ notifications.length }}</span>
         </div>
-        <div class="fx-notif-list">
+        <div v-if="notifications.length" class="fx-notif-list">
           <div v-for="n in notifications" :key="n.id" class="fx-notif-item" @click="dismissNotification(n.id)">
             <strong>{{ n.title }}</strong>
             <div class="fx-text-3" style="font-size:11px;margin-top:2px">{{ n.message }}</div>
           </div>
         </div>
+        <div v-else class="fx-notif-empty">{{ $t('nav.noNotifications') }}</div>
       </div>
     </header>
 
@@ -93,10 +113,18 @@
           <span v-if="footerText">{{ footerText }}</span>
           <span v-else-if="brandName">© {{ year }} {{ brandName }}</span>
           <span v-else>© {{ year }}</span>
-          <span style="color:var(--text-4)">·</span>
-          <a href="#" @click.prevent>{{ $t('footer.privacy') }}</a>
-          <a href="#" @click.prevent>{{ $t('footer.terms') }}</a>
-          <a href="#" @click.prevent>{{ $t('footer.status') }}</a>
+          <template v-if="privacyUrl">
+            <span class="fx-footer-sep" aria-hidden="true">·</span>
+            <a :href="privacyUrl" :target="privacyExternal ? '_blank' : undefined" rel="noreferrer">{{ $t('footer.privacy') }}</a>
+          </template>
+          <template v-if="termsUrl">
+            <span class="fx-footer-sep" aria-hidden="true">·</span>
+            <a :href="termsUrl" :target="termsExternal ? '_blank' : undefined" rel="noreferrer">{{ $t('footer.terms') }}</a>
+          </template>
+          <template v-if="supportUrl">
+            <span class="fx-footer-sep" aria-hidden="true">·</span>
+            <a :href="supportUrl" target="_blank" rel="noreferrer">{{ $t('nav.support') }}</a>
+          </template>
         </div>
         <a v-if="showGithub" class="fx-gh-promo" href="https://github.com/Flirexa/flirexa" target="_blank" rel="noreferrer">
           <span class="fx-gh-promo-icon"><FxIcon name="github" :size="16" /></span>
@@ -120,6 +148,7 @@ import { portalApi } from '../api/index.js'
 import { clearPortalSession, portalSession } from '../session.js'
 import FxIcon from './FxIcon.vue'
 import bundledLogo from '../assets/flirexa-logo.png'
+import { brandingUrl, isExternalHref, legalDocumentHref } from '../branding.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -129,11 +158,30 @@ const langOpen = ref(false)
 const notifsOpen = ref(false)
 const menuOpen = ref(false)
 const notifications = ref([])
-const featureFlags = ref({ corp_networks: true })
+const accountOpen = ref(false)
+const accountWrap = ref(null)
+// Commercial navigation fails closed until the signed feature response is
+// available. The route itself repeats the backend gate.
+const featureFlags = ref({ corp_networks: false })
 
 // Close the drawer when navigating or when the viewport widens past mobile.
-watch(() => route.path, () => { menuOpen.value = false })
+watch(() => route.path, () => {
+  menuOpen.value = false
+  accountOpen.value = false
+  langOpen.value = false
+  notifsOpen.value = false
+})
 function onResize() { if (window.innerWidth > 860) menuOpen.value = false }
+function onOutsidePointer(event) {
+  if (accountOpen.value && !accountWrap.value?.contains(event.target)) accountOpen.value = false
+}
+function onDocumentKeydown(event) {
+  if (event.key !== 'Escape') return
+  accountOpen.value = false
+  langOpen.value = false
+  notifsOpen.value = false
+  menuOpen.value = false
+}
 
 // Brand name on customer-facing surfaces. Show only what the operator
 // explicitly set as the customer-facing name. Empty → hide the text
@@ -143,6 +191,11 @@ const brandName = computed(() => (
   window.__branding?.branding_customer_app_name || ''
 ))
 const footerText = computed(() => window.__branding?.branding_footer_text || '')
+const privacyUrl = computed(() => legalDocumentHref('privacy'))
+const termsUrl = computed(() => legalDocumentHref('terms'))
+const privacyExternal = computed(() => isExternalHref(privacyUrl.value))
+const termsExternal = computed(() => isExternalHref(termsUrl.value))
+const supportUrl = computed(() => brandingUrl('branding_support_url'))
 // Build the logo URL. Customer-specific logo wins; falls back to the
 // shared admin logo; finally to the bundled platform default.
 // Path-style URLs (start with /) are served by the portal itself —
@@ -201,6 +254,22 @@ function setLang(code) {
   langOpen.value = false
 }
 
+function toggleLanguage() {
+  langOpen.value = !langOpen.value
+  if (langOpen.value) {
+    accountOpen.value = false
+    notifsOpen.value = false
+  }
+}
+
+function toggleAccount() {
+  accountOpen.value = !accountOpen.value
+  if (accountOpen.value) {
+    langOpen.value = false
+    notifsOpen.value = false
+  }
+}
+
 const userName = computed(() => {
   const user = portalSession.user || {}
   return user.username || user.email || ''
@@ -215,6 +284,7 @@ const userInitials = computed(() => {
 })
 
 async function logout() {
+  accountOpen.value = false
   try {
     await portalApi.logout()
   } finally {
@@ -233,14 +303,19 @@ const showGithub = computed(() => {
 // Backend's /notifications returns every notification, not just unread —
 // so the red dot was lighting up for already-read items too. Filter to
 // is_read=false (with a fallback to .read for older payload shapes).
-const unreadCount = computed(() => notifications.value.filter(n => {
+const isUnreadNotification = (n) => {
   if (typeof n.is_read === 'boolean') return !n.is_read
   if (typeof n.read === 'boolean') return !n.read
   return true
-}).length)
+}
+const unreadCount = computed(() => notifications.value.filter(isUnreadNotification).length)
 
 function toggleNotifs() {
   notifsOpen.value = !notifsOpen.value
+  if (notifsOpen.value) {
+    accountOpen.value = false
+    langOpen.value = false
+  }
 }
 
 async function dismissNotification(id) {
@@ -262,7 +337,9 @@ async function loadNotifications() {
   if (!portalSession.user) return
   try {
     const { data } = await portalApi.getNotifications()
-    notifications.value = Array.isArray(data) ? data : []
+    // Mark-as-read is a dismiss action in this UI. The endpoint also returns
+    // historical read rows, so filter them here or they reappear next poll.
+    notifications.value = Array.isArray(data) ? data.filter(isUnreadNotification) : []
   } catch { /* ignore */ }
 }
 
@@ -272,10 +349,14 @@ onMounted(() => {
   loadNotifications()
   notifIntervalId = setInterval(loadNotifications, 60000)
   window.addEventListener('resize', onResize)
+  document.addEventListener('pointerdown', onOutsidePointer)
+  document.addEventListener('keydown', onDocumentKeydown)
 })
 onUnmounted(() => {
   if (notifIntervalId) clearInterval(notifIntervalId)
   window.removeEventListener('resize', onResize)
+  document.removeEventListener('pointerdown', onOutsidePointer)
+  document.removeEventListener('keydown', onDocumentKeydown)
 })
 </script>
 
@@ -297,6 +378,54 @@ onUnmounted(() => {
   height: 18px;
   padding: 0 7px;
 }
+
+.fx-account-wrap { position: relative; }
+.fx-account-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 100;
+  width: min(270px, calc(100vw - 28px));
+  padding: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+}
+.fx-account-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+  min-width: 0;
+}
+.fx-account-summary > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fx-account-summary strong { color: var(--text); font-size: 12px; }
+.fx-account-summary span:not(.fx-account-avatar) { color: var(--text-3); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-account-avatar {
+  width: 32px; height: 32px; border-radius: 50%; flex: none;
+  display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 11px; font-weight: 700;
+}
+.fx-account-action {
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.fx-account-action:hover { background: var(--danger-soft); color: var(--danger); }
 
 .fx-bell-dot {
   position: absolute;
@@ -356,6 +485,12 @@ onUnmounted(() => {
 .fx-notif-head strong { color: var(--text); }
 .fx-notif-head .fx-text-3 { color: var(--text-3); font-size: 12px; }
 .fx-notif-list { max-height: 320px; overflow-y: auto; }
+.fx-notif-empty {
+  padding: 24px 14px;
+  color: var(--text-3);
+  text-align: center;
+  font-size: 12px;
+}
 .fx-notif-item {
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);

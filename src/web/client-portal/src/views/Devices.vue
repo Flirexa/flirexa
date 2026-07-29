@@ -4,7 +4,7 @@
       <div>
         <h1 class="fx-page-title">{{ $t('devices.title') || 'My Devices' }}</h1>
         <p class="fx-page-sub">
-          {{ $t('devices.sub') || 'Each device can hop between server regions without re-installing. Switch the active region here — your VPN app just keeps using the same config.' }}
+          {{ $t('devices.sub') || 'Import each region once, then select the same active region here and in your VPN app.' }}
         </p>
       </div>
       <div style="display:flex; gap:8px; flex-wrap:wrap">
@@ -14,7 +14,7 @@
         </button>
         <button class="fx-btn fx-btn-primary"
                 :disabled="atLimit || creating"
-                @click="showCreate = true">
+                @click="openCreate">
           <FxIcon name="plus" :size="14" />
           {{ $t('devices.add') || 'Add device' }}
         </button>
@@ -43,8 +43,8 @@
         <p class="fx-empty-sub">{{ $t('devices.emptySub') ||
           'Add your first device to get a VPN config you can switch between regions.' }}</p>
         <button class="fx-btn fx-btn-primary"
-                :disabled="creating || !hasActiveSub"
-                @click="showCreate = true">
+                :disabled="creating"
+                @click="openCreate">
           <FxIcon name="plus" :size="14" />
           {{ $t('devices.add') || 'Add device' }}
         </button>
@@ -274,6 +274,7 @@ import { portalApi } from '../api/index.js'
 import FxIcon from '../components/FxIcon.vue'
 import FxHelp from '../components/FxHelp.vue'
 import { useEscapeClose } from '../composables/useEscapeClose.js'
+import { apiErrorMessage, copyText } from '../utils.js'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -381,16 +382,23 @@ const toast = (message, type = 'info') => {
 }
 
 async function copyToastMessage(t) {
-  try {
-    await navigator.clipboard.writeText(t.message || '')
+  if (await copyText(t.message || '')) {
     t.copied = true
     setTimeout(() => { t.copied = false }, 1500)
-  } catch { /* clipboard blocked — silently ignore */ }
+  }
 }
 
 const hasActiveSub = computed(() => subscription.value.status === 'active')
 const maxDevices = computed(() => subscription.value.max_devices || 1)
 const atLimit = computed(() => slots.value.length >= maxDevices.value)
+
+const openCreate = () => {
+  if (!hasActiveSub.value) {
+    router.push('/plans')
+    return
+  }
+  showCreate.value = true
+}
 
 const availableServers = computed(() => servers.value.filter(s => s.customer_visible !== false))
 
@@ -412,7 +420,7 @@ const loadSlots = async () => {
     probeAllServers()
   } catch (e) {
     if (e.response?.status === 401) router.push('/login')
-    else toast(e.response?.data?.detail || e.message, 'error')
+    else toast(apiErrorMessage(e, t('common.error')), 'error')
   } finally {
     loading.value = false
   }
@@ -433,9 +441,7 @@ const doReleaseDevice = async (slot) => {
     if (idx >= 0) slots.value.splice(idx, 1, data)
     toast(t('devices.released') || 'Device released. The next phone to connect will be registered to this slot.', 'success')
   } catch (e) {
-    const detail = e.response?.data?.detail
-    const msg = typeof detail === 'string' ? detail : detail?.message || e.message || 'Error'
-    toast(msg, 'error')
+    toast(apiErrorMessage(e, t('common.error')), 'error')
   } finally {
     releasing.value = null
   }
@@ -454,11 +460,7 @@ const doCreate = async () => {
     await loadSlots()
     toast(t('devices.created') || 'Device added', 'success')
   } catch (e) {
-    const detail = e.response?.data?.detail
-    const msg = typeof detail === 'string'
-      ? detail
-      : detail?.message || e.message || 'Error'
-    toast(msg, 'error')
+    toast(apiErrorMessage(e, t('common.error')), 'error')
   } finally {
     creating.value = false
   }
@@ -473,8 +475,7 @@ const switchServer = async (slot, serverId) => {
     if (idx >= 0) slots.value.splice(idx, 1, data)
     toast(t('devices.switched'), 'success')
   } catch (e) {
-    const detail = e.response?.data?.detail
-    const msg = typeof detail === 'string' ? detail : detail?.message || e.message
+    const msg = apiErrorMessage(e, t('common.error'))
     // Backend's cooldown reply is HTTP 429 with the wait time baked into
     // the message ("Please wait 28s …"). Pull the number out and run a
     // countdown chip under the server picker so the user sees how long
@@ -485,7 +486,7 @@ const switchServer = async (slot, serverId) => {
       const secs = m ? parseInt(m[1], 10) : 30
       startCooldown(slot.id, secs)
     }
-    toast(msg || 'Error', 'error')
+    toast(msg, 'error')
   } finally {
     switching.value = null
   }
@@ -553,7 +554,7 @@ const downloadConfig = async (slot, srv) => {
     a.remove()
     URL.revokeObjectURL(url)
   } catch (e) {
-    toast(e.response?.data?.detail || e.message, 'error')
+    toast(apiErrorMessage(e, t('common.error')), 'error')
   }
 }
 
@@ -573,7 +574,7 @@ const saveLabel = async (slot) => {
     const idx = slots.value.findIndex(s => s.id === slot.id)
     if (idx >= 0) slots.value.splice(idx, 1, data)
   } catch (e) {
-    toast(e.response?.data?.detail || e.message, 'error')
+    toast(apiErrorMessage(e, t('common.error')), 'error')
   }
 }
 
@@ -600,9 +601,7 @@ const confirmDeleteWithPassword = async () => {
     if (verifyErr.response?.status === 400 || verifyErr.response?.status === 401) {
       deleteError.value = t('dash.deletePasswordWrong')
     } else {
-      deleteError.value = (typeof verifyErr.response?.data?.detail === 'string'
-        ? verifyErr.response.data.detail
-        : verifyErr.message) || t('common.error')
+      deleteError.value = apiErrorMessage(verifyErr, t('common.error'))
     }
     deleting.value = false
     return
@@ -615,7 +614,7 @@ const confirmDeleteWithPassword = async () => {
     deletePassword.value = ''
     toast(t('devices.deleted') || 'Device deleted', 'success')
   } catch (e) {
-    deleteError.value = e.response?.data?.detail || e.message
+    deleteError.value = apiErrorMessage(e, t('common.error'))
   } finally {
     deleting.value = false
   }

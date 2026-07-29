@@ -54,7 +54,7 @@
         <!-- details disclosure -->
         <button @click="toggleDetails(s)" style="display:flex;align-items:center;gap:6px;border:none;background:transparent;color:var(--text-2);font:inherit;font-size:12px;font-weight:500;cursor:pointer;padding:0" class="hov-text"><span :style="{ display:'flex', transform: detailsFor === s.id ? 'rotate(90deg)' : 'none', transition:'transform .15s' }"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"></path></svg></span>{{ tr('servers.details') || 'Details' }}</button>
         <div v-if="detailsFor === s.id" style="display:flex;flex-direction:column;gap:7px;padding:11px 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)">
-          <div v-for="d in s.detailRows" :key="d.k" style="display:flex;gap:12px;align-items:baseline"><span style="font-size:11.5px;color:var(--text-3);flex:none">{{ d.k }}</span><span class="mono" style="margin-left:auto;font-size:11.5px;color:var(--text-2);text-align:right;word-break:break-all">{{ d.v }}</span></div>
+          <div v-for="d in s.detailRows" :key="d.k" style="display:flex;gap:8px;align-items:center"><span style="font-size:11.5px;color:var(--text-3);flex:none">{{ d.k }}</span><span class="mono" style="margin-left:auto;font-size:11.5px;color:var(--text-2);text-align:right;word-break:break-all">{{ d.v }}</span><button v-if="d.copy" type="button" @click.stop="copyText(d.copy)" :title="tr('common.copy') || 'Copy'" style="display:flex;flex:none;border:none;background:transparent;color:var(--text-3);cursor:pointer;padding:2px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 012-2h10"></path></svg></button></div>
           <div v-if="topConsumers.length && topFor === s.id" style="margin-top:4px;padding-top:9px;border-top:1px solid var(--border)">
             <div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:7px">{{ tr('servers.topConsumers') || 'Top consumers' }}</div>
             <div v-for="tc in topConsumers" :key="tc.name" style="display:flex;align-items:center;gap:9px;margin-bottom:6px"><span style="font-size:11.5px;color:var(--text-2);width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none">{{ tc.name }}</span><div style="flex:1;height:5px;border-radius:4px;background:var(--panel-3);overflow:hidden"><div :style="{ height:'100%', borderRadius:'4px', background:'var(--accent)', width:tc.pct }"></div></div><span class="mono" style="font-size:11px;color:var(--text-3);width:54px;text-align:right;flex:none">{{ tc.label }}</span></div>
@@ -271,6 +271,7 @@
     <!-- SERVER CLIENTS -->
     <D2Modal :open="svc.show" :title="svc.title" size="lg" @close="svc.show = false">
       <div v-if="svc.loading" style="color:var(--text-3);text-align:center;padding:24px">{{ tr('common.loading') || 'Loading…' }}</div>
+      <div v-else-if="svc.error" style="padding:24px;text-align:center;font-size:13px;color:var(--red)">{{ svc.error }}</div>
       <div v-else-if="!svc.rows.length" style="padding:24px;text-align:center;font-size:13px;color:var(--text-3)">{{ tr('servers.noClients') || 'No clients on this server' }}</div>
       <div v-else style="display:flex;flex-direction:column;gap:1px">
         <div v-for="r in svc.rows" :key="r.id" style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border)"><span :style="{ width:'7px', height:'7px', borderRadius:'50%', background:r.dot, flex:'none' }"></span><div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:550">{{ r.name }}</div><div class="mono" style="font-size:11.5px;color:var(--text-3)">{{ r.ip }}</div></div><div class="mono" style="font-size:12px;color:var(--text-2)">{{ r.traffic }}</div></div>
@@ -329,8 +330,8 @@ const cards = computed(() => store.servers.map(s => {
   const detailRows = [
     { k: tr('servers.interface') || 'Interface', v: isProxy ? '—' : (s.interface || '—') },
     { k: tr('servers.listenPort') || 'Port', v: s.listen_port || '—' },
-    { k: tr('servers.addressPool') || 'Pool', v: s.address_pool_ipv4 || s.address_pool || '—' },
-    { k: tr('servers.publicKey') || 'Public key', v: s.public_key ? (String(s.public_key).slice(0, 20) + '…') : '—' },
+    { k: tr('servers.addressPool') || 'Pool', v: s.address_pool_ipv4 || s.address_pool || '—', copy: s.address_pool_ipv4 || s.address_pool || '' },
+    { k: tr('servers.publicKey') || 'Public key', v: s.public_key || '—', copy: s.public_key || '' },
   ]
   return {
     id: s.id, _raw: s, name: s.display_name || s.name,
@@ -392,8 +393,8 @@ async function toggleDetails(card) {
   detailsFor.value = card.id; topFor.value = null; topConsumers.value = []
   try {
     const { data } = await serversApi.getClients(card._raw.id)
-    const rows = (data && (data.items || data)) || []
-    const list = (Array.isArray(rows) ? rows : []).map(c => ({ name: c.name || c.display_name || ('client ' + c.id), bytes: (c.total_bytes ?? ((c.rx_bytes || 0) + (c.tx_bytes || 0))) }))
+    const rows = serverClientsFromResponse(data)
+    const list = (Array.isArray(rows) ? rows : []).map(c => ({ name: c.name || c.display_name || ('client ' + c.id), bytes: (c.total_bytes ?? ((c.traffic_used_rx || c.rx_bytes || 0) + (c.traffic_used_tx || c.tx_bytes || 0))) }))
     list.sort((a, b) => b.bytes - a.bytes)
     const top = list.slice(0, 3); const maxB = top[0]?.bytes || 1
     topConsumers.value = top.filter(x => x.bytes > 0).map(x => ({ name: x.name, pct: Math.max(4, Math.round((x.bytes / maxB) * 100)) + '%', label: fmtBytes(x.bytes) }))
@@ -401,6 +402,13 @@ async function toggleDetails(card) {
   } catch (_) { /* stats endpoint may be unavailable for this server — details still show static rows */ }
 }
 function fmtBytes(b) { if (b > 1e9) return (b / 1e9).toFixed(1) + 'G'; if (b > 1e6) return (b / 1e6).toFixed(0) + 'M'; if (b > 1e3) return (b / 1e3).toFixed(0) + 'K'; return b + 'B' }
+function serverClientsFromResponse(data) {
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.clients)) return data.clients
+  if (Array.isArray(data?.items)) return data.items
+  return []
+}
+async function copyText(value) { try { await navigator.clipboard.writeText(String(value || '')) } catch (_) {} }
 
 // add
 const showAdd = ref(false), adding = ref(false), addError = ref(''), installProgress = ref(''), detectingIp = ref(false), advOpen = ref(false), reuseKp = ref(false)
@@ -409,7 +417,7 @@ const ns = ref(blank())
 function openAdd() { addError.value = ''; installProgress.value = ''; advOpen.value = false; reuseKp.value = false; ns.value = blank(); showAdd.value = true }
 // His card-selector style (category/protocol) — 2px accent border when active.
 function cardStyle(active, proto = false) {
-  return { textAlign: 'left', width: '100%', padding: proto ? '11px 14px' : '13px 15px', border: '2px solid ' + (active ? 'var(--accent)' : 'var(--border)'), background: active ? 'var(--accent-soft)' : 'var(--panel)', borderRadius: '11px', cursor: 'pointer', font: 'inherit' }
+  return { textAlign: 'left', width: '100%', padding: proto ? '11px 14px' : '13px 15px', border: '2px solid ' + (active ? 'var(--accent)' : 'var(--border)'), background: active ? 'var(--accent-soft)' : 'var(--panel)', color: 'var(--text)', borderRadius: '11px', cursor: 'pointer', font: 'inherit' }
 }
 function setCategory(cat) { ns.value.server_category = cat; ns.value.server_type = cat === 'proxy' ? 'hysteria2' : 'wireguard'; onProto() }
 function onProto() { const ty = ns.value.server_type, WG = '10.0.1.0/24', AWG = '10.66.66.0/24'; if (ty === 'amneziawg') { if (!ns.value.interface.startsWith('awg')) ns.value.interface = 'awg' + (ns.value.interface.replace(/\D/g, '') || '0'); if ([51820, 51821].includes(ns.value.listen_port)) ns.value.listen_port = 51820; if ([WG, AWG].includes(ns.value.address_pool_ipv4)) ns.value.address_pool_ipv4 = AWG } else if (ty === 'wireguard') { if (!ns.value.interface.startsWith('wg')) ns.value.interface = 'wg' + (ns.value.interface.replace(/\D/g, '') || '1'); if (ns.value.listen_port === 51820) ns.value.listen_port = 51821; if ([WG, AWG].includes(ns.value.address_pool_ipv4)) ns.value.address_pool_ipv4 = WG } else if (ty === 'hysteria2') ns.value.listen_port = 8443; else if (ty === 'tuic') ns.value.listen_port = 8444; else if (ty === 'vless-reality') { ns.value.listen_port = 443; ns.value.proxy_tls_mode = 'self_signed' } }
@@ -746,17 +754,17 @@ async function doInstallProxy() {
 }
 
 // server clients modal
-const svc = reactive({ show: false, loading: false, title: '', rows: [] })
+const svc = reactive({ show: false, loading: false, title: '', rows: [], error: '' })
 async function openSvClients(s) {
-  svc.title = (tr('servers.clientsOn') || 'Clients on') + ' ' + (s.display_name || s.name); svc.rows = []; svc.loading = true; svc.show = true
+  svc.title = (tr('servers.clientsOn') || 'Clients on') + ' ' + (s.display_name || s.name); svc.rows = []; svc.error = ''; svc.loading = true; svc.show = true
   try {
-    const { data } = await serversApi.getClients(s.id); const list = (data && (data.items || data)) || []
-    svc.rows = (Array.isArray(list) ? list : []).map(c => ({
-      id: c.id, name: c.name || c.display_name || ('client ' + c.id), ip: c.ip_address || c.assigned_ip || c.address || '—',
+    const { data } = await serversApi.getClients(s.id); const list = serverClientsFromResponse(data)
+    svc.rows = list.map(c => ({
+      id: c.id, name: c.name || c.display_name || ('client ' + c.id), ip: c.ipv4 || c.ip_address || c.assigned_ip || c.address || '—',
       dot: (c.enabled === false || c.status === 'disabled') ? 'var(--text-3)' : 'var(--green)',
-      traffic: fmtBytes(c.total_bytes ?? ((c.rx_bytes || 0) + (c.tx_bytes || 0))),
+      traffic: fmtBytes(c.total_bytes ?? ((c.traffic_used_rx || c.rx_bytes || 0) + (c.traffic_used_tx || c.tx_bytes || 0))),
     }))
-  } catch (e) { svc.rows = [] } finally { svc.loading = false }
+  } catch (e) { svc.rows = []; svc.error = e.response?.data?.detail || e.message || (tr('common.error') || 'Failed to load clients') } finally { svc.loading = false }
 }
 
 function onDoc() { menuFor.value = null }

@@ -167,10 +167,6 @@ export const portalApi = {
   getNotifications: () => api.get('/client-portal/notifications'),
   markNotificationRead: (id) => api.post(`/client-portal/notifications/${id}/read`),
 
-  // Subscription link
-  getSubscriptionLink: () => api.get('/client-portal/subscription-link'),
-  regenerateSubscriptionLink: () => api.post('/client-portal/subscription-link/regenerate'),
-
   // Corporate VPN
   getCorporateNetworks: () => api.get('/client-portal/corporate/networks'),
   getCorporateNetwork: (id) => api.get(`/client-portal/corporate/networks/${id}`),

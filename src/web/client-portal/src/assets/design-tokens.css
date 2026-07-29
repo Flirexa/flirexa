@@ -221,7 +221,7 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
   display: grid; place-items: center;
   background: linear-gradient(135deg, var(--accent-500), var(--accent-700));
   border-radius: var(--r-sm);
-  color: white;
+  color: var(--accent-fg);
   box-shadow: 0 4px 12px -4px var(--accent);
   font-weight: 700; font-size: 14px;
 }
@@ -286,9 +286,12 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
   width: 30px; height: 30px; border-radius: var(--r-pill);
   background: linear-gradient(135deg, var(--accent-500), var(--accent-700));
   display: grid; place-items: center;
-  color: white; font-weight: 600; font-size: 12px;
+  color: var(--accent-fg); font-weight: 600; font-size: 12px;
   cursor: pointer;
+  border: 0; padding: 0; font-family: inherit;
 }
+.fx-avatar:hover { box-shadow: 0 0 0 4px var(--accent-soft); }
+.fx-avatar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Burger menu — only visible ≤860 */
 .fx-burger {
@@ -552,11 +555,11 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
   background: var(--bg-elev); color: var(--accent);
   flex-shrink: 0;
 }
-.fx-action.primary .fx-action-icon { background: rgba(255,255,255,.18); color: white; }
+.fx-action.primary .fx-action-icon { background: color-mix(in oklab, var(--accent-fg) 18%, transparent); color: var(--accent-fg); }
 .fx-action-text { display: flex; flex-direction: column; min-width: 0; }
 .fx-action-title { font-size: 13px; font-weight: 600; }
 .fx-action-sub { font-size: 11px; color: var(--text-3); }
-.fx-action.primary .fx-action-sub { color: rgba(255,255,255,.75); }
+.fx-action.primary .fx-action-sub { color: color-mix(in oklab, var(--accent-fg) 75%, transparent); }
 
 /* ─── Status pill ─── */
 .fx-status-card {
@@ -567,27 +570,31 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
   margin-bottom: var(--gap);
 }
 .fx-status-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.fx-status-orb {
-  width: 48px; height: 48px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--success) 90%, white), var(--success));
-  position: relative; flex-shrink: 0;
-  box-shadow: 0 0 0 6px var(--success-soft), 0 0 24px color-mix(in oklab, var(--success) 60%, transparent);
+.fx-status-symbol {
+  width: 48px; height: 48px; border-radius: 14px;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent) 28%, var(--border));
+  box-shadow: 0 8px 22px color-mix(in oklab, var(--accent) 16%, transparent);
 }
-.fx-status-orb::after {
-  content: ""; position: absolute; inset: -4px; border-radius: 50%;
-  border: 2px solid var(--success); opacity: .3;
-  animation: fx-pulse 2.4s ease-out infinite;
+.fx-status-symbol.online {
+  background: var(--success-soft); color: var(--success);
+  border-color: color-mix(in oklab, var(--success) 30%, var(--border));
+  box-shadow: 0 8px 22px color-mix(in oklab, var(--success) 16%, transparent);
 }
-.fx-status-orb.warn {
-  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--warning) 90%, white), var(--warning));
-  box-shadow: 0 0 0 6px var(--warning-soft);
+.fx-status-symbol.warning {
+  background: var(--warning-soft); color: #b45309;
+  border-color: color-mix(in oklab, var(--warning) 35%, var(--border));
+  box-shadow: none;
 }
-.fx-status-orb.warn::after { border-color: var(--warning); }
-.fx-status-orb.off {
-  background: radial-gradient(circle at 35% 30%, color-mix(in oklab, var(--text-4) 60%, white), var(--text-4));
-  box-shadow: 0 0 0 6px color-mix(in oklab, var(--text-4) 16%, transparent);
+.theme-dark .fx-status-symbol.warning { color: #fbbf24; }
+.fx-status-symbol.danger {
+  background: var(--danger-soft); color: var(--danger);
+  border-color: color-mix(in oklab, var(--danger) 32%, var(--border));
+  box-shadow: none;
 }
-.fx-status-orb.off::after { animation: none; opacity: 0; }
 
 /* Reusable "loading" spinner — drop the class on any icon to make it
    rotate (refresh icon used for in-flight buttons, etc.). */
@@ -608,10 +615,6 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
   transform: translateY(-50%);
   pointer-events: none;
   color: var(--text-3);
-}
-@keyframes fx-pulse {
-  0% { transform: scale(0.95); opacity: .5; }
-  100% { transform: scale(1.4); opacity: 0; }
 }
 .fx-status-info { flex: 1; min-width: 0; }
 .fx-status-title { font-size: 14px; font-weight: 600; color: var(--text); }
@@ -637,7 +640,7 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
 .fx-referral-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; position: relative; }
 .fx-referral-icon {
   width: 40px; height: 40px; border-radius: var(--r-md);
-  background: var(--accent); color: white;
+  background: var(--accent); color: var(--accent-fg);
   display: grid; place-items: center;
   box-shadow: 0 8px 24px -8px var(--accent);
   flex-shrink: 0;
@@ -705,7 +708,7 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
   position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
   padding: 4px 12px; height: 22px;
   display: inline-flex; align-items: center;
-  background: var(--accent); color: white;
+  background: var(--accent); color: var(--accent-fg);
   border-radius: var(--r-pill);
   font-size: 11px; font-weight: 600; letter-spacing: .04em;
   text-transform: uppercase;
@@ -787,7 +790,7 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
 .fx-card-visual {
   margin-top: 14px; padding: 18px; border-radius: var(--r-md);
   background: linear-gradient(135deg, var(--accent-700), var(--accent-500));
-  color: white; aspect-ratio: 1.6;
+  color: var(--accent-fg); aspect-ratio: 1.6;
   display: flex; flex-direction: column; justify-content: space-between;
 }
 
@@ -1121,9 +1124,7 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
     padding: 0 8px; height: 28px; font-size: 11px;
   }
   .fx-lang-pill svg { display: none; }
-  /* Avatar takes the most space and is purely decorative on mobile,
-     so it's the one we drop — leaves room for theme / bell / lang / logout. */
-  .fx-header-right .fx-avatar { display: none; }
+  /* Account actions live behind the avatar, so keep it tappable on mobile. */
 
   /* Trim brand to logo + name */
   .fx-brand { gap: 8px; font-size: 14px; }
@@ -1167,7 +1168,7 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
 
   /* Stack the connection banner cleanly */
   .fx-status-card .fx-status-row { flex-wrap: wrap; gap: 10px; }
-  .fx-status-orb { width: 40px; height: 40px; }
+  .fx-status-symbol { width: 40px; height: 40px; border-radius: 12px; }
   .fx-status-info { flex: 1 1 calc(100% - 54px); min-width: 0; }
   .fx-status-title { font-size: 13px; }
   .fx-status-sub { font-size: 11px; word-break: break-word; line-height: 1.45; }
@@ -1477,7 +1478,7 @@ a.fx-btn-ghost, a.fx-btn-ghost:hover { color: var(--text-2); }
 }
 .fx-check-box svg {
   opacity: 0;
-  color: white;
+  color: var(--accent-fg);
   transition: opacity .15s ease;
 }
 .fx-check input:checked + .fx-check-box svg { opacity: 1; }

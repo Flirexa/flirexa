@@ -15,30 +15,22 @@
 
       <div class="fx-support-grid">
         <!-- Tiles -->
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--gap); align-content:start">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:var(--gap); align-content:start">
           <button class="fx-support-tile" @click="startNewTicket">
             <div class="fx-support-tile-icon"><FxIcon name="chat" :size="18" /></div>
             <h3>{{ $t('support.tileChat') }}</h3>
             <p>{{ $t('support.tileChatHint') }}</p>
-            <span class="fx-badge fx-badge-success" style="margin-top:12px; align-self:flex-start">
-              <span class="fx-dot fx-dot-online"></span> {{ $t('support.online') }}
-            </span>
           </button>
-          <a class="fx-support-tile" :href="emailHref">
+          <a v-if="supportEmail" class="fx-support-tile" :href="emailHref">
             <div class="fx-support-tile-icon"><FxIcon name="mail" :size="18" /></div>
             <h3>{{ $t('support.tileEmail') }}</h3>
             <p>{{ supportEmail }}</p>
             <span style="margin-top:12px; font-size:11px; color:var(--text-3)">{{ $t('support.emailHint') }}</span>
           </a>
-          <a class="fx-support-tile" :href="docsUrl" target="_blank" rel="noreferrer">
+          <a v-if="supportUrl" class="fx-support-tile" :href="supportUrl" target="_blank" rel="noreferrer">
             <div class="fx-support-tile-icon"><FxIcon name="book" :size="18" /></div>
-            <h3>{{ $t('support.tileDocs') }}</h3>
-            <p>{{ $t('support.tileDocsHint') }}</p>
-          </a>
-          <a class="fx-support-tile" :href="statusUrl" target="_blank" rel="noreferrer">
-            <div class="fx-support-tile-icon"><FxIcon name="speed" :size="18" /></div>
-            <h3>{{ $t('support.tileStatus') }}</h3>
-            <p>{{ $t('support.tileStatusHint') }}</p>
+            <h3>{{ $t('support.tileHelpCenter') }}</h3>
+            <p>{{ $t('support.tileHelpCenterHint') }}</p>
           </a>
         </div>
 
@@ -78,6 +70,11 @@
         <div v-if="ticketsLoading" class="fx-empty">
           <div class="fx-empty-icon"><FxIcon name="refresh" :size="22" /></div>
           <p class="fx-empty-sub">{{ $t('common.loading') }}</p>
+        </div>
+        <div v-else-if="ticketsError" class="fx-card fx-empty">
+          <div class="fx-empty-icon"><FxIcon name="warning" :size="22" /></div>
+          <p class="fx-empty-sub">{{ ticketsError }}</p>
+          <button class="fx-btn fx-btn-secondary fx-btn-sm" @click="loadTickets">{{ $t('common.retry') }}</button>
         </div>
         <div v-else-if="!tickets.length" class="fx-card fx-empty">
           <div class="fx-empty-icon"><FxIcon name="chat" :size="22" /></div>
@@ -185,13 +182,15 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
-import { formatDate, formatDateTime } from '../utils'
+import { formatDate, formatDateTime, apiErrorMessage } from '../utils'
+import { brandingUrl } from '../branding.js'
 import FxIcon from '../components/FxIcon.vue'
 
 const { t } = useI18n()
 
 const tickets = ref([])
 const ticketsLoading = ref(true)
+const ticketsError = ref('')
 const showNewTicket = ref(false)
 const selectedTicket = ref(null)
 const newSubject = ref('')
@@ -214,10 +213,7 @@ const supportEmail = computed(() =>
   window.__branding?.branding_support_email || '')
 const emailHref = computed(() =>
   supportEmail.value ? `mailto:${supportEmail.value}` : '')
-const docsUrl = computed(() =>
-  window.__branding?.branding_docs_url || '')
-const statusUrl = computed(() =>
-  window.__branding?.branding_status_url || '')
+const supportUrl = computed(() => brandingUrl('branding_support_url'))
 
 const FAQS = computed(() => [
   { q: t('support.faq1.q'), a: t('support.faq1.a') },
@@ -242,10 +238,13 @@ const startNewTicket = () => {
 
 const loadTickets = async () => {
   ticketsLoading.value = true
+  ticketsError.value = ''
   try {
     const { data } = await portalApi.getSupportMessages()
-    tickets.value = data
-  } catch { /* ignore */ }
+    tickets.value = Array.isArray(data) ? data : []
+  } catch (e) {
+    ticketsError.value = apiErrorMessage(e, t('common.loadError'))
+  }
   ticketsLoading.value = false
 }
 
@@ -262,7 +261,7 @@ const sendNewTicket = async () => {
     showNewTicket.value = false
     await loadTickets()
   } catch (e) {
-    sendError.value = e.response?.data?.detail || t('common.error')
+    sendError.value = apiErrorMessage(e, t('common.error'))
   }
   sending.value = false
 }
@@ -287,7 +286,7 @@ const sendReply = async () => {
     const updated = tickets.value.find(x => x.id === selectedTicket.value.id)
     if (updated) selectedTicket.value = updated
   } catch (e) {
-    replyError.value = t('common.error') + ': ' + (e.response?.data?.detail || e.message)
+    replyError.value = t('common.error') + ': ' + apiErrorMessage(e, t('common.error'))
     setTimeout(() => { replyError.value = null }, 4000)
   }
   replying.value = false

@@ -4,6 +4,46 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.72 — 2026-07-29
+
+### Added
+
+- Added a compact live branding preview with an Admin/Client selector. The
+  customer view reflects the portal login, identity, accent, legal/support
+  links, footer, and representative authenticated UI details before settings
+  are saved.
+- Added operator-authored Privacy Policy and Terms of Service pages that follow
+  customer portal branding. External HTTP(S) links remain supported and take
+  priority when configured.
+
+### Changed
+
+- Extended customer branding across the portal colour palette, login and
+  registration surfaces, footer, browser title, favicon, and installable-web-app
+  metadata.
+- Replaced the ambiguous dashboard activity orb with a semantic connection
+  status icon and moved account details and Sign out into the header avatar
+  menu on desktop and mobile.
+- Removed the misleading generic WireGuard subscription-link card from browser
+  self-service while retaining released application compatibility endpoints.
+- Licensed panels no longer show donation promotion, and the existing
+  attribution setting also controls the administrative project link.
+
+### Fixed
+
+- Fixed the server-card Clients action so it lists the clients assigned to the
+  selected server and reports request failures accurately.
+- Restored IPv4 address-pool, public-key, and real per-server traffic details in
+  the current admin design, including readable add-server controls in dark mode.
+- Fixed referral registration, notification dismissal, configured checkout
+  provider selection, structured API errors, clipboard fallback, and safe local
+  redirects in the customer portal.
+- Empty or invalid support/legal destinations are now omitted instead of being
+  rendered as dead links. Legal text is displayed as plain text and is never
+  interpreted as HTML.
+
+---
+
 ## v2.2.67 — 2026-07-28
 
 ### Changed

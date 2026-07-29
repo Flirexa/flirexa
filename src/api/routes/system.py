@@ -5,7 +5,7 @@ System Routes — status, logs, configuration, branding
 from typing import Optional, List, Literal, Dict, Any
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 import platform
 import psutil
@@ -879,8 +879,30 @@ class BrandingUpdateRequest(BaseModel):
     branding_login_title: Optional[str] = Field(None, max_length=200)
     branding_support_email: Optional[str] = Field(None, max_length=200)
     branding_support_url: Optional[str] = Field(None, max_length=500)
+    branding_privacy_url: Optional[str] = Field(None, max_length=500)
+    branding_terms_url: Optional[str] = Field(None, max_length=500)
+    branding_privacy_text: Optional[str] = Field(None, max_length=50000)
+    branding_terms_text: Optional[str] = Field(None, max_length=50000)
     branding_footer_text: Optional[str] = Field(None, max_length=500)
     branding_powered_by: Optional[bool] = None
+
+    @field_validator("branding_privacy_url", "branding_terms_url")
+    @classmethod
+    def validate_legal_url(cls, value):
+        if value is None or value == "":
+            return value
+        if value.startswith("/") and not value.startswith("//") and "\\" not in value:
+            return value
+        if not re.match(r"^https?://", value, flags=re.IGNORECASE):
+            raise ValueError("Legal page URLs must use http(s) or start with /")
+        return value
+
+    @field_validator("branding_privacy_text", "branding_terms_text")
+    @classmethod
+    def validate_legal_text(cls, value):
+        if value is not None and "\x00" in value:
+            raise ValueError("Legal text cannot contain NUL characters")
+        return value
 
 
 @router.post("/branding", dependencies=[_white_label_gate])

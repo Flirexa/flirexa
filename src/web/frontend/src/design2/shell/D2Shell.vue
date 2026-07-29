@@ -71,7 +71,7 @@
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"></path><path d="M7 9l5-5 5 5"></path><path d="M4 20h16"></path></svg>
             <span class="d2-upd-dot"></span>
           </router-link>
-          <a href="https://github.com/Flirexa/flirexa" target="_blank" rel="noopener noreferrer" class="d2-topbtn" title="GitHub" style="text-decoration:none;color:var(--text-2)"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.73.5.7 5.53.7 11.8c0 5.02 3.26 9.28 7.78 10.78.57.1.78-.25.78-.55v-2.1c-3.17.69-3.84-1.35-3.84-1.35-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.02 1.75 2.68 1.25 3.33.96.1-.74.4-1.25.72-1.54-2.53-.29-5.2-1.27-5.2-5.63 0-1.24.44-2.26 1.17-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.17a10.9 10.9 0 015.74 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.57.23 2.73.11 3.02.73.8 1.17 1.82 1.17 3.06 0 4.37-2.67 5.34-5.22 5.62.41.36.78 1.05.78 2.12v3.14c0 .3.21.66.79.55A11.3 11.3 0 0023.3 11.8C23.3 5.53 18.27.5 12 .5z"/></svg></a>
+          <a v-if="showProjectAttribution" href="https://github.com/Flirexa/flirexa" target="_blank" rel="noopener noreferrer" class="d2-topbtn" title="GitHub" style="text-decoration:none;color:var(--text-2)"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.73.5.7 5.53.7 11.8c0 5.02 3.26 9.28 7.78 10.78.57.1.78-.25.78-.55v-2.1c-3.17.69-3.84-1.35-3.84-1.35-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.75 1.18 1.75 1.18 1.02 1.75 2.68 1.25 3.33.96.1-.74.4-1.25.72-1.54-2.53-.29-5.2-1.27-5.2-5.63 0-1.24.44-2.26 1.17-3.06-.12-.29-.51-1.45.11-3.02 0 0 .96-.31 3.15 1.17a10.9 10.9 0 015.74 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.57.23 2.73.11 3.02.73.8 1.17 1.82 1.17 3.06 0 4.37-2.67 5.34-5.22 5.62.41.36.78 1.05.78 2.12v3.14c0 .3.21.66.79.55A11.3 11.3 0 0023.3 11.8C23.3 5.53 18.27.5 12 .5z"/></svg></a>
           <button @click="toggleTheme" class="d2-topbtn" :title="system.darkMode ? 'Light' : 'Dark'"><Icon :name="system.darkMode ? 'sun' : 'moon'" :size="17" v-if="hasIcon(system.darkMode ? 'sun' : 'moon')" /><span v-else>{{ system.darkMode ? '☀' : '🌙' }}</span></button>
           <button v-if="showDonate" @click="donate" class="d2-donate" :title="tr('donate.tooltip') || 'Support the author'"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A3.5 3.5 0 0 0 12 5.5 3.5 3.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7z"></path></svg></button>
           <div style="position:relative" @click.stop="acctOpen = !acctOpen">
@@ -117,9 +117,7 @@ const sections = NAV_SECTIONS
 const acctOpen = ref(false)
 const donateOpen = ref(false)
 const langOpen = ref(false)
-// Donate button visibility: hidden only when the operator opted to hide it AND
-// the panel is licensed (buying a license already supports the project). Both
-// checked so an unlicensed panel can't hide the Support button.
+// Paid operators never see donation promotion; FREE/trial retains it.
 const showDonate = ref(true)
 // i18n has en/ru/de/fr/es (see i18n/index.js); persist choice in sb_lang like Legacy.
 const LOCALES = [
@@ -140,6 +138,7 @@ const pageTitle = computed(() => {
 })
 const userName = computed(() => branding.appName ? (localStorage.getItem('sb_username') || 'Admin') : (localStorage.getItem('sb_username') || 'Admin'))
 const initials = computed(() => (userName.value || 'A').trim().slice(0, 2).toUpperCase())
+const showProjectAttribution = computed(() => branding.poweredBy !== false)
 function screenFor(r) { return (r && r.name && D2_SCREENS[r.name]) || null }
 function toggleTheme() { system.setTheme(system.theme === 'dark' ? 'light' : 'dark') }
 function donate() { donateOpen.value = true }
@@ -157,12 +156,10 @@ function isLicensed(l) {
 }
 async function refreshDonateVisibility() {
   try {
-    const [d, l] = await Promise.all([
-      systemApi.getDonationWallets().then(r => r.data).catch(() => ({})),
-      systemApi.getLicense().then(r => r.data).catch(() => ({})),
-    ])
-    // Hidden only when the operator opted in AND the panel is licensed.
-    showDonate.value = !(d && d.hidden && isLicensed(l))
+    const l = await systemApi.getLicense().then(r => r.data).catch(() => ({}))
+    // A paid license already supports the project, so paid operators never see
+    // the donation button or modal. Free/trial installs keep the support entry.
+    showDonate.value = !isLicensed(l)
   } catch (_) { /* keep visible on error */ }
 }
 

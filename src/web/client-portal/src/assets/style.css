@@ -121,15 +121,15 @@ a:hover { color: var(--vxy-primary-dark); }
   border-radius: .375rem; padding: .5rem 1.125rem;
   transition: all .15s ease; border: 1px solid transparent;
 }
-.btn-primary { background: var(--vxy-primary); border-color: var(--vxy-primary); color: #fff; }
-.btn-primary:hover { background: var(--vxy-primary-dark); border-color: var(--vxy-primary-dark); box-shadow: 0 4px 12px rgba(115,103,240,.5); color: #fff; }
+.btn-primary { background: var(--vxy-primary); border-color: var(--vxy-primary); color: var(--accent-fg); }
+.btn-primary:hover { background: var(--vxy-primary-dark); border-color: var(--vxy-primary-dark); box-shadow: 0 4px 12px var(--accent-ring); color: var(--accent-fg); }
 .btn-success { background: var(--vxy-success); border-color: var(--vxy-success); color: #fff; }
 .btn-success:hover { background: #1fa55a; color: #fff; box-shadow: 0 4px 12px rgba(40,199,111,.4); }
 .btn-danger  { background: var(--vxy-danger); border-color: var(--vxy-danger); color: #fff; }
 .btn-danger:hover  { background: #d93c3c; color: #fff; box-shadow: 0 4px 12px rgba(234,84,85,.4); }
 .btn-warning { background: var(--vxy-warning); border-color: var(--vxy-warning); color: #fff; }
 .btn-outline-primary { border-color: var(--vxy-primary); color: var(--vxy-primary); background: transparent; }
-.btn-outline-primary:hover { background: var(--vxy-primary); color: #fff; box-shadow: 0 4px 12px rgba(115,103,240,.4); }
+.btn-outline-primary:hover { background: var(--vxy-primary); color: var(--accent-fg); box-shadow: 0 4px 12px var(--accent-ring); }
 .btn-outline-secondary { border-color: var(--vxy-border); color: var(--vxy-text); background: transparent; }
 .btn-outline-secondary:hover { background: var(--vxy-hover-bg); color: var(--vxy-primary); border-color: var(--vxy-primary); }
 .btn-sm { padding: .3rem .75rem; font-size: .8125rem; }
@@ -192,7 +192,7 @@ a:hover { color: var(--vxy-primary-dark); }
 
 /* ── Progress ─────────────────────────────────────────────── */
 .progress { height: 6px; border-radius: 10px; background: var(--vxy-progress-bg); }
-.progress-bar { border-radius: 10px; background: linear-gradient(90deg, var(--vxy-primary), #9e95f5); }
+.progress-bar { border-radius: 10px; background: linear-gradient(90deg, var(--vxy-primary), var(--accent-400)); }
 .progress-bar.bg-success { background: linear-gradient(90deg, var(--vxy-success), #5bdc9c); }
 .progress-bar.bg-warning { background: linear-gradient(90deg, var(--vxy-warning), #ffbc6b); }
 .progress-bar.bg-danger  { background: linear-gradient(90deg, var(--vxy-danger), #f17475); }

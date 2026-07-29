@@ -831,6 +831,8 @@ class TestServerEndpoints:
         data = response.json()
         assert data["total"] == 1
         assert data["items"][0]["name"] == "wg0"
+        assert data["items"][0]["address_pool_ipv4"] == "10.66.66.0/24"
+        assert data["items"][0]["public_key"].startswith("TestServerPublicKey")
 
     def test_get_server(self, client):
         response = client.get("/api/v1/servers/1")
@@ -842,6 +844,35 @@ class TestServerEndpoints:
     def test_get_server_not_found(self, client):
         response = client.get("/api/v1/servers/999")
         assert response.status_code == 404
+
+    def test_server_clients_response_contains_rows_and_ui_fields(self, client, db_for_test):
+        db_for_test.add(Client(
+            name="CardClient",
+            server_id=1,
+            public_key="CardPubKey" + "x" * 34,
+            private_key="CardPrivKey" + "x" * 33,
+            ipv4="10.66.66.12",
+            ip_index=12,
+            enabled=True,
+            status=ClientStatus.ACTIVE,
+            traffic_used_rx=1200,
+            traffic_used_tx=3400,
+        ))
+        db_for_test.commit()
+
+        response = client.get("/api/v1/servers/1/clients")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["client_count"] == 1
+        assert data["clients"] == [{
+            "id": data["clients"][0]["id"],
+            "name": "CardClient",
+            "ipv4": "10.66.66.12",
+            "enabled": True,
+            "status": "active",
+            "traffic_used_rx": 1200,
+            "traffic_used_tx": 3400,
+        }]
 
 
 # ============================================================================

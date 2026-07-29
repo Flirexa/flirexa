@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ensurePortalSession } from '../session'
+import { safePortalPath } from '../utils.js'
 
 const routes = [
   {
@@ -12,6 +13,20 @@ const routes = [
     path: '/register',
     name: 'Register',
     component: () => import('../views/Register.vue'),
+    meta: { layout: 'auth', public: true }
+  },
+  {
+    path: '/legal/privacy',
+    name: 'PrivacyPolicy',
+    component: () => import('../views/LegalPage.vue'),
+    props: { kind: 'privacy' },
+    meta: { layout: 'auth', public: true }
+  },
+  {
+    path: '/legal/terms',
+    name: 'TermsOfService',
+    component: () => import('../views/LegalPage.vue'),
+    props: { kind: 'terms' },
     meta: { layout: 'auth', public: true }
   },
   {
@@ -50,6 +65,10 @@ const routes = [
     component: () => import('../views/Devices.vue'),
     meta: { requiresAuth: true }
   },
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/',
+  },
 ]
 
 const router = createRouter({
@@ -79,9 +98,7 @@ router.beforeEach(async (to) => {
     // honor it so the marketing-landing → register → /plans loop
     // works even on the second visit when the user happened to
     // already be logged in.
-    const hinted = typeof to.query.next === 'string' && to.query.next.startsWith('/')
-      ? to.query.next
-      : '/'
+    const hinted = safePortalPath(to.query.next)
     return hinted
   }
 })

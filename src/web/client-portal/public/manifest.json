@@ -1,7 +1,7 @@
 {
-  "name": "Flirexa",
-  "short_name": "Flirexa",
-  "description": "WireGuard VPN Management Platform",
+  "name": "VPN Portal",
+  "short_name": "VPN Portal",
+  "description": "VPN customer portal",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#2b2d31",

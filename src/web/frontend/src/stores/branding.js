@@ -61,6 +61,7 @@ export const useBrandingStore = defineStore('branding', {
     supportEmail: '',
     supportUrl: '',
     footerText: '',
+    poweredBy: true,
     primaryColor: '',
     loaded: false,
   }),
@@ -77,6 +78,8 @@ export const useBrandingStore = defineStore('branding', {
         this.supportEmail = sanitizeText(data.branding_support_email)
         this.supportUrl = isSafeUrl(data.branding_support_url) ? data.branding_support_url : ''
         this.footerText = sanitizeText(data.branding_footer_text, 500)
+        const poweredBy = data.branding_powered_by
+        this.poweredBy = poweredBy === undefined || poweredBy === true || String(poweredBy).toLowerCase() === 'true'
         this.primaryColor = /^#[0-9a-fA-F]{3,8}$/.test(data.branding_primary_color || '') ? data.branding_primary_color : ''
         this.loaded = true
         this.applyBranding()

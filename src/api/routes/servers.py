@@ -314,6 +314,12 @@ class ServerResponse(BaseModel):
     interface: str
     endpoint: str
     listen_port: int
+    # Network identity is intentionally part of the list response: the active
+    # admin UI renders it in each server card's Details disclosure.  Keeping
+    # these fields only on the ORM model made the new UI show an em dash even
+    # though the server was configured correctly.
+    public_key: Optional[str] = None
+    address_pool_ipv4: Optional[str] = None
     status: str
     lifecycle_status: str
     is_active: bool = True
@@ -433,6 +439,8 @@ class ServerResponse(BaseModel):
             interface=server.interface,
             endpoint=server.endpoint,
             listen_port=server.listen_port,
+            public_key=getattr(server, 'public_key', None),
+            address_pool_ipv4=getattr(server, 'address_pool_ipv4', None),
             status=server.legacy_status.value if hasattr(server, 'legacy_status') else (server.status.value if hasattr(server.status, 'value') else str(server.status)),
             lifecycle_status=server.effective_lifecycle_status if hasattr(server, 'effective_lifecycle_status') else str(server.status),
             is_active=getattr(server, 'is_active', True),
@@ -2918,6 +2926,8 @@ async def get_server_clients(
                 "ipv4": c.ipv4,
                 "enabled": c.enabled,
                 "status": c.status.value,
+                "traffic_used_rx": c.traffic_used_rx or 0,
+                "traffic_used_tx": c.traffic_used_tx or 0,
             }
             for c in clients
         ]

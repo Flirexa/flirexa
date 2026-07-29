@@ -12,6 +12,11 @@
       </div>
     </div>
 
+    <div v-if="loadError" class="fx-card" style="padding:14px var(--pad-card); margin-bottom:var(--gap); display:flex; align-items:center; justify-content:space-between; gap:12px">
+      <span style="color:var(--danger); font-size:12px">{{ loadError }}</span>
+      <button class="fx-btn fx-btn-secondary fx-btn-sm" @click="loadData">{{ $t('common.retry') }}</button>
+    </div>
+
     <!-- Stat row -->
     <div class="fx-stat-row fx-stat-row-3">
       <div class="fx-stat">
@@ -77,11 +82,10 @@
               <th>{{ $t('payments.method') }}</th>
               <th style="text-align:right">{{ $t('payments.amount') }}</th>
               <th>{{ $t('payments.status') }}</th>
-              <th></th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="p in filteredPayments" :key="p.id">
+            <tr v-for="p in filteredPayments" :key="p.invoice_id || p.id">
               <td>
                 <span style="font-family:var(--mono); font-size:12px">{{ invoiceId(p) }}</span>
               </td>
@@ -101,9 +105,6 @@
                 <small v-if="p.crypto_amount" style="color:var(--text-3); display:block">{{ p.crypto_amount }} {{ p.payment_method }}</small>
               </td>
               <td><span class="fx-badge" :class="statusBadge(p.status)">{{ p.status }}</span></td>
-              <td>
-                <button class="fx-icon-btn-sm" :title="$t('payments.invoice')"><FxIcon name="external" :size="14" /></button>
-              </td>
             </tr>
           </tbody>
         </table>
@@ -140,37 +141,12 @@
                 </div>
                 <div class="fx-method-meta">
                   {{ providerKindLabel(p) }}
-                  <template v-if="p.tier === 'free'">
-                    <span style="color:var(--text-4); margin:0 6px">·</span>{{ $t('payments.tierFree') }}
-                  </template>
-                  <template v-else-if="p.tier === 'paid'">
-                    <span style="color:var(--text-4); margin:0 6px">·</span>{{ $t('payments.tierPaid') }}
-                  </template>
                 </div>
               </div>
               <FxIcon name="chevron" :size="14" style="color:var(--text-3)" />
             </div>
           </div>
 
-          <!-- Paid tier: customer can pick a different provider on demand. -->
-          <button v-if="isPaidTier" class="fx-btn fx-btn-secondary fx-btn-block" style="margin-top:12px"
-                  @click="openAddMethod" :disabled="providersLoading || !providers.length">
-            <FxIcon name="plus" :size="13" /> {{ $t('payments.addMethod') }}
-          </button>
-
-          <!-- Free tier: don't pretend more methods are addable — sell the upgrade. -->
-          <div v-else-if="!providersLoading" class="fx-method-upsell">
-            <div class="fx-method-upsell-icon">
-              <FxIcon name="lock" :size="16" />
-            </div>
-            <div class="fx-method-upsell-body">
-              <div class="fx-method-upsell-title">{{ $t('payments.upsellTitle') }}</div>
-              <div class="fx-method-upsell-text">{{ $t('payments.upsellText') }}</div>
-              <router-link to="/plans" class="fx-btn fx-btn-primary fx-btn-sm" style="margin-top:10px">
-                <FxIcon name="trafficUp" :size="13" /> {{ $t('plans.upgrade') }}
-              </router-link>
-            </div>
-          </div>
         </div>
 
         <div class="fx-card" style="padding:var(--pad-card)">
@@ -179,14 +155,6 @@
             <div class="fx-sub-row">
               <span class="k">{{ $t('payments.email') }}</span>
               <span class="v">{{ userEmail }}</span>
-            </div>
-            <div class="fx-sub-row">
-              <span class="k">{{ $t('payments.country') }}</span>
-              <span class="v" style="color:var(--text-3)">{{ $t('payments.notSet') }}</span>
-            </div>
-            <div class="fx-sub-row">
-              <span class="k">{{ $t('payments.taxId') }}</span>
-              <span class="v" style="color:var(--text-3)">{{ $t('payments.notSet') }}</span>
             </div>
           </div>
         </div>
@@ -210,12 +178,14 @@ import { portalApi } from '../api'
 import { portalSession } from '../session'
 import FxIcon from '../components/FxIcon.vue'
 import PaymentModal from './PaymentModal.vue'
+import { apiErrorMessage } from '../utils.js'
 
 const { t, locale } = useI18n()
 
 const payments = ref([])
 const subscription = ref({})
 const loading = ref(true)
+const loadError = ref('')
 const filter = ref('all')
 
 const providers = ref([])
@@ -273,13 +243,11 @@ const userEmail = computed(() => {
 // "Default" = the provider used for the most recent successful payment.
 const defaultProviderId = computed(() => {
   const lp = lastPayment.value
-  if (!lp || !lp.payment_method) return providers.value[0]?.id || ''
+  if (!lp || !lp.payment_method) return ''
   const m = lp.payment_method.toLowerCase()
   // payment_method on payments is the currency or provider name — best-effort match.
-  return providers.value.find(p => m.includes(p.id))?.id || providers.value[0]?.id || ''
+  return providers.value.find(p => m.includes(p.id))?.id || ''
 })
-
-const isPaidTier = computed(() => providers.value.some(p => p.tier === 'paid'))
 
 const providerInitials = (p) => {
   const name = (p.display_name || p.name || p.id || '?').replace(/\(.+\)/, '').trim()
@@ -301,11 +269,6 @@ const providerIconClass = (p) => {
 }
 
 const payWith = (p) => { payModalProvider.value = p.id; payModalOpen.value = true }
-const openAddMethod = () => {
-  // No "default selected" — let the modal present the full chooser.
-  payModalProvider.value = ''
-  payModalOpen.value = true
-}
 const onPaymentSuccess = () => {
   payModalOpen.value = false
   // Refresh history so the new payment appears immediately.
@@ -338,22 +301,29 @@ const statusBadge = (s) => {
 }
 const invoiceId = (p) => p.invoice_id || `INV-${String(p.id).padStart(6, '0')}`
 
-onMounted(async () => {
-  try {
-    const [paymentsRes, subRes, provRes] = await Promise.all([
-      portalApi.getPaymentHistory(50),
-      portalApi.getSubscription(),
-      portalApi.getProviders(),
-    ])
-    payments.value = paymentsRes.data || []
-    subscription.value = subRes.data || {}
-    providers.value = Array.isArray(provRes.data) ? provRes.data : []
-  } catch { /* ignore */ }
-  finally {
-    loading.value = false
-    providersLoading.value = false
+const loadData = async () => {
+  loading.value = true
+  providersLoading.value = true
+  loadError.value = ''
+  const results = await Promise.allSettled([
+    portalApi.getPaymentHistory(50),
+    portalApi.getSubscription(),
+    portalApi.getProviders(),
+  ])
+  const [paymentsRes, subRes, provRes] = results
+  if (paymentsRes.status === 'fulfilled') payments.value = paymentsRes.value.data || []
+  if (subRes.status === 'fulfilled') subscription.value = subRes.value.data || {}
+  if (provRes.status === 'fulfilled') {
+    const rows = Array.isArray(provRes.value.data) ? provRes.value.data : []
+    providers.value = rows.filter(provider => provider.configured !== false)
   }
-})
+  const firstError = results.find(result => result.status === 'rejected')
+  if (firstError) loadError.value = apiErrorMessage(firstError.reason, t('common.loadError'))
+  loading.value = false
+  providersLoading.value = false
+}
+
+onMounted(loadData)
 </script>
 
 <style scoped>
@@ -398,35 +368,4 @@ onMounted(async () => {
 }
 .fx-method-name .fx-badge { height: 18px; font-size: 10px; }
 .fx-method-meta { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-
-/* Upsell card shown on free tier instead of "Add another method". */
-.fx-method-upsell {
-  margin-top: 14px;
-  padding: 14px;
-  display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
-  gap: 12px;
-  border-radius: var(--r-md);
-  background: linear-gradient(
-    135deg,
-    color-mix(in oklab, var(--accent) 12%, var(--bg-elev)) 0%,
-    var(--bg-elev) 60%
-  );
-  border: 1px solid color-mix(in oklab, var(--accent) 20%, var(--border));
-}
-.fx-method-upsell-icon {
-  width: 32px; height: 32px;
-  border-radius: var(--r-sm);
-  display: grid; place-items: center;
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.fx-method-upsell-title {
-  font-size: 13px; font-weight: 600;
-  color: var(--text);
-}
-.fx-method-upsell-text {
-  font-size: 11px; color: var(--text-3);
-  margin-top: 4px; line-height: 1.5;
-}
 </style>

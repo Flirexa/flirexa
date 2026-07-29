@@ -117,12 +117,12 @@
               <label class="text-muted small">{{ $t('pay.amount') }}</label>
               <div class="input-group input-group-sm">
                 <input type="text" class="form-control text-center fw-bold" :value="invoiceDisplayAmount" readonly />
-                <button class="btn btn-outline-secondary" @click="copyToClipboard(String(invoice.amount_crypto || invoice.amount_usd))">{{ $t('common.copy') }}</button>
+                <button class="btn btn-outline-secondary" @click="copyToClipboard(String(invoice.amount_crypto || invoice.amount_usd))">{{ copied ? $t('common.copied') : $t('common.copy') }}</button>
               </div>
             </div>
             <div class="alert alert-warning small py-2">{{ $t('pay.expiresIn', { min: expiryMinutes }) }}</div>
             <div v-if="invoice.amount_crypto" class="small text-muted mb-2">{{ $t('pay.cryptoRateDisclaimer') }}</div>
-            <a v-if="invoice.payment_url" :href="invoice.payment_url" target="_blank" class="btn btn-primary w-100 mb-2">{{ $t('pay.openPaymentPage') }}</a>
+            <a v-if="invoice.payment_url" :href="invoice.payment_url" target="_blank" rel="noreferrer" class="btn btn-primary w-100 mb-2">{{ $t('pay.openPaymentPage') }}</a>
             <button class="btn btn-outline-primary btn-sm w-100" @click="checkPayment" :disabled="checkingPayment">
               <span v-if="checkingPayment" class="spinner-border spinner-border-sm me-1"></span>
               {{ $t('pay.checkStatus') }}
@@ -153,6 +153,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
+import { apiErrorMessage, copyText } from '../utils.js'
 
 const emit = defineEmits(['close', 'success'])
 const props = defineProps({
@@ -165,7 +166,7 @@ const { t } = useI18n()
 const step = ref(1)
 const plans = ref([])
 const providers = ref([])
-const selectedProvider = ref('cryptopay')
+const selectedProvider = ref('')
 const selectedPlan = ref(null)
 const duration = ref('30')
 // Always submit USD as the price denomination — every hosted-checkout
@@ -185,6 +186,7 @@ const promoMessage = ref('')
 const promoError = ref('')
 const promoDiscount = ref(0)
 const operatorFeatures = ref({ promo_codes: false })
+const copied = ref(false)
 
 const stepTitle = computed(() => {
   if (step.value === 1) return t('pay.choosePlan')
@@ -241,7 +243,10 @@ const totalPrice = computed(() => {
 
 const canProceed = computed(() => {
   if (step.value === 1) return selectedPlan.value && duration.value
-  if (step.value === 2) return selectedCurrency.value
+  if (step.value === 2) {
+    return selectedCurrency.value
+      && providers.value.some(provider => provider.id === selectedProvider.value)
+  }
   return false
 })
 
@@ -289,11 +294,6 @@ const getProviderIcon = (id) => {
   return icons[id] || '💰'
 }
 
-const getCryptoIcon = (code) => {
-  const icons = { BTC: '₿', USDT: '₮', TON: '💎', ETH: 'Ξ', USDC: '$', BUSD: '$' }
-  return icons[code] || '💰'
-}
-
 const goBack = () => { step.value === 2 ? step.value = 1 : emit('close') }
 
 const nextStep = async () => { step.value === 2 ? await createInvoice() : step.value++ }
@@ -314,7 +314,7 @@ const createInvoice = async () => {
     step.value = 3
     startPaymentCheck()
   } catch (err) {
-    const detail = err.response?.data?.detail || ''
+    const detail = apiErrorMessage(err, '')
     // If the promo was reserved at validate-time but is no longer valid
     // here (admin disabled / max_uses just hit / expired between
     // validate and submit), drop the local promo state so the user
@@ -368,11 +368,15 @@ const applyPromo = async () => {
       promoError.value = data.error || 'Invalid promo code'
     }
   } catch (err) {
-    promoError.value = err.response?.data?.detail || 'Failed to validate promo'
+    promoError.value = apiErrorMessage(err, 'Failed to validate promo')
   } finally { promoChecking.value = false }
 }
 
-const copyToClipboard = (text) => { if (navigator.clipboard) navigator.clipboard.writeText(text) }
+const copyToClipboard = async (text) => {
+  if (!await copyText(text)) return
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 1500)
+}
 
 onMounted(async () => {
   document.body.style.overflow = 'hidden'
@@ -381,8 +385,14 @@ onMounted(async () => {
       portalApi.getPlans(),
       portalApi.getProviders()
     ])
-    plans.value = plansRes.data.filter(p => p.tier !== 'free')
-    providers.value = providersRes.data
+    plans.value = Array.isArray(plansRes.data)
+      ? plansRes.data.filter(p => p.tier !== 'free')
+      : []
+    providers.value = Array.isArray(providersRes.data)
+      ? providersRes.data.filter(provider => provider.configured !== false)
+      : []
+    if (!plans.value.length) error.value = t('common.loadError')
+    else if (!providers.value.length) error.value = t('payments.noProvidersConfigured')
     // Feature decoration must never block the working purchase flow. The
     // backend still enforces promo/provider entitlements if this optional
     // request fails.
@@ -399,7 +409,9 @@ onMounted(async () => {
     const match = wanted && providers.value.find(p => p.id === wanted)
     if (match) selectedProvider.value = match.id
     else if (providers.value.length >= 1) selectedProvider.value = providers.value[0].id
-  } catch { /* ignore */ }
+  } catch (err) {
+    error.value = apiErrorMessage(err, t('common.loadError'))
+  }
   if (props.plan) {
     selectedPlan.value = props.plan
     // Plans.vue picks a billing period (monthly/quarterly/yearly)

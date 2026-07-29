@@ -134,12 +134,7 @@
             <span v-if="passwordError" id="password-error" class="fx-field-error">{{ $t('auth.passwordTooShort') }}</span>
           </div>
 
-          <div class="fx-login-row">
-            <label class="fx-check">
-              <input type="checkbox" v-model="remember" />
-              <span class="fx-check-box"><FxIcon name="check" :size="11" :stroke-width="3" /></span>
-              <span>{{ $t('auth.rememberMe') }}</span>
-            </label>
+          <div class="fx-login-row" style="justify-content:flex-end">
             <a class="fx-login-link" href="#" @click.prevent="showForgot = true">{{ $t('auth.forgotPassword') }}</a>
           </div>
 
@@ -163,11 +158,15 @@
     </main>
 
     <div class="fx-login-meta">
-      <a href="#" @click.prevent>{{ $t('footer.privacy') }}</a>
-      <span class="sep">·</span>
-      <a href="#" @click.prevent>{{ $t('footer.terms') }}</a>
-      <span class="sep">·</span>
-      <router-link to="/support">{{ $t('nav.support') }}</router-link>
+      <a v-if="privacyUrl" :href="privacyUrl" :target="privacyExternal ? '_blank' : undefined" rel="noreferrer">{{ $t('footer.privacy') }}</a>
+      <template v-if="termsUrl">
+        <span v-if="privacyUrl" class="sep">·</span>
+        <a :href="termsUrl" :target="termsExternal ? '_blank' : undefined" rel="noreferrer">{{ $t('footer.terms') }}</a>
+      </template>
+      <template v-if="supportHref">
+        <span v-if="privacyUrl || termsUrl" class="sep">·</span>
+        <a :href="supportHref" :target="supportExternal ? '_blank' : undefined" rel="noreferrer">{{ $t('nav.support') }}</a>
+      </template>
     </div>
   </div>
 </template>
@@ -180,10 +179,20 @@ import { portalApi } from '../api'
 import { setPortalUser } from '../session'
 import FxIcon from '../components/FxIcon.vue'
 import bundledLogo from '../assets/flirexa-logo.png'
+import { brandingUrl, isExternalHref, legalDocumentHref } from '../branding'
+import { apiErrorMessage, safePortalPath } from '../utils.js'
 
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
+const privacyUrl = computed(() => legalDocumentHref('privacy'))
+const termsUrl = computed(() => legalDocumentHref('terms'))
+const privacyExternal = computed(() => isExternalHref(privacyUrl.value))
+const termsExternal = computed(() => isExternalHref(termsUrl.value))
+const supportUrl = computed(() => brandingUrl('branding_support_url'))
+const supportEmail = computed(() => String(window.__branding?.branding_support_email || '').trim())
+const supportHref = computed(() => supportUrl.value || (supportEmail.value ? `mailto:${supportEmail.value}` : ''))
+const supportExternal = computed(() => /^https?:/i.test(supportHref.value))
 
 // Show only the operator's customer-facing name. Empty → hide text.
 const brandName = computed(() => (
@@ -210,7 +219,6 @@ const isCustomLogo = computed(() => (
 // `identifier` accepts either email or username; the backend route
 // disambiguates by presence of "@".
 const form = ref({ identifier: '', password: '' })
-const remember = ref(true)
 const loading = ref(false)
 const error = ref(null)
 const success = ref(null)
@@ -257,13 +265,10 @@ const handleLogin = async () => {
       password: form.value.password,
     })
     setPortalUser(response.data.user)
-    if (remember.value) localStorage.setItem('remember_me', 'true')
     // Honor ?next= so the landing-site "Choose plan" deep-link
     // (→ /register?next=/plans) lands the user where they expected
     // after sign-in instead of dumping them on the dashboard.
-    const nextParam = typeof route.query.next === 'string' && route.query.next.startsWith('/')
-      ? route.query.next
-      : '/'
+    const nextParam = safePortalPath(route.query.next)
     router.push(nextParam)
   } catch (err) {
     if (err.response?.data?.detail) {
@@ -285,7 +290,7 @@ const handleForgotPassword = async () => {
     await portalApi.forgotPassword({ email: forgotEmail.value })
     success.value = t('auth.resetEmailSent')
   } catch (err) {
-    error.value = err.response?.data?.detail || t('common.error')
+    error.value = apiErrorMessage(err, t('common.error'))
   } finally {
     loading.value = false
   }
@@ -299,7 +304,7 @@ const handleResetPassword = async () => {
     success.value = t('auth.passwordResetDone')
     setTimeout(() => { showReset.value = false; success.value = null }, 2000)
   } catch (err) {
-    error.value = err.response?.data?.detail || t('common.error')
+    error.value = apiErrorMessage(err, t('common.error'))
   } finally {
     loading.value = false
   }

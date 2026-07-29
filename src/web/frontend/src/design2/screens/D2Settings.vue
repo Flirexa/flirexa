@@ -300,7 +300,7 @@
                 <input type="color" :value="brand.primary_color" @input="brand.primary_color = $event.target.value; branding.previewAccent($event.target.value)" style="width:40px;height:40px;border:1px solid var(--border);border-radius:9px;padding:2px;background:var(--panel);cursor:pointer;flex:none">
                 <input :value="brand.primary_color" @input="brand.primary_color = $event.target.value; branding.previewAccent($event.target.value)" style="flex:1;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none" @focus="onFocus" @blur="onBlur">
               </div>
-              <div style="font-size:11.5px;color:var(--text-3);margin-top:8px">{{ tr('settings.brandApplyHint') || 'Color applies across the whole panel instantly.' }}</div>
+              <div style="font-size:11.5px;color:var(--text-3);margin-top:8px">{{ tr('settings.brandApplyHint') || 'Color previews instantly in the admin panel and applies to the client portal after saving.' }}</div>
             </div>
 
             <!-- support -->
@@ -309,6 +309,11 @@
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:13px">
                 <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.supportEmail') || 'Support email' }}</label><input :value="brand.support_email" @input="brand.support_email = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
                 <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.supportUrl') || 'Support URL' }}</label><input :value="brand.support_url" @input="brand.support_url = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
+                <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.privacyUrl') || 'Privacy Policy URL' }}</label><input :value="brand.privacy_url" @input="brand.privacy_url = $event.target.value" placeholder="https://example.com/privacy" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
+                <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.termsUrl') || 'Terms of Service URL' }}</label><input :value="brand.terms_url" @input="brand.terms_url = $event.target.value" placeholder="https://example.com/terms" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
+                <div style="grid-column:1 / -1;font-size:11.5px;color:var(--text-3);line-height:1.5">{{ tr('settings.legalUrlHint') || 'An external URL takes priority. Leave it empty to publish the text below as a branded portal page.' }}</div>
+                <div style="grid-column:1 / -1"><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.privacyText') || 'Privacy Policy text' }}</label><textarea v-model="brand.privacy_text" maxlength="50000" rows="8" :placeholder="tr('settings.privacyTextPlaceholder') || 'Write your Privacy Policy here…'" style="width:100%;min-height:150px;resize:vertical;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:11px 12px;font:inherit;font-size:13px;line-height:1.55;outline:none" @focus="onFocus" @blur="onBlur"></textarea></div>
+                <div style="grid-column:1 / -1"><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.termsText') || 'Terms of Service text' }}</label><textarea v-model="brand.terms_text" maxlength="50000" rows="8" :placeholder="tr('settings.termsTextPlaceholder') || 'Write your Terms of Service here…'" style="width:100%;min-height:150px;resize:vertical;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:11px 12px;font:inherit;font-size:13px;line-height:1.55;outline:none" @focus="onFocus" @blur="onBlur"></textarea></div>
                 <div style="grid-column:1 / -1"><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.footerText') || 'Footer' }}</label><input :value="brand.footer_text" @input="brand.footer_text = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
               </div>
               <div style="display:flex;align-items:center;gap:11px;margin-top:14px">
@@ -324,42 +329,7 @@
             </div>
           </div>
 
-          <!-- live preview -->
-          <div style="position:sticky;top:84px;display:flex;flex-direction:column;gap:14px">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3)">{{ tr('settings.brandPreview') || 'Live preview' }}</div>
-            <div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)">
-              <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:8px 14px;background:var(--panel-2);border-bottom:1px solid var(--border)">{{ tr('settings.previewLogin') || 'Login screen' }}</div>
-              <div style="padding:26px 22px;display:flex;flex-direction:column;align-items:center;background:var(--bg)">
-                <div style="width:46px;height:46px;border-radius:13px;background:var(--accent);display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 6px 18px var(--accent-ring);margin-bottom:13px">
-                  <img v-if="brand.logo_url" :src="brand.logo_url" alt="" style="max-width:100%;max-height:100%;object-fit:contain">
-                  <span v-else style="color:#fff;font-weight:700;font-size:18px">{{ brandInitial }}</span>
-                </div>
-                <div style="font-weight:680;font-size:16px;letter-spacing:-.02em">{{ brand.app_name || 'Panel' }}</div>
-                <div style="font-size:12px;color:var(--text-3);margin-top:2px;margin-bottom:16px">{{ brand.login_title }}</div>
-                <div style="width:100%;max-width:240px;display:flex;flex-direction:column;gap:9px">
-                  <div style="height:38px;border:1px solid var(--border-strong);background:var(--panel-2);border-radius:9px;display:flex;align-items:center;padding:0 12px;font-size:12px;color:var(--text-3)">{{ tr('applications.username') || 'Username' }}</div>
-                  <div style="height:38px;border:1px solid var(--border-strong);background:var(--panel-2);border-radius:9px;display:flex;align-items:center;padding:0 12px;font-size:12px;color:var(--text-3)">{{ tr('applications.password') || 'Password' }}</div>
-                  <div style="height:40px;border-radius:9px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">{{ tr('common.signIn') || 'Sign in' }}</div>
-                </div>
-                <div v-if="brand.footer_text" style="font-size:10.5px;color:var(--text-3);margin-top:16px;text-align:center">{{ brand.footer_text }}</div>
-                <div v-if="brand.powered_by" style="font-size:10px;color:var(--text-3);margin-top:6px;opacity:.7">Powered by Flirexa</div>
-              </div>
-            </div>
-            <div style="border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow)">
-              <div style="font-size:10.5px;font-weight:600;color:var(--text-3);padding:8px 14px;background:var(--panel-2);border-bottom:1px solid var(--border)">{{ tr('settings.previewPanel') || 'Panel sidebar' }}</div>
-              <div style="display:flex;align-items:center;gap:11px;padding:14px 16px;background:var(--panel)">
-                <div style="width:32px;height:32px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none;box-shadow:0 2px 8px var(--accent-ring)">
-                  <img v-if="brand.logo_url" :src="brand.logo_url" alt="" style="max-width:100%;max-height:100%;object-fit:contain">
-                  <span v-else style="color:#fff;font-weight:700;font-size:13px">{{ brandInitial }}</span>
-                </div>
-                <div style="line-height:1.15"><div style="font-weight:680;font-size:14px;letter-spacing:-.01em">{{ brand.brand_name || brand.company_name || brand.app_name || 'Company' }}</div><div style="font-size:11px;color:var(--text-3)">{{ brand.tagline || brand.app_name }}</div></div>
-              </div>
-              <div style="padding:0 12px 14px;background:var(--panel);display:flex;flex-direction:column;gap:3px">
-                <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:12.5px;font-weight:600"><span style="width:7px;height:7px;border-radius:50%;background:var(--accent)"></span>Dashboard</div>
-                <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;color:var(--text-2);font-size:12.5px"><span style="width:7px;height:7px;border-radius:50%;background:var(--text-3)"></span>Clients</div>
-              </div>
-            </div>
-          </div>
+          <D2BrandingPreview :brand="brand" />
         </div>
 
         <!-- ================= UPDATE CHANNEL ================= -->
@@ -486,6 +456,7 @@ import { useSystemStore } from '../../stores/system'
 import { useBrandingStore } from '../../stores/branding'
 import { useD2Ui } from '../../stores/d2ui'
 import D2HelpTip from '../ui/D2HelpTip.vue'
+import D2BrandingPreview from '../ui/D2BrandingPreview.vue'
 
 const { t } = useI18n()
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
@@ -786,8 +757,7 @@ const msgAdmTone = ref('ok')
 async function createAdmin() { busy.adm = true; msgAdmTone.value = 'ok'; try { await systemApi.createAdmin({ username: newAdmin.username, password: newAdmin.password }); msg.adm = tr('settings.adminCreated') || 'Admin created'; newAdmin.username = ''; newAdmin.password = '' } catch (e) { msgAdmTone.value = 'err'; msg.adm = e.response?.data?.detail || 'Error' } finally { busy.adm = false } }
 
 // ═══════════════ BRANDING ═══════════════
-const brand = reactive({ app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', footer_text: '', powered_by: false, customer_logo_url: '', logo_url: '', favicon_url: '', primary_color: '#6366f1' })
-const brandInitial = computed(() => (brand.brand_name || brand.company_name || brand.app_name || 'P').trim().charAt(0).toUpperCase() || 'P')
+const brand = reactive({ app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', privacy_url: '', terms_url: '', privacy_text: '', terms_text: '', footer_text: '', powered_by: false, customer_logo_url: '', logo_url: '', favicon_url: '', primary_color: '#6366f1' })
 const BRAND_PRESETS = ['#6366f1', '#2563eb', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6']
 const brandPresets = computed(() => BRAND_PRESETS.map(hex => {
   const on = (brand.primary_color || '').toLowerCase() === hex
@@ -795,7 +765,7 @@ const brandPresets = computed(() => BRAND_PRESETS.map(hex => {
 }))
 async function resetBranding() {
   if (!await d2confirm(tr('settings.brandResetConfirm') || 'Reset branding to defaults?')) return
-  Object.assign(brand, { app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', footer_text: '', powered_by: false, primary_color: '#6366f1' })
+  Object.assign(brand, { app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', privacy_url: '', terms_url: '', privacy_text: '', terms_text: '', footer_text: '', powered_by: false, primary_color: '#6366f1' })
   flash('brand', tr('common.done') || 'Reset')
 }
 const logoSlots = computed(() => [
@@ -803,8 +773,8 @@ const logoSlots = computed(() => [
   { key: 'customer', label: tr('settings.customerLogo') || 'Customer logo', url: brand.customer_logo_url, onFile: e => uploadSlot(e, 'customer'), onRemove: () => removeSlot('customer') },
   { key: 'favicon', label: tr('settings.favicon') || 'Favicon', url: brand.favicon_url, onFile: e => uploadSlot(e, 'favicon'), onRemove: () => removeSlot('favicon') },
 ])
-async function loadBranding() { try { const r = await systemApi.getBranding(); const d = r.data; brand.app_name = d.branding_app_name || ''; brand.customer_app_name = d.branding_customer_app_name || ''; brand.brand_name = brand.customer_app_name; brand.tagline = d.branding_tagline || ''; brand.company_name = d.branding_company_name || ''; brand.login_title = d.branding_login_title || ''; brand.support_email = d.branding_support_email || ''; brand.support_url = d.branding_support_url || ''; brand.footer_text = d.branding_footer_text || ''; brand.powered_by = d.branding_powered_by === true || String(d.branding_powered_by).toLowerCase() === 'true'; brand.customer_logo_url = d.branding_customer_logo_url || ''; brand.logo_url = d.branding_logo_url || ''; brand.favicon_url = d.branding_favicon_url || ''; brand.primary_color = d.branding_primary_color || '#6366f1' } catch (_) {} }
-async function saveBranding() { busy.brand = true; try { await systemApi.updateBranding({ branding_app_name: brand.app_name, branding_customer_app_name: brand.brand_name, branding_tagline: brand.tagline, branding_company_name: brand.company_name, branding_login_title: brand.login_title, branding_support_email: brand.support_email, branding_support_url: brand.support_url, branding_footer_text: brand.footer_text, branding_powered_by: brand.powered_by, branding_customer_logo_url: brand.customer_logo_url, branding_primary_color: brand.primary_color }); brand.customer_app_name = brand.brand_name; branding.commitAccent(brand.primary_color); flash('brand', tr('common.saved') || 'Saved') } catch (e) { flash('brand', errorText(e)) } finally { busy.brand = false } }
+async function loadBranding() { try { const r = await systemApi.getBranding(); const d = r.data; brand.app_name = d.branding_app_name || ''; brand.customer_app_name = d.branding_customer_app_name || ''; brand.brand_name = brand.customer_app_name; brand.tagline = d.branding_tagline || ''; brand.company_name = d.branding_company_name || ''; brand.login_title = d.branding_login_title || ''; brand.support_email = d.branding_support_email || ''; brand.support_url = d.branding_support_url || ''; brand.privacy_url = d.branding_privacy_url || ''; brand.terms_url = d.branding_terms_url || ''; brand.privacy_text = d.branding_privacy_text || ''; brand.terms_text = d.branding_terms_text || ''; brand.footer_text = d.branding_footer_text || ''; brand.powered_by = d.branding_powered_by === true || String(d.branding_powered_by).toLowerCase() === 'true'; brand.customer_logo_url = d.branding_customer_logo_url || ''; brand.logo_url = d.branding_logo_url || ''; brand.favicon_url = d.branding_favicon_url || ''; brand.primary_color = d.branding_primary_color || '#6366f1' } catch (_) {} }
+async function saveBranding() { busy.brand = true; try { await systemApi.updateBranding({ branding_app_name: brand.app_name, branding_customer_app_name: brand.brand_name, branding_tagline: brand.tagline, branding_company_name: brand.company_name, branding_login_title: brand.login_title, branding_support_email: brand.support_email, branding_support_url: brand.support_url, branding_privacy_url: brand.privacy_url, branding_terms_url: brand.terms_url, branding_privacy_text: brand.privacy_text, branding_terms_text: brand.terms_text, branding_footer_text: brand.footer_text, branding_powered_by: brand.powered_by, branding_customer_logo_url: brand.customer_logo_url, branding_primary_color: brand.primary_color }); brand.customer_app_name = brand.brand_name; branding.commitAccent(brand.primary_color); flash('brand', tr('common.saved') || 'Saved') } catch (e) { flash('brand', errorText(e)) } finally { busy.brand = false } }
 async function uploadSlot(event, slot) {
   const file = event.target.files && event.target.files[0]; if (!file) return
   if (file.size > 1024 * 1024) { flash('brand', tr('settings.fileTooLarge') || 'File too large (max 1MB)'); return }
