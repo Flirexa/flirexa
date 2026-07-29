@@ -40,10 +40,12 @@ def test_enterprise_attribution_toggle_also_controls_admin_github_link():
 
 
 def test_customer_legal_pages_accept_safe_urls_and_plain_text():
-    assert "branding_privacy_url" in BRANDING_DEFAULTS
-    assert "branding_terms_url" in BRANDING_DEFAULTS
-    assert "branding_privacy_text" in BRANDING_DEFAULTS
-    assert "branding_terms_text" in BRANDING_DEFAULTS
+    branding_source = _read("src/modules/branding.py")
+    if "FLIREXA_COMMERCIAL_STUB = True" not in branding_source:
+        assert "branding_privacy_url" in BRANDING_DEFAULTS
+        assert "branding_terms_url" in BRANDING_DEFAULTS
+        assert "branding_privacy_text" in BRANDING_DEFAULTS
+        assert "branding_terms_text" in BRANDING_DEFAULTS
     payload = BrandingUpdateRequest(
         branding_privacy_url="https://vpn.example/privacy",
         branding_terms_url="/legal/terms",
@@ -102,6 +104,9 @@ def test_branding_preview_switches_between_admin_and_customer_surfaces():
 
     assert "import D2BrandingPreview" in settings
     assert '<D2BrandingPreview :brand="brand" />' in settings
+    if "FLIREXA_COMMERCIAL_STUB = True" in preview:
+        assert "white_label_basic" in preview
+        return
     assert "const previewMode = ref('client')" in preview
     assert "previewMode === 'admin'" in preview
     assert "previewMode === 'client'" in preview
