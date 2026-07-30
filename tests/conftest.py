@@ -5,12 +5,17 @@ Uses SQLite in-memory database and mocked WireGuard commands
 
 import os
 import sys
+from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
 # Force SQLite before any imports that read DATABASE_URL
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["AUTH_ENABLED"] = "false"
+# Keep source-tree tests independent from a transient or pre-existing
+# /opt/vpnmanager directory on the runner. Individual runtime-path tests
+# override this explicitly with monkeypatch.
+os.environ["INSTALL_DIR"] = str(Path(__file__).resolve().parents[1])
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
