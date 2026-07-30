@@ -1,0 +1,16 @@
+[run]
+branch = True
+source = src
+omit =
+    src/alembic/*
+    src/database/migrations/*
+    license_server/tests/*
+
+[report]
+exclude_also =
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    raise NotImplementedError
+precision = 2
+show_missing = True
+skip_covered = True

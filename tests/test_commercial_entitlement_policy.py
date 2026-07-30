@@ -11,8 +11,8 @@ from src.api.routes.servers import _enforce_server_creation_entitlement
 from src.api.routes.system import (
     PaymentSettingsUpdate,
     _APP_INTEGRATION_SETTING_FIELDS,
-    _PAID_PAYMENT_SETTING_FIELDS,
 )
+from src.modules.payment_settings_commercial import PAID_SETTING_FIELDS
 from src.modules.license.manager import LicenseInfo, LicenseType
 
 
@@ -137,13 +137,13 @@ def test_signed_starter_and_business_server_limits_are_authoritative():
 
 def test_payment_settings_split_nowpayments_from_business_providers():
     free_payload = PaymentSettingsUpdate(nowpayments_api_key="np", nowpayments_sandbox=True)
-    assert not (free_payload.model_fields_set & _PAID_PAYMENT_SETTING_FIELDS)
+    assert not (free_payload.model_fields_set & PAID_SETTING_FIELDS)
 
     for field in (
         "cryptopay_api_token", "paypal_client_id", "stripe_secret_key",
         "payme_merchant_id", "mollie_api_key", "razorpay_key_id",
     ):
-        assert field in _PAID_PAYMENT_SETTING_FIELDS
+        assert field in PAID_SETTING_FIELDS
 
 
 def test_unknown_payment_provider_is_not_treated_as_free():

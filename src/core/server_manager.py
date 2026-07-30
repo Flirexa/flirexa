@@ -4,13 +4,10 @@ Handles WireGuard server configuration and management
 """
 
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from sqlalchemy import select
 from loguru import logger
-import os
 import shlex
-import subprocess
 
 from ..database.models import (
     Server,
@@ -23,6 +20,8 @@ from ..database.models import (
 )
 from .wireguard import WireGuardManager
 from .amneziawg import AmneziaWGManager
+from ..modules import server_commercial_adapter as commercial_servers
+from ..modules import server_proxy_adapter as commercial_proxy
 
 
 # Global cache for server stats (shared across all ServerManager instances)
@@ -41,53 +40,8 @@ class ServerManager:
         self.db = db
 
     def _is_proxy(self, server: Server) -> bool:
-        """Return True if server is a proxy protocol (Hysteria2/TUIC)."""
-        return getattr(server, 'server_category', None) == 'proxy' or \
-               getattr(server, 'server_type', '') in ('hysteria2', 'tuic', 'vless-reality')
-
-    def _get_proxy_manager(self, server: Server):
-        """
-        Create Hysteria2Manager or TUICManager for a proxy server.
-        Returns the manager instance (caller must call .close() when done).
-        """
-        server_type = getattr(server, 'server_type', '')
-        common = dict(
-            config_path=server.proxy_config_path or f"/etc/{server_type}/config.{'yaml' if server_type == 'hysteria2' else 'json'}",
-            service_name=server.proxy_service_name or ("hysteria-server" if server_type == "hysteria2" else "tuic-server"),
-            listen_port=server.listen_port or (8443 if server_type == "hysteria2" else 8444),
-            domain=server.proxy_domain,
-            tls_mode=server.proxy_tls_mode or "self_signed",
-            cert_path=server.proxy_cert_path or f"/etc/{server_type}/server.crt",
-            key_path=server.proxy_key_path or f"/etc/{server_type}/server.key",
-            ssh_host=server.ssh_host,
-            ssh_port=server.ssh_port or 22,
-            ssh_user=server.ssh_user or "root",
-            ssh_password=server.ssh_password,
-            ssh_private_key=server.ssh_private_key,
-        )
-        if server_type == "vless-reality":
-            from .vless_reality import VlessRealityManager
-            return VlessRealityManager(
-                config_path=server.proxy_config_path or "/etc/xray/config.json",
-                service_name=server.proxy_service_name or "xray-reality",
-                listen_port=server.listen_port or 443,
-                domain=server.proxy_domain,
-                reality_private_key=server.proxy_reality_private_key,
-                reality_public_key=server.proxy_reality_public_key,
-                short_id=server.proxy_reality_short_id,
-                ssh_host=server.ssh_host,
-                ssh_port=server.ssh_port or 22,
-                ssh_user=server.ssh_user or "root",
-                ssh_password=server.ssh_password,
-                ssh_private_key=server.ssh_private_key,
-            )
-        if server_type == "hysteria2":
-            from .hysteria2 import Hysteria2Manager
-            return Hysteria2Manager(**common, obfs_password=server.proxy_obfs_password,
-                                    auth_password=server.proxy_auth_password)
-        else:
-            from .tuic import TUICManager
-            return TUICManager(**{k: v for k, v in common.items() if k != "obfs_password"})
+        """Return whether this row requires the protected proxy runtime."""
+        return commercial_proxy.is_proxy_server(server)
 
     def _get_wg(self, server: Server):
         """
@@ -95,19 +49,8 @@ class ServerManager:
         """
         is_awg = getattr(server, 'server_type', 'wireguard') == 'amneziawg'
 
-        # Mikrotik mode is *remote* (the WG interface lives on the router)
-        # but has no ssh_host. Route through the adapter, otherwise we'd
-        # hit the local-mode branch and accidentally tear down the panel
-        # host's wg0 when stopping/deleting a mikrotik-managed server with
-        # the same interface name. Same defensive pattern as the SSH/local
-        # collision class fixed in earlier releases.
-        if (getattr(server, "agent_mode", None) or "") == "mikrotik":
-            from .remote_adapter import RemoteServerAdapter
-            return RemoteServerAdapter(
-                server=server,
-                interface=server.interface,
-                config_path=server.config_path,
-            )
+        if commercial_servers.is_remote_server(server):
+            return commercial_servers.get_remote_wg_manager(server)
 
         # Local server
         if not server.ssh_host:
@@ -130,13 +73,8 @@ class ServerManager:
                 config_path=server.config_path
             )
 
-        # Remote server - use RemoteServerAdapter (SSH or Agent mode)
-        from .remote_adapter import RemoteServerAdapter
-        return RemoteServerAdapter(
-            server=server,
-            interface=server.interface,
-            config_path=server.config_path
-        )
+        # A non-local row must have been classified by the protected adapter.
+        raise RuntimeError("Unsupported non-local server runtime")
 
     # ========================================================================
     # CRUD OPERATIONS
@@ -235,18 +173,13 @@ class ServerManager:
                 logger.error(f"Interface '{interface}' is already in use by {interface_exists.name}")
                 return None
 
-        # Determine category from type if not explicitly provided
-        is_proxy = server_type in ("hysteria2", "tuic", "vless-reality")
-        if server_category is None:
-            server_category = "proxy" if is_proxy else "vpn"
-
-        if config_path is None:
-            if server_type == "amneziawg":
-                config_path = f"/etc/amnezia/amneziawg/{interface}.conf"
-            elif is_proxy:
-                config_path = proxy_config_path or f"/etc/{server_type}/config.{'yaml' if server_type == 'hysteria2' else 'json'}"
-            else:
-                config_path = f"/etc/wireguard/{interface}.conf"
+        is_proxy, server_category, config_path = commercial_proxy.normalize_create_options(
+            server_type=server_type,
+            server_category=server_category,
+            config_path=config_path,
+            proxy_config_path=proxy_config_path,
+            interface=interface,
+        )
 
         server = Server(
             name=name,
@@ -458,47 +391,29 @@ class ServerManager:
                 Client.server_id == server_id
             ).all()
 
-            # Hard time budget for remote-side cleanup. Without it, a single
-            # unresponsive box (dead Mikrotik, agent down, network blackhole)
-            # blocked the entire delete call on N × per-call-timeout — operator
-            # reports of "panel hangs after delete" came back to a Mikrotik
-            # whose REST endpoint started returning 404 for /interface/
-            # wireguard/peers, where remove_peer × 4 clients × 10s + is_interface_up
-            # added up to 40+s of blocked event loop. Past `_REMOTE_DELETE_BUDGET`
-            # seconds we abandon remote cleanup with a warning and let the DB
-            # delete proceed — operators always have the option of "remove the
-            # row, the remote is already gone" via the same delete button.
-            _REMOTE_DELETE_BUDGET = 15.0
-            import time as _time
-            _deadline = _time.monotonic() + _REMOTE_DELETE_BUDGET
-
-            def _budget_left() -> bool:
-                return _time.monotonic() < _deadline
-
+            wg_failures = []
             if self._is_proxy(server):
-                # Proxy servers: stop, disable and remove the per-interface unit
-                mgr = self._get_proxy_manager(server)
-                try:
-                    if _budget_left():
-                        mgr.purge_service()
-                    else:
-                        logger.warning(f"Skipping proxy purge for {server.name} — remote cleanup budget exhausted")
-                except Exception as e:
-                    logger.warning(f"Failed to purge proxy service for {server.name}: {e}")
-                finally:
-                    try:
-                        mgr.close()
-                    except Exception:
-                        pass
+                may_delete = commercial_proxy.cleanup_server_runtime(server, force=force)
+                if not may_delete:
+                    logger.error(
+                        "Cannot delete proxy server {}: runtime cleanup failed",
+                        server.name,
+                    )
+                    return False
+            elif commercial_servers.is_remote_server(server):
+                may_delete, wg_failures = commercial_servers.cleanup_server_runtime(
+                    server,
+                    all_clients,
+                    force=force,
+                )
+                if not may_delete:
+                    logger.error(
+                        "Cannot delete commercial server {}: runtime cleanup failed",
+                        server.name,
+                    )
+                    return False
             else:
-                # `_get_wg()` itself can throw if SSH credentials are stale or
-                # the agent URL constructor blows up. When force=True the
-                # operator is explicitly saying "delete it regardless of remote
-                # state", so we treat construction failure the same as remote
-                # cleanup failure: log it and fall through to DB delete.
                 wg = None
-                wg_failures = []
-                budget_aborted = False
                 try:
                     wg = self._get_wg(server)
                 except Exception as e:
@@ -511,28 +426,13 @@ class ServerManager:
                         return False
 
                 if wg is not None:
-                    # Remove WG peers for all clients before deleting from DB.
-                    # Each remove_peer call may stall if the remote is unreachable,
-                    # so we honour the time budget — once exhausted, the rest of the
-                    # peers are left as orphans on the (dead) remote and the DB
-                    # cleanup proceeds.
                     for client in all_clients:
-                        if not _budget_left():
-                            budget_aborted = True
-                            wg_failures.append(client.name)
-                            continue
                         try:
                             if client.public_key:
                                 wg.remove_peer(client.public_key)
                         except Exception as e:
                             wg_failures.append(client.name)
                             logger.warning(f"Failed to remove WG peer for {client.name}: {e}")
-
-                    if budget_aborted:
-                        logger.warning(
-                            f"Remote cleanup budget exhausted while removing peers for {server.name}; "
-                            f"{len(wg_failures)} peers will remain on the remote (DB row still being removed)."
-                        )
 
                     if wg_failures and not force:
                         try:
@@ -542,40 +442,16 @@ class ServerManager:
                         logger.error(f"Cannot delete server: {len(wg_failures)} WG peer removals failed: {wg_failures}")
                         return False
 
-                    # Stop the interface if running — also subject to time budget.
-                    if _budget_left():
-                        try:
-                            if wg.is_interface_up():
-                                wg.stop_interface()
-                        except Exception as e:
-                            logger.warning(f"Failed to stop interface: {e}")
-                    else:
-                        logger.warning(f"Skipping interface stop for {server.name} — remote cleanup budget exhausted")
+                    try:
+                        if wg.is_interface_up():
+                            wg.stop_interface()
+                    except Exception as e:
+                        logger.warning(f"Failed to stop interface: {e}")
 
                     try:
                         wg.close()
                     except Exception:
                         pass
-
-            # Uninstall agent from remote server if in agent mode — best-effort,
-            # still inside the time budget guard.
-            if getattr(server, 'agent_mode', None) == 'agent' and server.ssh_host:
-                if _budget_left():
-                    try:
-                        from .agent_bootstrap import AgentBootstrap
-                        bootstrap = AgentBootstrap(
-                            ssh_host=server.ssh_host,
-                            ssh_port=server.ssh_port or 22,
-                            ssh_user=server.ssh_user or "root",
-                            ssh_password=server.ssh_password,
-                            ssh_private_key_content=getattr(server, 'ssh_private_key', None),
-                        )
-                        bootstrap.uninstall_agent()
-                        logger.info(f"Agent uninstalled from {server.name} during server deletion")
-                    except Exception as e:
-                        logger.warning(f"Could not uninstall agent from {server.name} (best-effort): {e}")
-                else:
-                    logger.warning(f"Skipping agent uninstall for {server.name} — remote cleanup budget exhausted")
 
             # Delete related records first (subscriptions, client-user links)
             from ..database.models import Subscription
@@ -590,17 +466,12 @@ class ServerManager:
             self.db.commit()
 
             logger.info(f"Deleted server '{server.name}' (removed {len(all_clients)} clients)")
-            if 'wg_failures' in dir() and wg_failures:
+            if wg_failures:
                 logger.warning(f"Note: {len(wg_failures)} WG peers may remain orphaned (force=True)")
             return True
 
         except Exception as e:
             self.db.rollback()
-            try:
-                if 'wg' in dir():
-                    wg.close()
-            except Exception:
-                pass
             logger.error(f"Failed to delete server: {e}")
             return False
 
@@ -615,12 +486,12 @@ class ServerManager:
             return ServerStatus.ERROR
 
         if self._is_proxy(server):
-            mgr = self._get_proxy_manager(server)
-            try:
-                active = mgr.is_service_active()
-                self._transition_status(server, ServerStatus.ONLINE if active else ServerStatus.OFFLINE, "check_status")
-            finally:
-                mgr.close()
+            active = commercial_proxy.status(server)
+            self._transition_status(
+                server,
+                ServerStatus.ONLINE if active else ServerStatus.OFFLINE,
+                "check_status",
+            )
             self.db.commit()
             return server.legacy_status
 
@@ -653,15 +524,11 @@ class ServerManager:
             return False
 
         if self._is_proxy(server):
-            mgr = self._get_proxy_manager(server)
-            try:
-                ok = mgr.start_service()
-                self._transition_status(server, ServerStatus.ONLINE if ok else ServerStatus.ERROR, "start_server")
-                self.db.commit()
-                self.clear_stats_cache(server_id)
-                return ok
-            finally:
-                mgr.close()
+            ok = commercial_proxy.start(server)
+            self._transition_status(server, ServerStatus.ONLINE if ok else ServerStatus.ERROR, "start_server")
+            self.db.commit()
+            self.clear_stats_cache(server_id)
+            return ok
 
         # WG / AmneziaWG: make sure the on-disk config exists before
         # `wg-quick up` / `awg-quick up` runs, otherwise the start fails
@@ -693,15 +560,11 @@ class ServerManager:
             return False
 
         if self._is_proxy(server):
-            mgr = self._get_proxy_manager(server)
-            try:
-                ok = mgr.stop_service()
-                self._transition_status(server, ServerStatus.OFFLINE if ok else ServerStatus.ERROR, "stop_server")
-                self.db.commit()
-                self.clear_stats_cache(server_id)
-                return ok
-            finally:
-                mgr.close()
+            ok = commercial_proxy.stop(server)
+            self._transition_status(server, ServerStatus.OFFLINE if ok else ServerStatus.ERROR, "stop_server")
+            self.db.commit()
+            self.clear_stats_cache(server_id)
+            return ok
 
         wg = self._get_wg(server)
         try:
@@ -724,15 +587,11 @@ class ServerManager:
             return False
 
         if self._is_proxy(server):
-            mgr = self._get_proxy_manager(server)
-            try:
-                ok = mgr.restart_service()
-                self._transition_status(server, ServerStatus.ONLINE if ok else ServerStatus.ERROR, "restart_server")
-                self.db.commit()
-                self.clear_stats_cache(server_id)
-                return ok
-            finally:
-                mgr.close()
+            ok = commercial_proxy.restart(server)
+            self._transition_status(server, ServerStatus.ONLINE if ok else ServerStatus.ERROR, "restart_server")
+            self.db.commit()
+            self.clear_stats_cache(server_id)
+            return ok
 
         stopped = self.stop_server(server_id)
         if not stopped:
@@ -995,155 +854,26 @@ class ServerManager:
         port: int = 8001,
         progress_cb=None,
     ) -> bool:
-        """
-        Install agent on remote server using SSH bootstrap
-
-        Args:
-            server_id: Server ID
-            agent_code_path: Path to agent.py on master server
-            port: Agent API port
-            progress_cb: optional callable(str) — bootstrap steps stream here
-                (wired to the route's bootstrap-log task for the live modal)
-
-        Returns:
-            Dict with installation result details
-        """
-        server = self.get_server(server_id)
-        if not server:
-            logger.error(f"Server {server_id} not found")
-            return False
-
-        if not server.ssh_host:
-            logger.error(f"Server {server.name} is local, cannot install agent")
-            return False
-
-        # Note: agent_mode == "agent" guard removed intentionally.
-        # Re-install is allowed; the route layer does a health-check guard.
-
-        # Resolve agent.py path if not provided
-        if not agent_code_path:
-            agent_code_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                "agent.py"
-            )
-
-        # Use SSH bootstrap to install agent
-        from .agent_bootstrap import AgentBootstrap
-
-        bootstrap = AgentBootstrap(
-            ssh_host=server.ssh_host,
-            ssh_port=server.ssh_port or 22,
-            ssh_user=server.ssh_user or "root",
-            ssh_password=server.ssh_password,
-            ssh_private_key_content=getattr(server, 'ssh_private_key', None),
+        """Install the protected agent runtime on a remote server."""
+        return commercial_servers.install_agent(
+            self,
+            server_id,
+            agent_code_path=agent_code_path,
+            port=port,
             progress_cb=progress_cb,
         )
 
-        # Generate full server config so bootstrap can write it on fresh servers
-        server_config_content = self.generate_server_config(server.id)
-
-        try:
-            success, agent_url, error_or_key, service_name = bootstrap.install_agent(
-                agent_code_path=agent_code_path,
-                interface=server.interface,
-                port=port,
-                server_config_content=server_config_content,
-            )
-
-            if success:
-                server.agent_mode = "agent"
-                server.agent_url = agent_url
-                server.agent_api_key = error_or_key  # api_key on success
-                # Persist the per-interface unit name so future
-                # uninstall/reinstall targets the right systemd service.
-                if hasattr(server, 'agent_service_name'):
-                    server.agent_service_name = service_name or None
-                self.db.commit()
-                logger.info(
-                    f"EVENT:BOOTSTRAP_SUCCESS agent installed on {server.name}: "
-                    f"{agent_url} (service={service_name})"
-                )
-                return True, None
-            else:
-                logger.error(f"EVENT:BOOTSTRAP_FAILURE agent install failed on {server.name}: {error_or_key}")
-                return False, error_or_key
-
-        except Exception as e:
-            logger.error(f"EVENT:BOOTSTRAP_FAILURE agent install exception on server_id={server_id}: {e}")
-            return False, str(e)
-
-    def uninstall_agent(self, server_id: int) -> dict:
-        """Uninstall agent from remote server"""
-        server = self.get_server(server_id)
-        if not server or not server.ssh_host:
-            return False
-
-        from .agent_bootstrap import AgentBootstrap
-
-        bootstrap = AgentBootstrap(
-            ssh_host=server.ssh_host,
-            ssh_port=server.ssh_port or 22,
-            ssh_user=server.ssh_user or "root",
-            ssh_password=server.ssh_password,
-            ssh_private_key_content=getattr(server, 'ssh_private_key', None),
-        )
-
-        try:
-            # Pass the recorded systemd unit name so we only kill THIS agent.
-            # On legacy installs (no per-interface name yet) the field is
-            # NULL → uninstall_agent falls back to `vpnmanager-agent`.
-            # Also pass `interface_hint` so the uninstaller can bring down
-            # the WG/AWG interface and remove its config even if the unit
-            # file is missing/legacy. Without this, a subsequent reinstall
-            # on the same interface would inherit the previous keypair and
-            # clients couldn't handshake against the new identity.
-            unit_name = getattr(server, 'agent_service_name', None)
-            iface_hint = server.interface
-            if bootstrap.uninstall_agent(
-                service_name=unit_name,
-                interface_hint=iface_hint,
-            ):
-                # Switch back to SSH mode
-                server.agent_mode = "ssh"
-                server.agent_url = None
-                server.agent_api_key = None
-                if hasattr(server, 'agent_service_name'):
-                    server.agent_service_name = None
-                self.db.commit()
-
-                logger.info(f"✅ Agent uninstalled from {server.name}")
-                return True
-            return False
-
-        except Exception as e:
-            logger.error(f"Agent uninstall failed: {e}")
-            return False
+    def uninstall_agent(self, server_id: int) -> bool:
+        """Uninstall the protected agent runtime from a remote server."""
+        return commercial_servers.uninstall_agent(self, server_id)
 
     def switch_to_agent_mode(self, server_id: int) -> bool:
         """Switch server to agent mode (agent must be already installed)"""
-        server = self.get_server(server_id)
-        if not server or not server.ssh_host:
-            return False
-
-        if not server.agent_url or not server.agent_api_key:
-            logger.error(f"Agent not installed on {server.name}")
-            return False
-
-        server.agent_mode = "agent"
-        self.db.commit()
-        logger.info(f"Switched {server.name} to agent mode")
-        return True
+        return commercial_servers.switch_to_agent_mode(self, server_id)
 
     def switch_to_ssh_mode(self, server_id: int) -> bool:
         """Switch server to SSH mode (fallback/legacy)"""
-        server = self.get_server(server_id)
-        if not server:
-            return False
-
-        server.agent_mode = "ssh"
-        self.db.commit()
-        logger.info(f"Switched {server.name} to SSH mode")
-        return True
+        return commercial_servers.switch_to_ssh_mode(self, server_id)
 
     # ========================================================================
     # INITIALIZATION

@@ -2,5 +2,6 @@
 # input or its lock; production runtime dependencies live in requirements.txt.
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
+pytest-cov>=7.1.0
 black>=23.0.0
 ruff>=0.1.0

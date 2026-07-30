@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.api.routes.system import BrandingUpdateRequest
+from src.api.routes.system_branding import BrandingUpdateRequest
 from src.modules.branding import BRANDING_DEFAULTS
 
 
