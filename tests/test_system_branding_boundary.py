@@ -20,11 +20,16 @@ def test_shared_system_module_only_mounts_the_branding_router():
 
 
 def test_branding_route_contract_is_preserved():
-    methods_by_path = {}
-    for route in system.router.routes:
-        if hasattr(route, "methods"):
-            methods_by_path.setdefault(route.path, set()).update(route.methods)
+    # FastAPI 0.139 keeps included routers as lazy _IncludedRouter objects
+    # instead of eagerly flattening them into ``router.routes``. Name-based
+    # resolution exercises the supported API and works on both layouts.
+    assert str(system.router.url_path_for("get_branding_settings")) == "/branding"
+    assert str(system.router.url_path_for("update_branding_settings")) == "/branding"
+    assert str(system.router.url_path_for("upload_branding_logo")) == "/branding/logo"
 
+    methods_by_path = {}
+    for route in system_branding.router.routes:
+        methods_by_path.setdefault(route.path, set()).update(route.methods)
     assert {"GET", "POST"}.issubset(methods_by_path["/branding"])
     assert "POST" in methods_by_path["/branding/logo"]
 
