@@ -37,18 +37,11 @@ class ClientManager:
         """
         is_awg = getattr(server, 'server_type', 'wireguard') == 'amneziawg'
 
-        # Mikrotik mode is "remote" but has no ssh_host. Route through the
-        # adapter so peer ops go to RouterOS REST instead of local `wg`.
-        if (getattr(server, "agent_mode", None) or "") == "mikrotik":
-            from .remote_adapter import RemoteServerAdapter
-            return RemoteServerAdapter(
-                server=server,
-                interface=server.interface,
-                config_path=server.config_path,
-            )
-
         # Local server - use direct manager
-        if not server.ssh_host:
+        is_remote = bool(server.ssh_host) or (
+            (getattr(server, "agent_mode", None) or "") == "mikrotik"
+        )
+        if not is_remote:
             if is_awg:
                 return AmneziaWGManager(
                     interface=server.interface,
@@ -68,13 +61,9 @@ class ClientManager:
                 config_path=server.config_path
             )
 
-        # Remote server - use RemoteServerAdapter (SSH or Agent mode)
-        from .remote_adapter import RemoteServerAdapter
-        return RemoteServerAdapter(
-            server=server,
-            interface=server.interface,
-            config_path=server.config_path
-        )
+        from ..modules.remote_client_adapter import create_remote_manager
+
+        return create_remote_manager(server)
 
     # ========================================================================
     # CRUD OPERATIONS
@@ -864,11 +853,7 @@ class ClientManager:
         ``num_addresses - 2`` = last usable). The caller turns this back
         into a real address via ``IPv4Network(pool).network_address + n``.
 
-        Considers both:
-          - Offsets already allocated by the panel (``clients.ip_index``)
-          - For Mikrotik-mode servers: peers added directly on the router
-            via WebFig/Winbox — we pull the live list and avoid stepping
-            on them.
+        Considers both panel allocations and any commercial adapter offsets.
 
         Works on any prefix length (/24, /22, /16, …). The earlier code
         only scanned 2..255 which silently capped pools larger than /24.
@@ -886,35 +871,11 @@ class ClientManager:
         ).all()
         used_set = {ip[0] for ip in used_ips if ip[0] is not None}
 
-        # For mikrotik servers, also skip IPs of manually-added router
-        # peers. Soft-fail if the probe doesn't respond — we'd rather hand
-        # out a possibly-colliding IP than refuse to create the client.
-        from ..database.models import Server  # local import to avoid cycle
-        server = self.db.query(Server).filter(Server.id == server_id).first()
-        if server and (getattr(server, "agent_mode", None) or "") == "mikrotik":
-            try:
-                wg = self._get_wg(server)
-                try:
-                    base_int = int(net.network_address)
-                    for peer in wg.get_all_peers():
-                        for cidr in peer.allowed_ips or []:
-                            ip_part = cidr.split("/")[0].strip()
-                            if "." not in ip_part:
-                                continue  # IPv6 or malformed — skip here
-                            try:
-                                offset = int(_ipaddress.IPv4Address(ip_part)) - base_int
-                            except ValueError:
-                                continue
-                            if 0 <= offset < net.num_addresses:
-                                used_set.add(offset)
-                finally:
-                    try: wg.close()
-                    except Exception: pass
-            except Exception as e:
-                logger.warning(
-                    f"Mikrotik probe for IP-allocation collision check failed "
-                    f"(server_id={server_id}): {e}. Proceeding with DB-only view."
-                )
+        from ..modules.remote_client_adapter import get_live_peer_ip_offsets
+
+        used_set.update(
+            get_live_peer_ip_offsets(self.db, server_id, address_pool)
+        )
 
         # Skip .0 (network) and .1 (gateway / server-side address); cap one
         # short of broadcast. For a /22 that's offsets 2..1021.

@@ -11,8 +11,8 @@ _UPGRADE_HINT = (
 )
 
 
-from typing import Any
+def create_remote_manager(*args, **kwargs):
+    raise RuntimeError(_UPGRADE_HINT)
 
-class RemoteServerAdapter:
-    def __init__(self, *args, **kwargs):
-        raise RuntimeError(_UPGRADE_HINT)
+def get_live_peer_ip_offsets(*args, **kwargs) -> set[int]:
+    return set()
