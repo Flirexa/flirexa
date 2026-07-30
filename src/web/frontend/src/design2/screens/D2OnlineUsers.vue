@@ -50,7 +50,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { clientsApi, serversApi } from '../../api'
+import { clientsApi, serversApi, silentPoll } from '../../api'
 import { useD2Ui } from '../../stores/d2ui'
 
 const { t } = useI18n()
@@ -80,7 +80,14 @@ async function refresh() {
     // online count, not total clients (this poll runs every 5s; getAll()
     // re-downloaded every row each tick). getAll() fallback covers a
     // mixed-version deploy mid-update.
-    const [cRes, sRes] = await Promise.all([clientsApi.getOnline().catch(() => clientsApi.getAll()), serversApi.getAll()])
+    const onlineRequest = clientsApi.getOnline().catch((error) => {
+      // Fallback exists only for a mixed-version deploy where /clients/online
+      // is not present yet. Retrying the much heavier full client list after a
+      // timeout/5xx doubles load and can turn an agent outage into toast spam.
+      if (error?.response?.status === 404) return clientsApi.getAll()
+      throw error
+    })
+    const [cRes, sRes] = await Promise.all([onlineRequest, serversApi.getAll()])
     const cd = cRes.data; clients.value = (cd && cd.items) ? cd.items : (Array.isArray(cd) ? cd : [])
     const sd = sRes.data; servers.value = (sd && sd.items) ? sd.items : (Array.isArray(sd) ? sd : [])
     const targets = servers.value.filter(s => (s.server_category || 'vpn') !== 'proxy' && !['hysteria2', 'tuic'].includes(s.server_type || 'wireguard'))
@@ -90,8 +97,13 @@ async function refresh() {
     rateMap.value = next
   } catch (e) { console.warn('online refresh failed', e) } finally { loading.value = false; inflight = false }
 }
-function startTimer() { if (timer) clearInterval(timer); timer = setInterval(refresh, onlineInterval.value * 1000) }
+function stopTimer() { if (timer) { clearInterval(timer); timer = null } }
+function startTimer() { stopTimer(); if (!document.hidden) timer = setInterval(() => silentPoll(refresh), onlineInterval.value * 1000) }
 function onOnlineInterval(e) { onlineInterval.value = Number(e.target.value) || 5; startTimer() }
+function onVisibilityChange() {
+  if (document.hidden) stopTimer()
+  else { silentPoll(refresh); startTimer() }
+}
 
 // ── adapters onto his markup field names ──────────────────────────────────
 function initialsOf(name) { const parts = String(name || '?').trim().split(/\s+/); return ((parts[0]?.[0] || '') + (parts[1]?.[0] || parts[0]?.[1] || '')).toUpperCase() || '?' }
@@ -145,9 +157,10 @@ const onlineUsers = computed(() => onlineList.value.map(c => {
 
 onMounted(() => {
   ui.set({ title: tr('nav.onlineUsers') || 'Online users' })
-  refresh(); startTimer()
+  silentPoll(refresh); startTimer()
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onUnmounted(() => { stopTimer(); document.removeEventListener('visibilitychange', onVisibilityChange) })
 </script>
 
 <style scoped>

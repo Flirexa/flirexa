@@ -227,11 +227,7 @@
             </div>
           </div>
           <div v-if="subscription.tier && subscription.tier.toLowerCase() !== 'free'"
-               style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap">
-            <div v-if="autoRenew && subscription.expiry_date" style="font-size:11px; color:var(--text-3)">
-              {{ $t('dash.autoRenewsOn', { date: expiryDate }) }}
-            </div>
-            <span v-else></span>
+               style="margin-top:18px; padding-top:14px; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:flex-end; gap:12px; flex-wrap:wrap">
             <button class="fx-btn fx-btn-danger-ghost fx-btn-sm" @click="showCancelConfirm = true">
               {{ $t('dash.cancelSubscription') }}
             </button>
@@ -361,28 +357,6 @@
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-
-        <!-- Auto-renew -->
-        <div class="fx-card fx-mob-order-6" style="padding:var(--pad-card)" v-if="features.auto_renewal && subscription.tier && subscription.tier.toLowerCase() !== 'free'">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px">
-            <div style="min-width:0">
-              <h3 class="fx-section-title" style="display:inline-flex; align-items:center; gap:6px">
-                {{ $t('dash.autoRenew') }}
-                <FxIcon name="help" :size="13" style="color:var(--text-4); cursor:help"
-                        :title="$t('help.autoRenew')" />
-              </h3>
-              <div style="font-size:12px; color:var(--text-3); margin-top:4px">
-                {{ $t('dash.autoRenewHint') }}
-              </div>
-            </div>
-            <label class="fx-switch" :class="{ 'fx-switch-busy': autoRenewBusy }">
-              <input type="checkbox" v-model="autoRenew" @change="toggleAutoRenew"
-                     :disabled="autoRenewBusy" />
-              <span class="fx-switch-track"></span>
-              <FxIcon v-if="autoRenewBusy" name="refresh" :size="12" class="fx-spin fx-switch-spin" />
-            </label>
           </div>
         </div>
 
@@ -639,7 +613,7 @@ const devices = ref([])
 // Core download capabilities stay fail-open for compatibility. Commercial
 // controls stay hidden until the operator entitlement is positively resolved;
 // the backend repeats the same check for direct API requests.
-const features = ref({ config_download: true, qr: true, auto_renewal: false })
+const features = ref({ config_download: true, qr: true })
 const showUpgradeModal = ref(false)
 const showConfigModal = ref(false)
 const configText = ref('')
@@ -651,7 +625,6 @@ const creatingDevice = ref(false)
 const newDeviceName = ref('')
 const showChangePassword = ref(false)
 const referral = ref({ referral_code: '', referral_count: 0, paid_referrals: 0 })
-const autoRenew = ref(false)
 const passwordForm = ref({ current_password: '', new_password: '' })
 const passwordError = ref(null)
 const passwordSuccess = ref(null)
@@ -956,7 +929,6 @@ const loadData = async () => {
   try {
     const { data } = await portalApi.getSubscription()
     subscription.value = data
-    autoRenew.value = !!data.auto_renew
   } catch (error) {
     if (error.response?.status === 401) router.push('/login')
     else showToast(t('common.error') + ': ' + apiErrorMessage(error, t('common.loadError')), 'error')
@@ -1271,23 +1243,6 @@ const copyReferralLink = async () => {
     setTimeout(() => { copyFeedback.value = false }, 2000)
   } else {
     showToast(t('common.error') + ': copy failed', 'error')
-  }
-}
-const autoRenewBusy = ref(false)
-const toggleAutoRenew = async () => {
-  if (autoRenewBusy.value) {
-    // Double-click race — should never happen because the input is
-    // disabled while busy, but guard anyway.
-    return
-  }
-  autoRenewBusy.value = true
-  try {
-    await portalApi.toggleAutoRenew(autoRenew.value)
-  } catch (e) {
-    autoRenew.value = !autoRenew.value
-    showToast(t('common.error') + ': ' + apiErrorMessage(e, t('common.error')), 'error')
-  } finally {
-    autoRenewBusy.value = false
   }
 }
 const onPaymentSuccess = () => {

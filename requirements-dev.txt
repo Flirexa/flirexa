@@ -1,0 +1,6 @@
+# Development and CI only. Customer archives/installers must not ship this
+# input or its lock; production runtime dependencies live in requirements.txt.
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+ruff>=0.1.0

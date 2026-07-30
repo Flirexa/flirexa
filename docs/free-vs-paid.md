@@ -1,6 +1,6 @@
 # FREE vs paid
 
-_Last verified: 2026-07-27. Current checkout pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
+_Last verified: 2026-07-30. Current checkout pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
 
 Honest, unhedged answer to "what do I get for free and what do I have to pay for?"
 
@@ -12,11 +12,15 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 
 **FREE** is a complete VPN service for one operator on one physical host with up to 80 clients. WireGuard + AmneziaWG, panel, client portal, crypto payments via NOWPayments, Telegram admin bot, manual backups. MIT-licensed, install once, run forever — no payment, no expiry.
 
-**Starter (from $12/mo)** adds Hysteria2/TUIC/VLESS-Reality protocols, promo codes, and auto-renewal.
+**Starter (from $12/mo)** adds Hysteria2/TUIC/VLESS-Reality protocols and promo codes.
 
-**Business (from $49/mo)** adds multi-server, white-label, traffic rules, scheduled backups, full client Telegram bot.
+**Business (from $49/mo)** adds multi-server, traffic rules, scheduled backups, the full payment-provider suite, and the full client Telegram bot.
 
-**Enterprise (from $149/mo)** adds site-to-site corporate VPN, full white-label (custom domain, custom email sender), and multi-admin RBAC.
+**Enterprise (from $149/mo)** adds site-to-site corporate VPN, all built-in appearance/white-label controls, multi-admin RBAC, and the standard client-app package.
+
+These plan descriptions apply to newly issued licences. An older paid key keeps
+any capability explicitly present in its signed feature set; updates do not
+silently remove a previously purchased flag.
 
 ---
 
@@ -58,8 +62,12 @@ For solo operators who started monetizing and outgrew the FREE protocol set or w
 - **TUIC** support — alternative QUIC proxy, useful when Hysteria2 is fingerprinted
 - **VLESS-Reality** support — Xray-based HTTPS camouflage
 - **Promo codes** — percent-off, free-day extensions, tier-restricted, expiring
-- **Auto-renewal** — reminder emails N days before expiry, optional auto-charge
 - **Up to 500 clients** (vs 80 on FREE)
+
+Automatic end-customer subscription renewal is temporarily unavailable. The
+portal uses manual renewal until every added paid period can be tied to one
+newly verified provider settlement. Existing signed entitlements are preserved
+for a compatible replacement.
 
 Runs the enabled protocols on the install host. Remote-node orchestration starts at Business.
 
@@ -74,7 +82,6 @@ The headline-feature tier. This is what serious commercial operators actually pa
 - **Multi-server orchestration** — manage up to 10 servers from one panel. Push clients to specific servers, balance load, see per-server traffic. Remote VPN nodes run a tiny `vpnmanager-agent` HTTP service.
 - **Full client Telegram bot** — end users can register, browse plans, pay in crypto, download configs, all via Telegram. Many operators in censorship-heavy and crypto-native markets prefer this over the web portal.
 - **Traffic rules** — per-client and global throttling, automatic enforcement when a quota threshold is hit
-- **White-label (basic)** — replace the Flirexa logo, change brand colors, remove the "Powered by Flirexa" footer attribution
 - **Scheduled backups** — daily automatic backups; mount remote storage (S3, FTP, NFS, SMB); retain N revisions
 - **Up to 2,000 clients** across up to 10 servers
 
@@ -87,8 +94,9 @@ For ISPs, MSPs, and companies who don't run an end-user VPN service but need sit
 **Adds:**
 
 - **Corporate VPN (site-to-site)** — multi-site WireGuard mesh with subnet allocation, full-mesh routing, per-site config generation, network diagnostics. The use case is "branch-office connectivity": three offices in different cities, all employees on a private VPN, traffic routed peer-to-peer through Flirexa-managed config.
-- **Full white-label** — custom domain on the client portal, custom `From` address on outbound emails, custom favicon and browser tab title
+- **Full white-label** — product/company names, logos, colours, footer, custom portal/admin domains, custom `From` identity, favicon, browser title, and customer Privacy/Terms links or hosted branded legal pages
 - **Manager RBAC** — additional admin accounts with permission scopes (clients-only, servers-only, support-only), audit log of who did what
+- **Standard client apps** — Android, Windows, and Linux application package
 - **Unlimited clients and servers**
 
 ---
@@ -106,13 +114,17 @@ their runtime activation still depends on the signed licence feature set.
 - Plugin loader scans `plugins/`, sees that none of the paid plugins' required features are granted, skips them all.
 - The Vue admin panel hides paid-feature UI (or shows it locked, depending on which screen).
 - API endpoints behind paid features return `403` with a clear upgrade hint.
+- FREE/trial may open the native support action from the current admin header;
+  no legacy reminder opens on a timer.
 
 **On a paid install:**
 
 - `LICENSE_KEY` is set in `.env`.
-- `LicenseManager` validates the RSA-signed key against the embedded public key. Subscription licences use online enforcement with a 72-hour outage grace window; Lifetime licences remain operational offline and use a once-daily heartbeat only for clone detection and update/support state.
+- `LicenseManager` validates the RSA-signed key against the embedded public key. Subscription licences use bounded online enforcement. Lifetime is perpetual and periodically rotates a hardware-, instance-, and licence-bound signed offline lease valid for at most 30 days.
 - Plugin loader picks up the matching plugin manifests and mounts their routers.
 - Paid feature endpoints return real responses.
+- Purchased tiers render no Flirexa donation control or modal. Enterprise can
+  also remove project attribution through its white-label controls.
 - Commercial implementations such as extra protocols, multi-server orchestration, Corporate VPN, RBAC, paid automation, and third-party payment providers are not published in this MIT tree.
 - An update of an already licensed installation preserves `.env`, the database,
   licence cache, signed server list, limits, and feature flags. It replaces the
@@ -139,7 +151,7 @@ A few things people sometimes ask about that are FREE forever:
 
 A few things to know up front:
 
-- **Subscription and Lifetime licences behave differently.** Subscriptions use online enforcement with a 72-hour outage grace window. Lifetime installations remain operational offline; their daily heartbeat is detection/support telemetry, not a kill switch. FREE installs are unaffected.
+- **Lifetime is perpetual and outage-tolerant, not a reusable static unlock.** It includes future normal updates and a signed offline window of up to 30 days after successful validation. FREE installs remain independent of the licensing service.
 - **Commercial implementations are separately licensed.** The open core exposes marked compatibility stubs and feature interfaces. Official customer archives protect the commercial backend; NOWPayments and the documented FREE functionality remain in the MIT core.
 - **Billing periods vary.** Monthly, annual, and lifetime options can be offered by the current checkout. Consult [flirexa.biz](https://flirexa.biz) for the combinations available for each tier.
 

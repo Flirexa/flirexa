@@ -789,25 +789,76 @@ def _run_apply_script(
     return rc, output
 
 
-def _run_rollback_script(backup_dir: Path, install_dir: Path) -> tuple[int, str]:
-    """Run update_apply.sh with ROLLBACK=1 env var."""
+def _run_rollback_script(
+    backup_dir: Path,
+    install_dir: Path,
+    *,
+    rollback_id: int,
+    original_update_id: int,
+    from_version: str,
+    to_version: str,
+    started_by: str,
+    started_at: datetime,
+) -> tuple[int, str]:
+    """Run rollback independently of the API process that it must restart.
+
+    Capturing stdout through ``subprocess.run`` ties the shell to the API
+    process.  As soon as rollback stops ``vpnmanager-api``, the pipe reader
+    disappears and the shell dies before it can restore/start the service.
+    A real file plus a new session gives rollback the same survival contract as
+    the normal apply path; the shell writes a durable exit-code marker and
+    finalizes database history after restoring the pre-update snapshot.
+    """
     if not _APPLY_SCRIPT.exists():
         return 1, "update_apply.sh not found"
+
+    log_file = backup_dir / "rollback.log"
+    code_file = backup_dir / "rollback.exitcode"
+    for marker in (
+        code_file,
+        backup_dir / "rollback.pid",
+        backup_dir / "phase_rollback_started",
+        backup_dir / "phase_rollback_complete",
+    ):
+        marker.unlink(missing_ok=True)
 
     env = os.environ.copy()
     env["ROLLBACK"]    = "1"
     env["BACKUP_DIR"]  = str(backup_dir)
     env["INSTALL_DIR"] = str(install_dir)
+    env["UPDATE_ID"] = str(rollback_id)
+    env["ROLLBACK_ID"] = str(rollback_id)
+    env["ROLLBACK_ORIGINAL_ID"] = str(original_update_id)
+    env["ROLLBACK_FROM_VERSION"] = from_version
+    env["ROLLBACK_TO_VERSION"] = to_version
+    env["ROLLBACK_STARTED_BY"] = started_by
+    env["ROLLBACK_STARTED_AT"] = started_at.isoformat()
 
-    result = subprocess.run(
-        ["bash", str(_APPLY_SCRIPT)],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    output = result.stdout + ("\n" + result.stderr if result.stderr else "")
-    return result.returncode, output
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    with open(log_file, "w") as logf:
+        proc = subprocess.Popen(
+            ["bash", str(_APPLY_SCRIPT)],
+            env=env,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        try:
+            rc = proc.wait(timeout=300)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, 15)
+            except (ProcessLookupError, PermissionError):
+                pass
+            rc = 1
+
+    if code_file.exists():
+        try:
+            rc = int(code_file.read_text().strip())
+        except (OSError, ValueError):
+            pass
+    output = log_file.read_text(errors="replace") if log_file.exists() else ""
+    return rc, output
 
 
 # ── Main: apply update ─────────────────────────────────────────────────────────
@@ -1143,6 +1194,7 @@ async def rollback_update(original_update_id: int, started_by: str = "admin") ->
             status             = UpdateStatus.PENDING,
             started_by         = started_by,
             rollback_available = False,
+            backup_path        = str(backup_path),
             is_rollback        = True,
             rollback_of_id     = original_update_id,
         )
@@ -1210,9 +1262,14 @@ async def _rollback_task(rollback_id: int, original_update_id: int):
         db = SessionLocal()
         try:
             original    = db.get(UpdateHistory, original_update_id)
+            rollback_rec = db.get(UpdateHistory, rollback_id)
             backup_path = Path(original.backup_path)
             from_ver    = original.to_version
             to_ver      = original.from_version
+            rollback_started_at = rollback_rec.started_at
+            if rollback_started_at.tzinfo is None:
+                rollback_started_at = rollback_started_at.replace(tzinfo=timezone.utc)
+            rollback_started_by = rollback_rec.started_by or "admin"
         finally:
             db.close()
 
@@ -1224,7 +1281,16 @@ async def _rollback_task(rollback_id: int, original_update_id: int):
         loop = asyncio.get_running_loop()
         rc, output = await loop.run_in_executor(
             None,
-            lambda: _run_rollback_script(backup_path, _INSTALL_DIR),
+            lambda: _run_rollback_script(
+                backup_path,
+                _INSTALL_DIR,
+                rollback_id=rollback_id,
+                original_update_id=original_update_id,
+                from_version=from_ver,
+                to_version=to_ver,
+                started_by=rollback_started_by,
+                started_at=rollback_started_at,
+            ),
         )
         for line in output.splitlines():
             _log(line)

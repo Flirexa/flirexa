@@ -101,24 +101,27 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useSystemStore } from '../../stores/system'
 import { useBrandingStore } from '../../stores/branding'
+import { useLicenseStore } from '../../stores/license'
 import { useD2Ui } from '../../stores/d2ui'
 import { NAV_SECTIONS } from '../nav.js'
 import { D2_SCREENS } from '../screens/registry.js'
 import Icon from '../ui/Icon.vue'
 import DonateModal from './D2DonateModal.vue'
-import api, { systemApi } from '../../api'
+import api from '../../api'
 
 const route = useRoute()
 const router = useRouter()
 const system = useSystemStore()
 const branding = useBrandingStore()
+const license = useLicenseStore()
 const ui = useD2Ui()
 const sections = NAV_SECTIONS
 const acctOpen = ref(false)
 const donateOpen = ref(false)
 const langOpen = ref(false)
-// Paid operators never see donation promotion; FREE/trial retains it.
-const showDonate = ref(true)
+// Fail closed while licence state is loading. FREE/trial keep the optional
+// support button; every purchased tier hides it without a paid-user flash.
+const showDonate = computed(() => license.loaded && !license.isPaid)
 // i18n has en/ru/de/fr/es (see i18n/index.js); persist choice in sb_lang like Legacy.
 const LOCALES = [
   { code: 'en', label: 'English' }, { code: 'ru', label: 'Русский' },
@@ -147,22 +150,6 @@ const curLang = computed(() => curLangCode.value.toUpperCase())
 function setLang(code) { i18n.locale.value = code; try { localStorage.setItem('sb_lang', code) } catch (_) {}; langOpen.value = false }
 function logout() { try { localStorage.removeItem('sb_token'); localStorage.removeItem('sb_refresh_token') } catch (_) {}; router.push('/login') }
 function onDoc() { acctOpen.value = false; langOpen.value = false }
-function isLicensed(l) {
-  l = l || {}
-  const tier = String(l.tier || l.license_tier || '').toLowerCase()
-  return !!(l.valid || l.is_valid || l.lifetime || l.lifetime_protected ||
-    String(l.status || '').toLowerCase() === 'active' ||
-    (tier && !['', 'none', 'free', 'trial', 'unlicensed'].includes(tier)))
-}
-async function refreshDonateVisibility() {
-  try {
-    const l = await systemApi.getLicense().then(r => r.data).catch(() => ({}))
-    // A paid license already supports the project, so paid operators never see
-    // the donation button or modal. Free/trial installs keep the support entry.
-    showDonate.value = !isLicensed(l)
-  } catch (_) { /* keep visible on error */ }
-}
-
 // ── Update-available topbar badge ──────────────────────────────────────────────
 // Polls /updates/status every 60s + on tab focus + on route change, so a newer
 // version on the channel surfaces a pulsing indicator without the operator
@@ -172,7 +159,10 @@ const updateBadge = ref({ available: false, title: '' })
 let _updTimer = null
 async function refreshUpdateBadge() {
   try {
-    const r = await api.get('/updates/status', { timeout: 4000 })
+    // Background-only: /updates/status serves the last verified manifest and
+    // refreshes it asynchronously. A slow route must never interrupt unrelated
+    // operator work with the global request-timeout toast.
+    const r = await api.get('/updates/status', { timeout: 10000, silent: true })
     const av = r.data?.available_update
     updateBadge.value = av
       ? { available: true, title: (tr('updates.newVersionAvailable') || 'New version available') + ': ' + av.version }
@@ -185,9 +175,12 @@ watch(() => route.fullPath, () => refreshUpdateBadge())
 onMounted(() => {
   document.addEventListener('click', onDoc)
   document.addEventListener('visibilitychange', _updOnFocus)
-  refreshDonateVisibility()
+  if (!license.loaded) license.load()
   refreshUpdateBadge()
   _updTimer = setInterval(refreshUpdateBadge, 60 * 1000)
+})
+watch(showDonate, (allowed) => {
+  if (!allowed) donateOpen.value = false
 })
 onUnmounted(() => {
   document.removeEventListener('click', onDoc)

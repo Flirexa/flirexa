@@ -30,6 +30,7 @@ def _apply_env(auto_apply=False, is_newer=True, active=False, maintenance=False,
         MagicMock() if recent_failed else None
     )
     stack.enter_context(patch.object(auto_check, "_auto_apply_enabled", return_value=auto_apply))
+    stack.enter_context(patch.object(auto_check, "_rollback_suppressed_version", return_value=None))
     stack.enter_context(patch("src.modules.updates.manager.apply_update", apply_mock))
     stack.enter_context(patch("src.modules.updates.checker.is_newer", return_value=is_newer))
     stack.enter_context(patch("src.modules.operational_mode.get_active_update_state",
@@ -41,6 +42,21 @@ def _apply_env(auto_apply=False, is_newer=True, active=False, maintenance=False,
 
 
 class TestMandatoryGate:
+
+    @pytest.mark.asyncio
+    async def test_manual_rollback_suppresses_same_version_even_if_mandatory(self):
+        from src.modules.updates import auto_check
+        from src.modules.updates.auto_check import _try_auto_apply
+
+        stack, apply_mock = _apply_env(auto_apply=False)
+        stack.enter_context(
+            patch.object(auto_check, "_rollback_suppressed_version", return_value="9.9.9")
+        )
+        with stack:
+            await _try_auto_apply(
+                {"version": "9.9.9", "mandatory": True}, "1.0.0", "stable"
+            )
+        apply_mock.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_mandatory_forces_when_autoapply_off(self):

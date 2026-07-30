@@ -36,14 +36,15 @@ from sqlalchemy.orm import Session, load_only
 from loguru import logger
 
 from src.database.models import Server, Client, AuditLog, AuditAction
-from src.utils.runtime_paths import get_backup_root
+from src.utils.runtime_paths import get_app_version, get_backup_root
 
 
 # Manual and scheduled backups must outlive releases.  Deriving this path from
 # this module's __file__ placed archives in releases/<version>/backups and made
 # the UI appear empty after every update.
 BACKUP_DIR = str(get_backup_root())
-CURRENT_VERSION = "5.2"
+CURRENT_VERSION = get_app_version()
+_LEGACY_BACKUP_VERSION_MARKERS = {"5.2"}
 
 
 def _get_pg_params() -> dict:
@@ -99,7 +100,9 @@ def _get_pg_params() -> dict:
     }
 
 # Backup ID patterns
-_NEW_ID_RE = re.compile(r'^\d{8}-\d{6}$')           # YYYYMMDD-HHMMSS  (tar.gz)
+_NEW_ID_RE = re.compile(
+    r'^\d{8}-\d{6}(?:-[a-zA-Z0-9][a-zA-Z0-9._-]*)?$'
+)  # YYYYMMDD-HHMMSS[-label]  (tar.gz)
 _OLD_ID_RE = re.compile(r'^\d{8}_\d{6}$')            # YYYYMMDD_HHMMSS  (dir)
 
 
@@ -125,6 +128,29 @@ def _sha256(path: str) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _env_has_nonempty_value(path: str, key: str) -> bool:
+    """Check one dotenv key without parsing or exposing secret values."""
+    prefix = f"{key}="
+    try:
+        with open(path, encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if line.startswith(prefix):
+                    return bool(line[len(prefix):].strip())
+    except OSError:
+        return False
+    return False
+
+
+def _backup_version_is_compatible(value: object) -> bool:
+    version = str(value or "").strip()
+    if version in _LEGACY_BACKUP_VERSION_MARKERS:
+        return True
+    if not version or not CURRENT_VERSION:
+        return False
+    return version.split(".", 1)[0] == CURRENT_VERSION.split(".", 1)[0]
 
 
 def _pg_params_from_env_file(env_path: str) -> dict[str, str] | None:
@@ -159,6 +185,11 @@ class BackupManager:
 
     def __init__(self, db: Session, backup_dir: Optional[str] = None):
         self.db = db
+        # A caller-supplied path is an explicit destination (for example
+        # `vpnmanager backup --output ...` or restore from an uploaded
+        # archive).  Do not silently replace it with the dashboard storage
+        # setting later in create_full_backup().
+        self._backup_dir_explicit = backup_dir is not None
         self.backup_dir = backup_dir or self._get_backup_dir()
 
     def _write_audit_log_safe(
@@ -245,6 +276,25 @@ class BackupManager:
         Distinguishes the silent failure mode from before — a backup written
         to an unmounted-but-existing-as-dir mount point used to land on the
         local disk and look successful until you went to restore."""
+        if self._backup_dir_explicit:
+            result = {
+                "target": self.backup_dir,
+                "storage_type": "explicit",
+                "ready": False,
+                "auto_mounted": False,
+                "error": None,
+            }
+            try:
+                os.makedirs(self.backup_dir, exist_ok=True)
+                if not os.path.isdir(self.backup_dir):
+                    raise RuntimeError("destination is not a directory")
+                if not os.access(self.backup_dir, os.W_OK):
+                    raise RuntimeError("destination is not writable")
+                result["ready"] = True
+            except (OSError, RuntimeError) as exc:
+                result["error"] = f"could not prepare explicit backup dir: {exc}"
+            return result
+
         from .auto_backup_storage import ensure_storage_ready
 
         return ensure_storage_ready(self)
@@ -281,7 +331,10 @@ class BackupManager:
             if "backup_keep_days" in cfg:
                 defaults["keep_days"] = int(cfg["backup_keep_days"])
         except Exception:
-            pass
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
         return defaults
 
     def _find_env_file(self) -> Optional[str]:
@@ -366,7 +419,8 @@ class BackupManager:
                 f"{ready.get('error') or 'unknown'}"
             )
         # Refresh in case auto-mount changed the resolved dir
-        self.backup_dir = self._get_backup_dir()
+        if not self._backup_dir_explicit:
+            self.backup_dir = self._get_backup_dir()
         os.makedirs(self.backup_dir, exist_ok=True)
 
         # Disk space guard: require at least 300 MB free
@@ -423,6 +477,15 @@ class BackupManager:
                 os.chmod(env_dst, 0o600)
                 metadata["env_backed_up"] = True
                 metadata["checksums"]["env.env"] = _sha256(env_dst)
+                if not _env_has_nonempty_value(env_dst, "VMS_ENCRYPTION_KEY"):
+                    metadata["errors"].append(
+                        "Environment backup has no VMS_ENCRYPTION_KEY; "
+                        "encrypted database fields would not be portable"
+                    )
+            else:
+                metadata["errors"].append(
+                    "Environment file not found; full disaster recovery is incomplete"
+                )
 
             # 3. Local WireGuard + AmneziaWG configs
             for wg_src_dir in ("/etc/wireguard", "/etc/amnezia/amneziawg"):
@@ -561,6 +624,14 @@ class BackupManager:
             database.sql.gz
             system/version.txt
         """
+        ready = self.ensure_storage_ready()
+        if not ready["ready"]:
+            raise RuntimeError(
+                f"backup storage not ready ({ready['storage_type']}, target={ready['target']}): "
+                f"{ready.get('error') or 'unknown'}"
+            )
+        if not self._backup_dir_explicit:
+            self.backup_dir = self._get_backup_dir()
         os.makedirs(self.backup_dir, exist_ok=True)
 
         stat = shutil.disk_usage(self.backup_dir)
@@ -691,12 +762,50 @@ class BackupManager:
 
             result["metadata"] = {
                 k: metadata.get(k)
-                for k in ("version", "timestamp", "hostname", "database_dump",
+                for k in ("version", "timestamp", "hostname", "backup_type", "database_dump",
                           "env_backed_up", "server_count", "client_count")
             }
 
+            backup_version = metadata.get("version")
+            if not _backup_version_is_compatible(backup_version):
+                result["errors"].append(
+                    f"Incompatible backup version: backup={backup_version or 'missing'}, "
+                    f"current={CURRENT_VERSION}"
+                )
+                result["ok"] = False
+
+            if metadata.get("backup_type") == "full":
+                if not metadata.get("database_dump"):
+                    result["errors"].append(
+                        "Full backup metadata does not confirm a database dump"
+                    )
+                    result["ok"] = False
+                if not metadata.get("env_backed_up"):
+                    result["errors"].append(
+                        "Full backup metadata does not confirm an environment backup"
+                    )
+                    result["ok"] = False
+                env_path = os.path.join(inner, "env.env")
+                if not os.path.isfile(env_path):
+                    result["errors"].append("Full backup is missing env.env")
+                    result["ok"] = False
+                elif not _env_has_nonempty_value(env_path, "VMS_ENCRYPTION_KEY"):
+                    result["errors"].append(
+                        "Full backup env.env has no VMS_ENCRYPTION_KEY"
+                    )
+                    result["ok"] = False
+
             # Checksum verification
             checksums = metadata.get("checksums", {})
+            required_payloads = ["database.sql.gz"]
+            if metadata.get("backup_type") == "full":
+                required_payloads.append("env.env")
+            for rel_path in required_payloads:
+                if rel_path not in checksums:
+                    result["errors"].append(
+                        f"Required checksum missing: {rel_path}"
+                    )
+                    result["ok"] = False
             for rel_path, expected_hash in checksums.items():
                 abs_path = os.path.join(inner, rel_path)
                 if not os.path.isfile(abs_path):
@@ -715,6 +824,9 @@ class BackupManager:
                 if os.path.getsize(db_path) < 100:
                     result["errors"].append("database.sql.gz is suspiciously small (<100 bytes)")
                     result["ok"] = False
+            else:
+                result["errors"].append("database.sql.gz is missing")
+                result["ok"] = False
 
         return result
 
@@ -770,11 +882,22 @@ class BackupManager:
             if os.path.isfile(meta_path):
                 with open(meta_path) as f:
                     metadata = json.load(f)
+                if metadata.get("backup_type") != "full":
+                    raise RuntimeError(
+                        "Full-system restore requires a full backup archive"
+                    )
                 backup_ver = metadata.get("version", "0")
-                # Accept same major version
-                if backup_ver.split(".")[0] != CURRENT_VERSION.split(".")[0]:
-                    result["errors"].append(
-                        f"Version mismatch: backup={backup_ver}, current={CURRENT_VERSION}"
+                # Historical releases accidentally wrote the fixed marker
+                # "5.2" into every archive.  Keep those archives usable, but
+                # all new metadata records the actual product VERSION.
+                if backup_ver in _LEGACY_BACKUP_VERSION_MARKERS:
+                    logger.warning(
+                        "Accepting legacy backup version marker {}", backup_ver
+                    )
+                elif not _backup_version_is_compatible(backup_ver):
+                    raise RuntimeError(
+                        f"Incompatible backup version: backup={backup_ver}, "
+                        f"current={CURRENT_VERSION}"
                     )
                     logger.warning(f"Restore version warning: {result['errors'][-1]}")
 
@@ -883,7 +1006,10 @@ class BackupManager:
             self.db.add(audit)
             self.db.commit()
         except Exception:
-            pass
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
 
         errors = len(result.get("errors", []))
         status = "EVENT:RESTORE_SUCCESS" if errors == 0 else "EVENT:RESTORE_PARTIAL"

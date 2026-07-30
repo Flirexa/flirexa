@@ -14,9 +14,9 @@ Runs on a periodic worker tick (and on every license activation/refresh):
   proxy protocols (hysteria2 / tuic) are paid-only and always suspended on FREE.
 
 - If the install gained `multi_server` again (renewal / new purchase), every
-  `SUSPENDED_NO_LICENSE` server is moved back to OFFLINE. Operator can click
-  Start manually; we don't auto-start so we don't surprise anyone with a
-  bunch of interfaces coming up at once during a renewal flow.
+  `SUSPENDED_NO_LICENSE` server is unparked. Servers that were ONLINE when
+  enforcement stopped them are started again; servers that were already
+  operator-stopped remain OFFLINE. Pending resumes survive process restarts.
 
 The "kept FREE quota" picks the *oldest* server of each protocol type — that's
 typically the auto-provisioned one from install, which the operator wants kept.
@@ -63,33 +63,71 @@ _SUSPEND_GRACE_H = int(os.getenv("LICENSE_SUSPEND_GRACE_HOURS", "72"))
 _STATE_FILE = Path(__file__).resolve().parents[3] / "data" / "license_suspend_state.json"
 
 
+def _load_state() -> dict:
+    try:
+        with open(_STATE_FILE) as f:
+            raw = json.load(f)
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_state(state: dict) -> None:
+    try:
+        cleaned = {
+            "first_free_at": state.get("first_free_at"),
+            "resume_server_ids": sorted({
+                int(value) for value in state.get("resume_server_ids", [])
+                if str(value).isdigit()
+            }),
+        }
+        if cleaned["first_free_at"] is None and not cleaned["resume_server_ids"]:
+            _STATE_FILE.unlink(missing_ok=True)
+            return
+        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _STATE_FILE.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(cleaned, f)
+        os.replace(tmp, _STATE_FILE)
+    except Exception as exc:
+        logger.warning("License grace: could not persist enforcement state: {}", exc)
+
+
 def _load_first_free() -> Optional[float]:
     """Epoch seconds of the first FREE observation in the current FREE streak,
     or None if not currently in a streak."""
     try:
-        with open(_STATE_FILE) as f:
-            v = json.load(f).get("first_free_at")
+        v = _load_state().get("first_free_at")
         return float(v) if v is not None else None
     except Exception:
         return None
 
 
 def _save_first_free(ts: float) -> None:
-    try:
-        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _STATE_FILE.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            json.dump({"first_free_at": ts}, f)
-        os.replace(tmp, _STATE_FILE)
-    except Exception as exc:
-        logger.warning("License grace: could not persist first_free_at: {}", exc)
+    state = _load_state()
+    state["first_free_at"] = ts
+    _save_state(state)
 
 
 def _clear_first_free() -> None:
-    try:
-        _STATE_FILE.unlink(missing_ok=True)
-    except Exception:
-        pass
+    state = _load_state()
+    state["first_free_at"] = None
+    _save_state(state)
+
+
+def _remember_resume_server(server_id: int) -> None:
+    state = _load_state()
+    ids = {int(value) for value in state.get("resume_server_ids", [])}
+    ids.add(int(server_id))
+    state["resume_server_ids"] = sorted(ids)
+    _save_state(state)
+
+
+def _save_pending_resumes(server_ids: set[int]) -> None:
+    state = _load_state()
+    state["first_free_at"] = None
+    state["resume_server_ids"] = sorted(server_ids)
+    _save_state(state)
 
 
 def _stop_server_runtime(server: Server) -> None:
@@ -115,11 +153,28 @@ def _stop_server_runtime(server: Server) -> None:
         own_session.close()
 
 
+def _start_server_runtime(server_id: int) -> bool:
+    """Start one previously-running server after paid entitlement returns."""
+    own_session = SessionLocal()
+    try:
+        from ...core.server_manager import ServerManager
+        return bool(ServerManager(own_session).start_server(server_id))
+    except Exception as exc:
+        logger.warning(
+            "License enforcement: could not resume server id={}: {}",
+            server_id, exc,
+        )
+        return False
+    finally:
+        own_session.close()
+
+
 def reconcile(db: Optional[Session] = None) -> dict:
     """Bring server fleet in line with the current license tier.
 
     Returns a small dict for logging / API exposure:
-        {"suspended": int, "unsuspended": int, "tier": "free|paid"}
+        {"suspended": int, "unsuspended": int, "resumed": int,
+         "resume_failed": int, "tier": "free|paid"}
     """
     from .manager import get_license_manager
 
@@ -135,10 +190,13 @@ def reconcile(db: Optional[Session] = None) -> dict:
         tier_label = "paid" if has_multi_server else "free"
 
         if has_multi_server:
-            # Paid: end any FREE grace streak so a later blip starts fresh.
-            _clear_first_free()
-            # Restore anything previously suspended. Don't auto-start — the
-            # operator clicks Start when they're ready.
+            # Paid: restore parked rows first. Only servers recorded as ONLINE
+            # before the enforced stop are started; intentionally-offline
+            # servers remain offline.
+            pending_resumes = {
+                int(value) for value in _load_state().get("resume_server_ids", [])
+                if str(value).isdigit()
+            }
             rows = (
                 db.query(Server)
                 .filter(Server.lifecycle_status == ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value)
@@ -154,7 +212,33 @@ def reconcile(db: Optional[Session] = None) -> dict:
                     "License enforcement: paid tier active — un-suspended {} server(s)",
                     unsuspended,
                 )
-            return {"suspended": 0, "unsuspended": unsuspended, "tier": tier_label}
+            if pending_resumes:
+                existing_ids = {
+                    row[0] for row in db.query(Server.id)
+                    .filter(Server.id.in_(pending_resumes))
+                    .all()
+                }
+                pending_resumes.intersection_update(existing_ids)
+            resumed = 0
+            failed: set[int] = set()
+            for server_id in sorted(pending_resumes):
+                if _start_server_runtime(server_id):
+                    resumed += 1
+                else:
+                    failed.add(server_id)
+            _save_pending_resumes(failed)
+            if resumed or failed:
+                logger.info(
+                    "License enforcement: resume complete — started={}, failed={}",
+                    resumed, len(failed),
+                )
+            return {
+                "suspended": 0,
+                "unsuspended": unsuspended,
+                "resumed": resumed,
+                "resume_failed": len(failed),
+                "tier": tier_label,
+            }
 
         # FREE / no-multi-server tier. Debounce the suspend behind a grace
         # window so a transient FREE read can't drop the live fleet.
@@ -205,6 +289,10 @@ def reconcile(db: Optional[Session] = None) -> dict:
                 kept_per_type.add(s.server_type)
                 continue
             # Excess / remote / proxy: suspend.
+            if s.effective_lifecycle_status == ServerLifecycleStatus.ONLINE.value:
+                # Persist intent before the potentially blocking stop so a
+                # process crash cannot forget that this interface was live.
+                _remember_resume_server(s.id)
             _stop_server_runtime(s)
             s.lifecycle_status = ServerLifecycleStatus.SUSPENDED_NO_LICENSE.value
             s.status = ServerStatus.OFFLINE

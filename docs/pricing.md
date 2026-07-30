@@ -1,6 +1,6 @@
 # Pricing
 
-_Last verified: 2026-07-24. The checkout on [flirexa.biz](https://flirexa.biz) is authoritative for current prices and billing periods._
+_Last verified: 2026-07-30. The checkout on [flirexa.biz](https://flirexa.biz) is authoritative for current prices and billing periods._
 
 Flirexa is **open-core**: the FREE tier is a complete, unlimited-time VPN service without a paid licence heartbeat. Paid tiers unlock additional features.
 
@@ -15,24 +15,31 @@ Flirexa is **open-core**: the FREE tier is a complete, unlimited-time VPN servic
 | **Telegram admin bot** | Yes | Yes | Yes | Yes |
 | **Client portal with payments** | Yes | Yes | Yes | Yes |
 | **Traffic & bandwidth limits** | Yes | Yes | Yes | Yes |
-| **Promo codes / auto-renewal** | — | Yes | Yes | Yes |
+| **Promo codes** | — | Yes | Yes | Yes |
+| **Automatic end-customer renewal** | — | Temporarily unavailable | Temporarily unavailable | Temporarily unavailable |
 | **Client Telegram bot** | — | — | Yes | Yes |
 | **Multi-server management** | — | — | Yes | Yes |
 | **Traffic rules (auto-throttle / quota)** | — | — | Yes | Yes |
 | **Scheduled backups** | — | — | Yes | Yes |
-| **White-label branding** | — | — | Basic | Full (custom domain + email) |
+| **White-label branding** | — | — | — | Full appearance, domain, email, and legal-page controls |
 | **Corporate VPN (site-to-site)** | — | — | — | Yes |
 | **Manager RBAC (scoped admins)** | — | — | — | Yes |
-| **Priority support** | — | — | — | Yes |
+| **Standard client-app package** | — | — | Separate purchase | Included |
+| **Priority support after onboarding** | — | Yes | Yes | Yes |
 
 FREE stays free forever — no key, no expiry, and no licence heartbeat. Installer diagnostics and update checks are separate network operations; see [free-vs-paid.md](free-vs-paid.md) for the full breakdown.
+
+The matrix applies to newly issued licences. Explicit capabilities already
+signed into an older paid key remain honoured after an update.
 
 ## What's included (paid tiers)
 
 - The billing period selected at checkout (monthly, annual, or lifetime when offered)
 - Every release published while your subscription is active
 - Access to all supported VPN protocols
-- Email support at [support@flirexa.biz](mailto:support@flirexa.biz)
+- One month of daily onboarding/operational help from purchase, followed by
+  priority ticket support
+- Lifetime, when selected, includes future normal product updates
 
 ## Cancellation
 

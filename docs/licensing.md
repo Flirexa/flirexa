@@ -1,13 +1,12 @@
 # Licensing
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-07-30._
 
 ## Obtaining your activation code
 
-After completing your purchase, you will receive your activation code:
-
-1. On the **thank-you page** immediately after payment confirmation
-2. Via **email** to the address you provided at checkout
+After the payment provider confirms settlement, one activation code is created
+and sent to the email address supplied at checkout. A browser redirect or
+thank-you page is not proof of payment and does not issue a licence by itself.
 
 Keep your activation code safe. It is your proof of purchase and is required for installation.
 
@@ -39,9 +38,11 @@ Most paid licences are bound to a derived server hardware identifier. This means
 ## Grace period
 
 Subscription licences normally have a **72-hour offline tolerance** backed by a
-locally cached signed status. Exact enforcement and heartbeat cadence depend on
-the licence type: protected lifetime licences use a slower clone-detection
-heartbeat, while pure offline lifetime licences do not heartbeat.
+locally cached signed status. Lifetime is a perpetual entitlement and rotates a
+hardware-, instance-, and licence-bound signed offline lease valid for at most
+30 days after successful validation. A vendor-signed emergency lease is the
+support path for a prolonged licensing-service incident; customers cannot
+self-sign or extend it.
 
 ## License verification
 
@@ -63,6 +64,11 @@ and [updates.md](updates.md).
 ## License transfer
 
 If you need to move your installation to a different server, contact [support@flirexa.biz](mailto:support@flirexa.biz) to request a hardware rebinding. Include your activation code and the reason for the transfer.
+
+Lifetime includes future normal product updates. Official updates preserve
+managed data and licence state, but may replace unsupported direct edits inside
+the product tree. Paid purchases include one month of daily onboarding and
+operational help from the purchase date, followed by priority ticket support.
 
 ## Internal development mode
 

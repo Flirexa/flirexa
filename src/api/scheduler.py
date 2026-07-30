@@ -73,6 +73,18 @@ def _send_expiry_email_for_subscription(db, sub, days_left: int) -> None:
 MONITOR_INTERVAL = int(os.getenv("MONITOR_INTERVAL", "60"))
 _MONITOR_TIMEOUT = int(os.getenv("MONITOR_TIMEOUT", str(max(10, int(MONITOR_INTERVAL * 0.9)))))
 _RECONCILE_TIMEOUT = int(os.getenv("RECONCILE_TIMEOUT", "120"))
+_PENDING_PAYMENT_RECOVERY_BATCH = max(
+    1, min(int(os.getenv("PENDING_PAYMENT_RECOVERY_BATCH", "3")), 10)
+)
+_PENDING_PAYMENT_RECOVERY_RETRY_SECONDS = max(
+    60, min(int(os.getenv("PENDING_PAYMENT_RECOVERY_RETRY_SECONDS", "600")), 3600)
+)
+_PENDING_PAYMENT_EXPIRY_GRACE_SECONDS = max(
+    60, min(int(os.getenv("PENDING_PAYMENT_EXPIRY_GRACE_SECONDS", "900")), 3600)
+)
+_STALE_PAYMENT_EXPIRY_BATCH = max(
+    10, min(int(os.getenv("STALE_PAYMENT_EXPIRY_BATCH", "200")), 1000)
+)
 _monitor_cycle_lock = threading.Lock()
 _reconcile_cycle_lock = threading.Lock()
 _health_stamp_lock = threading.Lock()
@@ -81,16 +93,27 @@ _health_stamp_lock = threading.Lock()
 _HEALTH_STAMP_TIMEOUT = int(os.getenv("HEALTH_STAMP_TIMEOUT", "120"))
 
 
+def _add_notification_marker(
+    existing: dict | None, marker: str, when: datetime
+) -> dict:
+    """Return a new JSON value so SQLAlchemy persists the dedup marker."""
+
+    updated = dict(existing or {})
+    updated[marker] = when.isoformat()
+    return updated
+
+
 # ─── Pending payment recovery ────────────────────────────────────────────────
 
 def _try_recover_pending_payments(db) -> None:
     """
-    Pull each not-yet-expired pending payment up to 4h old and re-check its
-    status with the provider directly. Self-healing for dropped webhooks.
+    Re-check a small persisted batch of pending payments with the provider.
+    This is the self-healing path for dropped webhooks.
 
     We ONLY recover payments that:
     - status == 'pending'
-    - created within the last 4h (older ones are also tried, but with backoff)
+    - old enough to give the normal webhook a head start
+    - not checked during the persisted retry window
     - have a known provider with a working check_payment()
 
     On a "completed" answer we call SubscriptionManager.complete_payment(),
@@ -100,6 +123,7 @@ def _try_recover_pending_payments(db) -> None:
     from ..modules.subscription.subscription_models import ClientPortalPayment
     from ..modules.subscription.subscription_manager import SubscriptionManager
     from ..modules.payment.base import PaymentStatus
+    from sqlalchemy import or_ as _or
 
     try:
         from ..api.routes import client_portal as _portal
@@ -113,10 +137,23 @@ def _try_recover_pending_payments(db) -> None:
     # Don't try to recover the absolute newest invoices — give the webhook
     # a head start (15s) so we don't race normal completion.
     young = now - timedelta(seconds=15)
+    retry_before = now - timedelta(
+        seconds=_PENDING_PAYMENT_RECOVERY_RETRY_SECONDS
+    )
     candidates = db.query(ClientPortalPayment).filter(
         ClientPortalPayment.status == "pending",
         ClientPortalPayment.created_at <= young,
-    ).order_by(ClientPortalPayment.created_at.asc()).limit(50).all()
+        _or(
+            ClientPortalPayment.updated_at.is_(None),
+            ClientPortalPayment.updated_at <= retry_before,
+        ),
+    ).order_by(
+        # Rescue invoices nearest/past local expiry first; newer invoices still
+        # have the normal webhook path and can wait for a later bounded batch.
+        ClientPortalPayment.expires_at.asc(),
+        ClientPortalPayment.updated_at.asc(),
+        ClientPortalPayment.created_at.asc(),
+    ).limit(_PENDING_PAYMENT_RECOVERY_BATCH).all()
     if not candidates:
         return
 
@@ -139,6 +176,14 @@ def _try_recover_pending_payments(db) -> None:
             prov_obj = None
         if not prov_obj or not hasattr(prov_obj, "check_payment"):
             continue
+
+        # Claim the retry window before network I/O. The worker's overlap lock
+        # protects normal cycles, while this persisted timestamp also prevents
+        # a concurrent/manual cycle or process restart from hammering the same
+        # provider record. A failed check becomes eligible again after the
+        # bounded backoff.
+        p.updated_at = now
+        db.commit()
 
         try:
             status = _asyncio.run(prov_obj.check_payment(provider_invoice))
@@ -177,6 +222,31 @@ def _try_recover_pending_payments(db) -> None:
         logger.info("Pending-payment recovery: {} invoice(s) self-healed this cycle", recovered)
 
 
+def _expire_stale_pending_payments(db, *, now: datetime | None = None) -> int:
+    """Expire a bounded batch only after the provider-recovery grace window."""
+
+    from ..modules.subscription.subscription_models import ClientPortalPayment
+
+    current = now or datetime.now(timezone.utc)
+    stale_before = current - timedelta(
+        seconds=_PENDING_PAYMENT_EXPIRY_GRACE_SECONDS
+    )
+    rows = db.query(ClientPortalPayment).filter(
+        ClientPortalPayment.status == "pending",
+        ClientPortalPayment.expires_at != None,
+        ClientPortalPayment.expires_at <= stale_before,
+    ).order_by(
+        ClientPortalPayment.expires_at.asc(),
+        ClientPortalPayment.id.asc(),
+    ).limit(_STALE_PAYMENT_EXPIRY_BATCH).all()
+    if not rows:
+        return 0
+    for payment in rows:
+        payment.status = "expired"
+    db.commit()
+    return len(rows)
+
+
 # ─── Monitoring ───────────────────────────────────────────────────────────────
 
 def monitoring_cycle():
@@ -192,8 +262,9 @@ def monitoring_cycle():
         if synced > 0:
             logger.debug(f"Monitoring: synced traffic for {synced} portal subscriptions")
 
-        # Auto-renewal must run before the normal expiry pass. Its paid
-        # implementation and entitlement check live behind a protected module.
+        # Automatic renewal is temporarily fail-closed. The protected adapter
+        # clears historical opt-ins and grants no time until every renewal can
+        # be tied to one newly verified provider settlement.
         try:
             from ..modules.subscription.auto_renewal import process_auto_renewals
 
@@ -201,7 +272,7 @@ def monitoring_cycle():
         except Exception as exc:
             logger.error("Auto-renewal cycle error: {}", exc)
 
-        # Expire subscriptions (after auto-renewal so successfully renewed subs are not expired)
+        # Expire subscriptions after the safety pass above.
         expired = mgr.check_and_expire_subscriptions()
         if expired > 0:
             logger.info(f"Monitoring: expired {expired} portal subscriptions")
@@ -231,7 +302,8 @@ def monitoring_cycle():
                 expiry = sub._aware_expiry()
                 secs_left = (expiry - now).total_seconds()
                 days_left = _math.ceil(secs_left / 86400) if secs_left > 0 else 0
-                sent = sub.notification_sent_at or {}
+                original_sent = dict(sub.notification_sent_at or {})
+                sent = dict(original_sent)
 
                 # Email-side notification is best-effort. Fires alongside
                 # Telegram / portal-push so customers who only gave us
@@ -249,19 +321,19 @@ def monitoring_cycle():
                     ns.notify_user_expiry_warning(sub.user_id, "", 7, sub.tier)
                     ns.create_portal_notification(sub.user_id, "Subscription expiring soon", f"Your {sub.tier} plan expires in {days_left} days")
                     _email_expiry(days_left)
-                    sent["7day"] = now.isoformat()
+                    sent = _add_notification_marker(sent, "7day", now)
                 elif days_left > 1 and days_left <= 3 and "3day" not in sent:
                     ns.notify_user_expiry_warning(sub.user_id, "", 3, sub.tier)
                     ns.create_portal_notification(sub.user_id, "Subscription expiring", f"Your {sub.tier} plan expires in {days_left} days")
                     _email_expiry(days_left)
-                    sent["3day"] = now.isoformat()
+                    sent = _add_notification_marker(sent, "3day", now)
                 elif days_left == 1 and "1day" not in sent:
                     ns.notify_user_expiry_warning(sub.user_id, "", 1, sub.tier)
                     ns.create_portal_notification(sub.user_id, "Subscription expiring tomorrow", f"Your {sub.tier} plan expires tomorrow")
                     _email_expiry(1)
-                    sent["1day"] = now.isoformat()
+                    sent = _add_notification_marker(sent, "1day", now)
 
-                if sent != (sub.notification_sent_at or {}):
+                if sent != original_sent:
                     sub.notification_sent_at = sent
             db.commit()
 
@@ -272,17 +344,19 @@ def monitoring_cycle():
             ).all()
             for sub in active_subs:
                 pct = sub.traffic_percentage_used
-                sent = sub.notification_sent_at or {}
+                sent = dict(sub.notification_sent_at or {})
                 if pct and pct >= 90 and "traffic_90" not in sent:
                     ns.notify_user_traffic_warning(sub.user_id, "", pct, sub.tier)
                     ns.create_portal_notification(sub.user_id, "Traffic limit warning", f"You've used {pct}% of your traffic limit")
-                    sent["traffic_90"] = now.isoformat()
-                    sub.notification_sent_at = sent
+                    sub.notification_sent_at = _add_notification_marker(
+                        sent, "traffic_90", now
+                    )
                 elif pct and pct >= 80 and "traffic_80" not in sent:
                     ns.notify_user_traffic_warning(sub.user_id, "", pct, sub.tier)
                     ns.create_portal_notification(sub.user_id, "Traffic limit warning", f"You've used {pct}% of your traffic limit")
-                    sent["traffic_80"] = now.isoformat()
-                    sub.notification_sent_at = sent
+                    sub.notification_sent_at = _add_notification_marker(
+                        sent, "traffic_80", now
+                    )
             db.commit()
 
             if expired > 0:
@@ -295,51 +369,39 @@ def monitoring_cycle():
         except Exception as e:
             logger.debug(f"Notification check error (non-critical): {e}")
 
-        # Expire stale pending payments
+        # Recover a provider-confirmed payment before considering its local
+        # invoice stale. A provider can confirm near expiry while its webhook
+        # is lost; expiring the row first would suppress the only recovery
+        # path and leave a paid customer without service.
         from ..modules.subscription.subscription_models import ClientPortalPayment
-        stale_payments = db.query(ClientPortalPayment).filter(
-            ClientPortalPayment.status == "pending",
-            ClientPortalPayment.expires_at != None,
-            ClientPortalPayment.expires_at <= datetime.now(timezone.utc)
-        ).all()
-        if stale_payments:
-            for p in stale_payments:
-                p.status = "expired"
-            db.commit()
-            logger.info(f"Monitoring: expired {len(stale_payments)} stale pending payments")
-
-        # Active recovery for stuck pending payments.
-        #
-        # If a webhook is dropped (provider downtime, network blip, our process
-        # restarted between webhook arrival and DB commit), the payment row
-        # stays "pending" forever and the customer never gets their subscription.
-        #
-        # We poll every "young-but-not-yet-expired" pending payment by asking
-        # the provider directly via check_payment(). If the provider says
-        # "completed", we run the same complete_payment() path that the webhook
-        # would have. complete_payment() is idempotent (row lock + status check
-        # inside lock), so a delayed webhook arriving later won't double-credit.
-        #
-        # Also — once a payment's hard expiry has passed and it was just expired
-        # above, we DON'T retry it. That row is dead.
         try:
             _try_recover_pending_payments(db)
         except Exception as _rerr:
             logger.error("Pending-payment recovery failed: {}", _rerr)
 
+        # Expire in bounded batches after a short reconciliation grace window.
+        # Webhooks remain authoritative and complete_payment is idempotent, so
+        # a genuinely late confirmed callback can still settle an expired row.
+        expired_payments = _expire_stale_pending_payments(db)
+        if expired_payments:
+            logger.info(
+                "Monitoring: expired {} stale pending payments",
+                expired_payments,
+            )
+
         # Older bucket: still pending after 6h with no recovery → louder warning
         # so admins can chase the provider directly.
         stuck_cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
-        stuck_payments = db.query(ClientPortalPayment).filter(
+        stuck_payment_count = db.query(ClientPortalPayment).filter(
             ClientPortalPayment.status == "pending",
             ClientPortalPayment.created_at <= stuck_cutoff,
-        ).all()
-        if stuck_payments:
-            ids = [p.invoice_id for p in stuck_payments]
+        ).count()
+        if stuck_payment_count:
             logger.warning(
-                f"Monitoring: {len(stuck_payments)} payment(s) STILL stuck in 'pending' for >6h "
-                f"after recovery attempts — invoice IDs: {ids}. "
-                f"Check provider dashboards or confirm manually in admin panel."
+                "Monitoring: {} payment(s) still pending for more than 6h "
+                "after recovery attempts; review them in the admin panel or "
+                "provider dashboard",
+                stuck_payment_count,
             )
 
         # Core WG limits check (expiry, traffic for non-portal clients)

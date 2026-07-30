@@ -55,7 +55,7 @@ const TIERS = [
     id: 'starter',
     name: 'Starter',
     price: 12,
-    features: ['Hysteria2 + TUIC', 'Promo codes', 'Auto-renewal', 'Up to 500 clients'],
+    features: ['Hysteria2 + TUIC', 'Promo codes', 'Up to 500 clients'],
   },
   {
     id: 'business',

@@ -290,7 +290,7 @@ def _serialize_subscription(sub: ClientPortalSubscription) -> dict:
         "price_monthly_usd": sub.price_monthly_usd,
         "expiry_date": _dt_str(sub.expiry_date),
         "days_remaining": sub.days_remaining,
-        "auto_renew": sub.auto_renew,
+        "auto_renew": False,
         "start_date": _dt_str(sub.start_date),
         "last_renewal": _dt_str(sub.last_renewal),
     }

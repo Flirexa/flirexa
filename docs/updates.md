@@ -1,6 +1,6 @@
 # Updates
 
-_Last verified: 2026-07-27._
+_Last verified: 2026-07-30._
 
 Flirexa has a built-in update system with signed manifests, checksum-verified
 packages, channel-based distribution, and rollback on failure.
@@ -34,6 +34,12 @@ The active channel is shown on the **Updates** page. Switch channels in **Settin
 POST /api/v1/updates/channel
 {"channel": "stable"}
 ```
+
+The once-per-minute admin badge is a non-blocking local read of the last
+verified manifest and coalesces stale refreshes in the background. Manual
+Check/apply, normal auto-check, and the mandatory watcher still force a fresh
+signed-manifest request, so a slow origin cannot interrupt panel work without
+weakening update discovery.
 
 ---
 
@@ -114,6 +120,11 @@ The rollback:
 - Runs a smoke check
 
 Rollback is also triggered automatically if the update smoke check fails.
+
+An API-launched manual rollback runs detached from the API process and writes a
+persistent log and exit marker. It disables normal auto-apply and suppresses the
+exact rolled-back version from automatic watchers, preventing an immediate
+reinstall; a manual Apply or newer version remains available.
 
 ## Paid-runtime migration safety
 

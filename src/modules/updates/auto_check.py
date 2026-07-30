@@ -81,6 +81,23 @@ def _auto_apply_enabled() -> bool:
         db.close()
 
 
+def _rollback_suppressed_version() -> str | None:
+    """Version an operator explicitly rolled back and does not want reapplied."""
+    try:
+        from ...database.connection import SessionLocal
+        from ...database.models import SystemConfig
+    except Exception:
+        return None
+    db = SessionLocal()
+    try:
+        cfg = db.query(SystemConfig).filter_by(
+            key="updates_rollback_suppressed_version"
+        ).first()
+        return (cfg.value or "").strip() or None if cfg else None
+    finally:
+        db.close()
+
+
 # If a previous auto-apply attempt for the same target version FAILED within
 # this window, skip retrying. Without this guard a permanent failure (DKMS
 # can't build the new module, disk full, dependency conflict, …) would have
@@ -133,6 +150,14 @@ async def _try_auto_apply(manifest: dict, current_version: str, channel: str) ->
 
     new_version = manifest.get("version")
     if not new_version or not is_newer(new_version, current_version):
+        return
+    suppressed_version = _rollback_suppressed_version()
+    if new_version == suppressed_version:
+        logger.warning(
+            "auto-apply: skipped {} — this exact version was manually rolled back; "
+            "a manual Apply remains available",
+            new_version,
+        )
         return
 
     db = SessionLocal()

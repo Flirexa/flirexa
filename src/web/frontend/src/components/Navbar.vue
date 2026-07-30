@@ -20,7 +20,7 @@
 
     <div class="d-flex align-items-center gap-2">
       <!-- Support the author — first in the right group, text + heart -->
-      <button class="topbar-donate-pill" @click="$emit('open-donate')" :title="$t('donate.tooltip')">
+      <button v-if="showDonate" class="topbar-donate-pill" @click="$emit('open-donate')" :title="$t('donate.tooltip')">
         <i class="mdi mdi-heart"></i>
         <span class="topbar-donate-pill-label">{{ $t('donate.button') }}</span>
       </button>
@@ -103,6 +103,9 @@ import { useServersStore } from '../stores/servers'
 import api, { silentPoll } from '../api'
 
 defineEmits(['open-donate'])
+defineProps({
+  showDonate: { type: Boolean, default: false },
+})
 
 const route = useRoute()
 const router = useRouter()
@@ -142,7 +145,7 @@ let _updateBadgeTimer = null
 
 async function refreshUpdateBadge() {
   try {
-    const r = await api.get('/updates/status', { timeout: 3000 })
+    const r = await api.get('/updates/status', { timeout: 10000, silent: true })
     const av = r.data?.available_update
     if (av && av.version) {
       updateBadge.value = {

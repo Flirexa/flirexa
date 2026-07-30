@@ -84,6 +84,69 @@ class TestGraceOnSuspend:
         assert r["unsuspended"] == 1
         assert enforcement._load_first_free() is None   # streak cleared on paid
 
+    def test_paid_resumes_only_server_that_was_online_before_suspend(
+        self, db_session, set_tier, monkeypatch,
+    ):
+        monkeypatch.setattr(enforcement, "_SUSPEND_GRACE_H", 0)
+        online = _mk_server(
+            db_session, "remote-online", "amneziawg",
+            lifecycle=ServerLifecycleStatus.ONLINE.value,
+            agent_url="http://10.0.0.9:8080",
+        )
+        offline = _mk_server(
+            db_session, "remote-offline", "wireguard",
+            lifecycle=ServerLifecycleStatus.OFFLINE.value,
+            agent_url="http://10.0.0.10:8080",
+        )
+        set_tier(paid=False)
+        assert enforcement.reconcile(db_session)["suspended"] == 2
+
+        started = []
+        monkeypatch.setattr(
+            enforcement, "_start_server_runtime",
+            lambda server_id: started.append(server_id) or True,
+        )
+        set_tier(paid=True)
+        result = enforcement.reconcile(db_session)
+        assert result["unsuspended"] == 2
+        assert result["resumed"] == 1
+        assert result["resume_failed"] == 0
+        assert started == [online.id]
+        assert offline.id not in started
+        assert not enforcement._STATE_FILE.exists()
+
+    def test_failed_resume_is_persisted_and_retried(
+        self, db_session, set_tier, monkeypatch,
+    ):
+        monkeypatch.setattr(enforcement, "_SUSPEND_GRACE_H", 0)
+        server = _mk_server(
+            db_session, "remote-online", "amneziawg",
+            lifecycle=ServerLifecycleStatus.ONLINE.value,
+            agent_url="http://10.0.0.9:8080",
+        )
+        set_tier(paid=False)
+        enforcement.reconcile(db_session)
+
+        attempts = []
+        monkeypatch.setattr(
+            enforcement, "_start_server_runtime",
+            lambda server_id: attempts.append(server_id) or False,
+        )
+        set_tier(paid=True)
+        first = enforcement.reconcile(db_session)
+        assert first["resume_failed"] == 1
+        assert enforcement._load_state()["resume_server_ids"] == [server.id]
+
+        monkeypatch.setattr(
+            enforcement, "_start_server_runtime",
+            lambda server_id: attempts.append(server_id) or True,
+        )
+        second = enforcement.reconcile(db_session)
+        assert second["resumed"] == 1
+        assert second["resume_failed"] == 0
+        assert attempts == [server.id, server.id]
+        assert not enforcement._STATE_FILE.exists()
+
     def test_grace_disabled_suspends_immediately(self, db_session, set_tier, monkeypatch):
         monkeypatch.setattr(enforcement, "_SUSPEND_GRACE_H", 0)   # legacy behaviour
         set_tier(paid=False)

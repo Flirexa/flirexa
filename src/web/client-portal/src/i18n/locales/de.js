@@ -191,10 +191,6 @@ export default {
     referralLink: 'Ihr Empfehlungslink',
     referralCount: 'Empfohlene Freunde',
     referralBonus: '+7 Tage für jede bezahlte Empfehlung',
-    autoRenew: 'Automatische Verlängerung',
-    autoRenewOn: 'Auto-Verlängerung aktiviert',
-    autoRenewOff: 'Auto-Verlängerung deaktiviert',
-    autoRenewHint: 'Automatische Verlängerung bei Ablauf des Abonnements',
     deviceDeleted: 'Gerät gelöscht',
     deviceConnected: 'Verbunden',
     deviceDisconnected: 'Getrennt',
@@ -339,7 +335,6 @@ export default {
     endpoint: 'Öffentliche IP:Port dieses Standorts. Erforderlich wenn andere Standorte hier Verbindungen initiieren sollen. Leer lassen wenn hinter NAT.',
     regenKeys: 'Generiert ein neues WireGuard-Schlüsselpaar für diesen Standort. Danach müssen Konfigurationen für ALLE Standorte neu heruntergeladen werden.',
     diagnostics: 'Konnektivitätsprüfung zwischen allen Standortpaaren. Zeigt welche Standorte sich erreichen können und identifiziert Routing-Probleme.',
-    autoRenew: 'Wenn aktiviert, wird Ihr Abonnement vor dem Ablauf automatisch über Ihre letzte Zahlungsmethode verlängert.',
     referral: 'Teilen Sie Ihren einzigartigen Link. Jeder Freund, der ein kostenpflichtiges Abonnement abschließt, gibt Ihnen +7 Tage zu Ihrem Abonnement. Hinweis: Sie müssen ein aktives kostenpflichtiges Abonnement haben, wenn Ihr Freund zahlt — der Bonus verlängert Ihre verbleibenden Tage, im Free-Tarif gibt es nichts zu verlängern.',
   },
   support: {

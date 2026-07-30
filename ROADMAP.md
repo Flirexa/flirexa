@@ -1,6 +1,6 @@
 # Roadmap
 
-_Last verified: 2026-07-28_
+_Last verified: 2026-07-30_
 
 What's next for Flirexa, organised by quarter. Items higher in each section are higher priority. Dates are aspirational; items move when reality intervenes.
 
@@ -15,11 +15,10 @@ If you'd like to see something prioritised, [open a discussion](https://github.c
   integrity-checked, entitlement-specific commercial bundles. The public tree
   contains compatibility stubs; the readable commercial implementation source
   remains in the private repository.
-- [ ] **License-service replication and restore drill**
-  Replicate the authoritative license database to the warm backup, move verified
-  backups off-host, restore them on a disposable node, and prove that newly
-  issued licenses, payment/admin configuration, and recovery procedures survive
-  a primary outage.
+- [ ] **Settlement-backed end-customer renewal**
+  Restore optional client-portal auto-renewal only after each added paid period
+  consumes one newly verified provider settlement through an idempotent flow.
+  Manual checkout and renewal remain the supported path until then.
 - [ ] **Plugin marketplace**
   A community-curated list of third-party plugins (notification integrations, custom payment providers, monitoring exporters, etc.). Submission via PR.
 - [ ] **First community plugin examples**

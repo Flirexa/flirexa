@@ -244,7 +244,7 @@ async def get_subscription(
         "price_monthly_usd": subscription.price_monthly_usd,
         "expiry_date": subscription.expiry_date.isoformat() if subscription.expiry_date else None,
         "days_remaining": subscription.days_remaining,
-        "auto_renew": subscription.auto_renew,
+        "auto_renew": False,
         "created_at": subscription.created_at.isoformat()
     }
 

@@ -98,28 +98,33 @@ def create_backup_command(
         )
 
     output_dir, archive_name = _resolve_output(output)
-    try:
-        _ensure_writable_dir(output_dir)
-    except Exception as exc:
-        return BackupCommandResult(
-            success=False,
-            action="backup_create",
-            backup_type=backup_type,
-            version=status.version,
-            mode=status.mode,
-            error=str(exc),
-        )
+    # Only pre-create/preflight a path explicitly selected by the operator.
+    # With no --output, BackupManager must resolve and validate the configured
+    # local/network storage itself; touching the default local directory here
+    # could hide an unmounted network target.
+    if output:
+        try:
+            _ensure_writable_dir(output_dir)
+        except Exception as exc:
+            return BackupCommandResult(
+                success=False,
+                action="backup_create",
+                backup_type=backup_type,
+                version=status.version,
+                mode=status.mode,
+                error=str(exc),
+            )
 
-    free_mb = shutil.disk_usage(output_dir).free // (1024 * 1024)
-    if free_mb < _required_free_mb(backup_type):
-        return BackupCommandResult(
-            success=False,
-            action="backup_create",
-            backup_type=backup_type,
-            version=status.version,
-            mode=status.mode,
-            error=f"Insufficient free space in backup destination: {free_mb} MB",
-        )
+        free_mb = shutil.disk_usage(output_dir).free // (1024 * 1024)
+        if free_mb < _required_free_mb(backup_type):
+            return BackupCommandResult(
+                success=False,
+                action="backup_create",
+                backup_type=backup_type,
+                version=status.version,
+                mode=status.mode,
+                error=f"Insufficient free space in backup destination: {free_mb} MB",
+            )
 
     warnings: list[str] = []
     if status.mode != "maintenance":
@@ -127,7 +132,9 @@ def create_backup_command(
 
     try:
         with get_db_context() as db:
-            mgr = BackupManager(db, backup_dir=str(output_dir))
+            mgr = BackupManager(
+                db, backup_dir=str(output_dir) if output else None
+            )
             if backup_type == "db-only":
                 metadata = mgr.create_database_backup(
                     archive_name=archive_name,

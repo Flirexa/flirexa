@@ -27,3 +27,24 @@ def test_update_apply_log_scan_is_scoped_to_current_startup_window():
     text = Path("update_apply.sh").read_text(encoding="utf-8")
     assert 'STARTUP_LOG_SINCE="$(date --iso-8601=seconds)"' in text
     assert 'journalctl -u "$svc" "${since_args[@]}" -n 120 --no-pager' in text
+
+
+def test_installer_restarts_worker_code_during_in_place_upgrade():
+    text = Path("install.sh").read_text(encoding="utf-8")
+    stop_at = text.index("systemctl stop vpnmanager-worker")
+    replace_at = text.index("copy_files()")
+    start_at = text.index("systemctl start vpnmanager-worker")
+
+    assert stop_at < replace_at < start_at
+    assert 'pkill -f "worker_main.py"' in text
+
+
+def test_installer_prunes_stale_hashed_frontend_assets_before_copy():
+    text = Path("install.sh").read_text(encoding="utf-8")
+    copy_start = text.index("copy_files()")
+    rsync_at = text.index("rsync -a", copy_start)
+
+    for output in ("src/web/static/dist", "src/web/client-portal-dist"):
+        prune_at = text.index(f'rm -rf "$INSTALL_DIR/$frontend_output"', copy_start)
+        assert output in text[copy_start:rsync_at]
+        assert copy_start < prune_at < rsync_at

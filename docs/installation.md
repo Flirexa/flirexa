@@ -1,6 +1,6 @@
 # Installation
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-07-30._
 
 ---
 
@@ -8,14 +8,15 @@ _Last verified: 2026-07-24._
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
-| OS | Ubuntu 22.04 / Debian 12 | Ubuntu 24.04 LTS |
-| CPU | 1 core | 2 cores |
-| RAM | 1 GB | 2 GB |
-| Disk | 10 GB | 20 GB |
-| Access | Root or sudo | Root or sudo |
+| OS | Ubuntu Server 22.04 LTS | Ubuntu Server 24.04 LTS |
+| CPU | 2 cores | 4 cores |
+| RAM | 4 GB | 8 GB |
+| Disk | 40 GB | 80 GB |
+| Access | root | root |
 | Network | Public IP | Public IP + domain name |
 
-Supported distributions: Ubuntu 22.04+, Debian 12+, Linux Mint 21+, Pop!_OS 22.04+.
+Other Debian-family systems may pass best-effort checks, but they are outside
+the production support matrix.
 
 The installer requires internet access to download system/Python packages and the
 official Flirexa release manifest/package.
@@ -56,6 +57,11 @@ The installer performs these steps automatically:
 8. Creates and starts the local WireGuard interface (`wg0`)
 9. Registers the local server in the admin panel
 10. Runs a post-install health check
+
+On an in-place reinstall, all managed services including the background worker
+are stopped before application files are replaced. Package-owned compiled admin
+and portal output directories are pruned before new hashed assets are copied;
+database contents, `.env`, uploads, licence state, and backups are preserved.
 
 When complete, the installer prints the access URL. The first browser visit creates
 the administrator account.
@@ -192,9 +198,9 @@ licence heartbeat. Installer diagnostics and update checks are separate:
 | Tier | Price | Clients | Servers | Notes |
 |------|-------|---------|---------|-------|
 | FREE | $0 | 80 | 1 host / 2 local endpoints | WireGuard + AmneziaWG, no licence needed |
-| Starter | from $12/mo | 500 | 1 host | + Hysteria2, TUIC, VLESS-Reality, promo codes, auto-renewal |
-| Business | from $49/mo | 2000 | up to 10 nodes | + multi-server, client Telegram bot, traffic rules, scheduled backups, basic white-label |
-| Enterprise | from $149/mo | Unlimited | Unlimited | + corporate site-to-site VPN, full white-label, manager RBAC |
+| Starter | from $12/mo | 500 | 1 host | + Hysteria2, TUIC, VLESS-Reality, promo codes |
+| Business | from $49/mo | 2000 | up to 10 nodes | + multi-server, client Telegram bot, full payment suite, traffic rules, scheduled backups |
+| Enterprise | from $149/mo | Unlimited | Unlimited | + corporate VPN, full white-label, standard client apps, manager RBAC |
 
 Current checkout pricing and billing periods are listed on
 [flirexa.biz](https://flirexa.biz).

@@ -25,6 +25,7 @@
 set -euo pipefail
 
 LEGACY_PREFIX="sponge""bot"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 UPDATE_ID="${UPDATE_ID:-0}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/vpnmanager}"
@@ -37,6 +38,12 @@ EXPECTED_PACKAGE_SIZE="${EXPECTED_PACKAGE_SIZE:-0}"
 REQUIRES_MIGRATION="${REQUIRES_MIGRATION:-false}"
 REQUIRES_RESTART="${REQUIRES_RESTART:-true}"
 SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
+ROLLBACK_ID="${ROLLBACK_ID:-}"
+ROLLBACK_ORIGINAL_ID="${ROLLBACK_ORIGINAL_ID:-}"
+ROLLBACK_FROM_VERSION="${ROLLBACK_FROM_VERSION:-}"
+ROLLBACK_TO_VERSION="${ROLLBACK_TO_VERSION:-}"
+ROLLBACK_STARTED_BY="${ROLLBACK_STARTED_BY:-admin}"
+ROLLBACK_STARTED_AT="${ROLLBACK_STARTED_AT:-}"
 
 LOCK_DIR="$INSTALL_DIR/update-lock"
 LOCK_FILE="$LOCK_DIR/update.lock"
@@ -131,7 +138,10 @@ fi
 _write_exitcode() {
     local code=$?
     if [[ -n "$STATE_DIR" && -d "$STATE_DIR" ]]; then
-        echo "$code" > "$STATE_DIR/apply.exitcode" 2>/dev/null || true
+        local marker="apply.exitcode"
+        [[ "${ROLLBACK:-}" == "1" ]] && marker="rollback.exitcode"
+        printf '%s\n' "$code" > "$STATE_DIR/${marker}.tmp" 2>/dev/null || true
+        mv -f "$STATE_DIR/${marker}.tmp" "$STATE_DIR/$marker" 2>/dev/null || true
     fi
 }
 trap '_write_exitcode' EXIT
@@ -799,6 +809,44 @@ rollback_from_backup() {
     # into rollback-aware mode so it reads VERSION from the current symlink
     # we just restored.
     ROLLBACK=1 smoke_check "$rollback_target" || return 1
+
+    # A manual rollback restores a database snapshot taken before the rollback
+    # request, so its history row no longer exists.  Recreate the terminal row,
+    # mark the original operation rolled back, disable normal auto-apply, and
+    # suppress this exact version so a mandatory watcher cannot immediately
+    # undo the operator's rollback decision.  Legacy/operator rollbacks without
+    # API metadata remain supported, but API-launched rollbacks fail closed if
+    # their durable history cannot be finalized.
+    if [[ -n "$ROLLBACK_ID" || -n "$ROLLBACK_ORIGINAL_ID" ]]; then
+        if [[ -z "$ROLLBACK_ID" || -z "$ROLLBACK_ORIGINAL_ID" || \
+              -z "$ROLLBACK_FROM_VERSION" || -z "$ROLLBACK_TO_VERSION" || \
+              -z "$ROLLBACK_STARTED_AT" ]]; then
+            log_err "Incomplete rollback finalization metadata"
+            return 1
+        fi
+        local finalizer="$SCRIPT_DIR/update_rollback_finalize.py"
+        local python_bin="$INSTALL_DIR/venv/bin/python"
+        if [[ ! -f "$finalizer" || ! -x "$python_bin" ]]; then
+            log_err "Rollback finalizer unavailable (helper=$finalizer python=$python_bin)"
+            return 1
+        fi
+        log "Finalizing rollback history and auto-update suppression …"
+        "$python_bin" "$finalizer" \
+            --env-file "$INSTALL_DIR/.env" \
+            --rollback-id "$ROLLBACK_ID" \
+            --original-id "$ROLLBACK_ORIGINAL_ID" \
+            --from-version "$ROLLBACK_FROM_VERSION" \
+            --to-version "$ROLLBACK_TO_VERSION" \
+            --started-by "$ROLLBACK_STARTED_BY" \
+            --started-at "$ROLLBACK_STARTED_AT" \
+            --backup-path "$BACKUP_DIR" \
+            --log-file "$BACKUP_DIR/rollback.log" || {
+                log_err "Rollback database finalization failed"
+                return 1
+            }
+    else
+        log "WARNING: rollback metadata absent; skipping API history finalization"
+    fi
 
     write_marker "phase_rollback_complete" "$(date --iso-8601=seconds)"
     clear_maintenance_flag

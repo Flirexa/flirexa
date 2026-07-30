@@ -1,6 +1,6 @@
 # Troubleshooting
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-07-30._
 
 ---
 
@@ -259,8 +259,9 @@ If the worker is not installed, the API handles background tasks internally, but
 **"License validation failed":**
 - Check `Settings → License` for the current status
 - Verify your server has internet access to reach the license server
-- Subscription licences normally have a 72-hour cached grace period; lifetime
-  licence behaviour differs by enforcement type
+- Subscription licences normally have a 72-hour cached grace period; Lifetime
+  uses a bound signed offline lease valid for at most 30 days after successful
+  validation
 
 **"Activation required":**
 - The license key does not match this server's ID

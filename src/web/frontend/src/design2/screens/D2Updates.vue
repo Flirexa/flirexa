@@ -201,7 +201,7 @@ function startInstallPoll(id) {
 function beginRestartWait() {
   restarting.value = true; restartStart = Date.now()
   const t = setInterval(async () => {
-    try { await api.get('/updates/status', { timeout: 4000 }); clearInterval(t); restarting.value = false; window.location.reload() }
+    try { await api.get('/updates/status', { timeout: 4000, silent: true }); clearInterval(t); restarting.value = false; window.location.reload() }
     catch (_) { if (Date.now() - restartStart > RESTART_MAX_MS) { clearInterval(t); restarting.value = false } }
   }, 3000)
 }

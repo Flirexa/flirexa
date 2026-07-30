@@ -6,10 +6,12 @@ import subprocess
 import sys
 import time
 import json
+import re
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from src.database.connection import get_db_context
+from src.database.connection import SessionLocal, get_db_context
 from src.modules.backup_manager import BackupManager
 from src.modules.operational_mode import get_explicit_maintenance_state, set_maintenance_mode
 from src.modules.system_status.collector import collect_system_status
@@ -90,6 +92,18 @@ def _restored_sections(result: dict) -> list[str]:
 
 def _post_restore_env() -> dict[str, str]:
     env = os.environ.copy()
+    env_path = _restored_env_path()
+    if env_path is not None:
+        try:
+            for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=", raw_line)
+                if match:
+                    # load_dotenv(override=False) in the child must see the
+                    # restored file, not stale values inherited from the
+                    # pre-restore CLI process.
+                    env.pop(match.group(1), None)
+        except OSError:
+            pass
     for key in (
         "DATABASE_URL",
         "ASYNC_DATABASE_URL",
@@ -102,6 +116,80 @@ def _post_restore_env() -> dict[str, str]:
         env.pop(key, None)
     env["VMS_SUPPRESS_ENCRYPTION_WARNING"] = "1"
     return env
+
+
+def _restored_env_path() -> Path | None:
+    override = os.getenv("VPNMANAGER_ENV_PATH", "").strip()
+    candidates: list[Path] = [Path(override)] if override else []
+    here = Path(__file__).resolve()
+    for depth in range(2, 5):
+        try:
+            candidates.append(here.parents[depth] / ".env")
+        except IndexError:
+            break
+    candidates.extend(
+        [Path("/opt/vpnmanager/.env"), Path("/opt") / ("sponge" "bot") / ".env"]
+    )
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+@contextmanager
+def _destructive_restore_db_context():
+    """Yield a session that is never committed after pg_restore.
+
+    pg_restore terminates existing database connections and a cross-host
+    restore may also replace the role password.  The pre-restore SQLAlchemy
+    session is therefore intentionally rolled back/closed only.
+    """
+
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        db.close()
+
+
+def _set_post_restore_maintenance(
+    enabled: bool, *, reason: str | None = None
+) -> tuple[str, str | None]:
+    """Change maintenance state in a fresh process using restored secrets."""
+
+    command = [sys.executable, "-m", "src.cli.main", "maintenance"]
+    if enabled:
+        command.extend(["on", "--reason", reason or "restore verification failed"])
+    else:
+        command.append("off")
+    command.append("--json")
+    proc = subprocess.run(
+        command,
+        cwd=str(Path(__file__).resolve().parents[2]),
+        env=_post_restore_env(),
+        capture_output=True,
+        text=True,
+    )
+    try:
+        payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            (proc.stderr or proc.stdout or "maintenance subprocess returned invalid JSON").strip()
+        ) from exc
+    if proc.returncode != 0 or not payload.get("success"):
+        raise RuntimeError(
+            payload.get("error")
+            or (proc.stderr or "maintenance subprocess failed").strip()
+        )
+    return payload.get("mode") or ("maintenance" if enabled else "normal"), payload.get("reason")
 
 
 def _collect_post_restore_status_payload() -> dict:
@@ -225,6 +313,10 @@ def create_restore_command(*, archive: str | None = None, from_dir: str | None =
     try:
         with get_db_context() as db:
             explicit_maintenance = get_explicit_maintenance_state(db)
+            preflight_manager = BackupManager(
+                db, backup_dir=str(archive_path.parent)
+            )
+            preflight_verify = preflight_manager.verify_backup(backup_id)
     except Exception as exc:
         return RestoreCommandResult(
             success=False,
@@ -233,7 +325,33 @@ def create_restore_command(*, archive: str | None = None, from_dir: str | None =
             backup_id=backup_id,
             version=status.version,
             mode=status.mode,
-            error=f"Failed to read maintenance state: {exc}",
+            error=f"Failed to preflight restore archive: {exc}",
+        )
+
+    if not preflight_verify.get("ok"):
+        return RestoreCommandResult(
+            success=False,
+            action="restore_full",
+            archive_path=str(archive_path),
+            backup_id=backup_id,
+            version=status.version,
+            mode=status.mode,
+            error="; ".join(
+                preflight_verify.get("errors") or ["Backup verification failed"]
+            ),
+        )
+    if (preflight_verify.get("metadata") or {}).get("backup_type") != "full":
+        return RestoreCommandResult(
+            success=False,
+            action="restore_full",
+            archive_path=str(archive_path),
+            backup_id=backup_id,
+            version=status.version,
+            mode=status.mode,
+            error=(
+                "Full restore requires a full backup archive, "
+                "not a database-only backup"
+            ),
         )
 
     maintenance_changed = False
@@ -262,11 +380,15 @@ def create_restore_command(*, archive: str | None = None, from_dir: str | None =
 
     manager_result: dict | None = None
     try:
-        with get_db_context() as db:
+        with _destructive_restore_db_context() as db:
             mgr = BackupManager(db, backup_dir=str(archive_path.parent))
             verify = mgr.verify_backup(backup_id)
             if not verify.get("ok"):
                 raise RuntimeError("; ".join(verify.get("errors") or ["Backup verification failed"]))
+            if (verify.get("metadata") or {}).get("backup_type") != "full":
+                raise RuntimeError(
+                    "Full restore requires a full backup archive, not a database-only backup"
+                )
             manager_result = mgr.restore_full_system(
                 backup_id,
                 restart_services=True,
@@ -277,15 +399,21 @@ def create_restore_command(*, archive: str | None = None, from_dir: str | None =
             )
     except Exception as exc:
         if maintenance_changed:
+            failure_reason = (
+                f"restore failed from {archive_path.name}; manual verification required"
+            )
             try:
-                set_maintenance_mode(
-                    True,
-                    reason=f"restore failed from {archive_path.name}; manual verification required",
-                    source="system",
-                    actor="vpnmanager",
-                )
+                _set_post_restore_maintenance(True, reason=failure_reason)
             except Exception:
-                pass
+                try:
+                    set_maintenance_mode(
+                        True,
+                        reason=failure_reason,
+                        source="system",
+                        actor="vpnmanager",
+                    )
+                except Exception:
+                    pass
         return RestoreCommandResult(
             success=False,
             action="restore_full",
@@ -323,9 +451,7 @@ def create_restore_command(*, archive: str | None = None, from_dir: str | None =
 
     if success and maintenance_changed:
         try:
-            mode = set_maintenance_mode(False, reason=None, source="cli", actor="vpnmanager")
-            final_mode = mode.mode
-            maintenance_reason = mode.maintenance_reason
+            final_mode, maintenance_reason = _set_post_restore_maintenance(False)
         except Exception as exc:
             success = False
             errors.append(f"Failed to disable maintenance mode after restore: {exc}")
@@ -333,14 +459,12 @@ def create_restore_command(*, archive: str | None = None, from_dir: str | None =
             maintenance_reason = "restore completed but maintenance cleanup failed"
     elif not success and maintenance_changed:
         try:
-            mode = set_maintenance_mode(
+            final_mode, maintenance_reason = _set_post_restore_maintenance(
                 True,
-                reason=f"restore failed from {archive_path.name}; manual verification required",
-                source="system",
-                actor="vpnmanager",
+                reason=(
+                    f"restore failed from {archive_path.name}; manual verification required"
+                ),
             )
-            final_mode = mode.mode
-            maintenance_reason = mode.maintenance_reason
         except Exception:
             final_mode = "maintenance"
             maintenance_reason = f"restore failed from {archive_path.name}; manual verification required"

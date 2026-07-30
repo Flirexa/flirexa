@@ -175,15 +175,17 @@ class TestSystemEndpoints:
         response = client.get("/client-portal/features")
         assert response.status_code == 200
         assert response.json()["features"]["corp_networks"] is False
+        assert response.json()["features"]["auto_renewal"] is False
 
         with patch.object(
             cp_module,
             "_operator_has_feature",
-            side_effect=lambda feature: feature == "corporate_vpn",
+            side_effect=lambda feature: feature in {"corporate_vpn", "auto_renewal"},
         ):
             response = client.get("/client-portal/features")
         assert response.status_code == 200
         assert response.json()["features"]["corp_networks"] is True
+        assert response.json()["features"]["auto_renewal"] is False
 
     def test_maintenance_mode_blocks_mutating_admin_routes(self, client, db_for_test):
         db_for_test.add(SystemConfig(key="maintenance_mode", value="true", value_type="bool"))
@@ -584,7 +586,14 @@ class TestClientPortalAuthFlows:
         assert rows[0].family_id == rows[1].family_id
 
         # Replaying the consumed token revokes the replacement family too.
+        # Clear the response-managed cookie jar first. Newer httpx versions
+        # otherwise retain a domain-scoped replacement beside the manually set
+        # host-only token and may serialize the replacement first, so the test
+        # no longer sends the consumed token it claims to replay.
+        replay_csrf = client.cookies.get("flirexa_portal_csrf")
+        client.cookies.clear()
         client.cookies.set("flirexa_portal_refresh", old_refresh)
+        client.cookies.set("flirexa_portal_csrf", replay_csrf)
         replay = client.post(
             "/client-portal/auth/refresh",
             headers={

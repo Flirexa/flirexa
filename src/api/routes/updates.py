@@ -29,7 +29,13 @@ from sqlalchemy.orm import Session
 
 from src.database.connection import get_db
 from src.database.models import UpdateHistory, UpdateStatus
-from src.modules.updates.checker import check_for_update, _parse_version, is_newer
+from src.modules.updates.checker import (
+    check_cached_update,
+    check_for_update,
+    schedule_manifest_refresh,
+    _parse_version,
+    is_newer,
+)
 from src.modules.updates.manager import (
     apply_update,
     rollback_update,
@@ -163,12 +169,18 @@ def _mark_stale_progress_failed(rec: UpdateHistory, db: Session) -> bool:
 
 @router.get("/status")
 async def update_status(db: Session = Depends(get_db)):
-    """Returns current version, available update (if any), and last update info."""
+    """Return local update state and refresh the signed manifest asynchronously."""
     reconcile_inflight_updates()
     current = get_current_version()
     channel = _get_channel(db)
 
-    available_manifest, check_error = await check_for_update(current, channel, force=False)
+    # This endpoint is polled by every open admin tab. It must stay local and
+    # fast even when the public update origin or the host's route is slow.
+    # Stale-while-revalidate preserves a recent signed result immediately;
+    # manual Check and both auto-update loops remain authoritative force=True
+    # callers and are intentionally unchanged.
+    available_manifest, check_error = check_cached_update(current, channel)
+    status_refreshing = schedule_manifest_refresh(channel)
 
     last_record = (
         db.query(UpdateHistory)
@@ -202,6 +214,7 @@ async def update_status(db: Session = Depends(get_db)):
             "requires_restart":   available_manifest.get("requires_restart", True),
         } if available_manifest else None,
         "check_error":        check_error,
+        "status_refreshing":  status_refreshing,
         "last_update_at":     last_success.completed_at.isoformat() if last_success and last_success.completed_at else None,
         "update_in_progress": active_id is not None,
         "active_update_id":   active_id,

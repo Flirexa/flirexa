@@ -1,6 +1,6 @@
 # Architecture
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-07-30._
 
 ---
 
@@ -66,6 +66,10 @@ Handles:
 - VPN config download
 - Payment-provider checkout and webhook processing
 
+Browser login uses short-lived HttpOnly access cookies, rotating hash-only
+refresh families, and CSRF protection. Released mobile clients retain their
+separate Bearer-token contract.
+
 Communicates with the main API internally via `SERVICE_API_TOKEN`.
 
 **Port:** 10090 (configurable via `CLIENT_PORTAL_PORT`)
@@ -78,7 +82,8 @@ A long-running Python process that handles time-based and event-based background
 
 - Subscription expiry checks
 - Traffic limit enforcement
-- Automatic subscription renewal
+- Subscription expiry and manual-renewal state (automatic renewal remains
+  fail-closed until it is settlement-backed)
 - Scheduled backup creation
 - Payment expiry cleanup
 - Drift detection and reconciliation (every 5 minutes)
@@ -238,7 +243,8 @@ Admin panel → POST /api/v1/updates/apply
 
 **Authentication:**
 - Admin panel: JWT Bearer tokens (HS256, configurable expiry)
-- Client portal: separate JWT with longer expiry
+- Browser client portal: short-lived HttpOnly access cookie, rotating hash-only
+  refresh family, and CSRF protection; released mobile clients retain Bearer
 - Agent API: per-server API key in `X-Api-Key` header
 
 **Encryption at rest:**
@@ -249,7 +255,8 @@ Admin panel → POST /api/v1/updates/apply
 
 **License protection:**
 - RSA-PSS signed license keys
-- Online validation via license server (72-hour grace period)
+- Subscription validation with a normally 72-hour signed-cache tolerance
+- Lifetime validation with a bound signed offline lease of at most 30 days
 - License server URL signed separately — cannot be tampered with in a distributed package
 
 **Update integrity:**

@@ -217,24 +217,10 @@ const lastPayment = computed(() => payments.value.find(p => p.status === 'comple
 const lastPaymentAmount = computed(() => lastPayment.value ? '$' + Number(lastPayment.value.amount_usd || 0).toFixed(2) : '—')
 const lastPaymentDate = computed(() => lastPayment.value ? formatDate(lastPayment.value.created_at) : t('payments.noPayments'))
 
-// Hide the next-charge amount when there's no actual charge scheduled —
-// otherwise a cancelled or auto-renew-off subscription still shows the
-// monthly price as if it were going to be billed, which is misleading.
-const nextChargeScheduled = computed(() =>
-  !!subscription.value.auto_renew && subscription.value.status === 'active'
-)
-const nextChargeAmount = computed(() => {
-  if (!nextChargeScheduled.value) return '—'
-  if (subscription.value.price_monthly_usd) return '$' + Number(subscription.value.price_monthly_usd).toFixed(2)
-  return '—'
-})
-const nextChargeMeta = computed(() => {
-  if (!nextChargeScheduled.value) return t('payments.noChargeScheduled')
-  if (subscription.value.expiry_date) {
-    return `${formatDate(subscription.value.expiry_date)} · ${subscription.value.tier || 'Free'}`
-  }
-  return t('payments.notSet')
-})
+// No automatic debit is scheduled while settlement-backed renewal is
+// disabled. Never infer a future charge from the stored monthly price.
+const nextChargeAmount = computed(() => '—')
+const nextChargeMeta = computed(() => t('payments.noChargeScheduled'))
 
 const userEmail = computed(() => {
   return portalSession.user?.email || '—'

@@ -24,6 +24,7 @@ from __future__ import annotations
 import base64
 import itertools
 import pytest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 
@@ -498,3 +499,108 @@ class TestSwitchRegionLeakGuard:
 
         result = mgr.switch_active_server(slot, target.id)
         assert result.active_server_id == target.id, "dead old node → switch proceeds"
+
+    def test_target_enable_failure_keeps_pointer_and_restores_old_peer(
+        self, db_session, two_visible_servers, client_user, patched_wg, monkeypatch,
+    ):
+        import src.modules.subscription.slot_manager as sm
+        from src.modules.subscription.slot_manager import SlotManagerError
+
+        mgr, slot, old_id, target = self._slot_and_target(
+            db_session, two_visible_servers, client_user)
+        calls = []
+
+        def fake_apply(core, client, action):
+            calls.append((client.server_id, action))
+            if action == "disable":
+                client.enabled = False
+                db_session.commit()
+                return True
+            if client.server_id == target.id:
+                return False
+            client.enabled = True
+            db_session.commit()
+            return True
+
+        monkeypatch.setattr(sm, "_agent_apply", fake_apply)
+        with pytest.raises(SlotManagerError) as ei:
+            mgr.switch_active_server(slot, target.id)
+        assert ei.value.code == "switch_target_failed"
+        assert ei.value.http_status == 503
+
+        db_session.refresh(slot)
+        assert slot.active_server_id == old_id
+        assert calls == [
+            (old_id, "disable"),
+            (target.id, "enable"),
+            (old_id, "enable"),
+        ]
+
+    def test_handshake_sync_does_not_flip_when_live_old_peer_release_fails(
+        self, db_session, two_visible_servers, client_user, patched_wg, monkeypatch,
+    ):
+        import src.modules.subscription.slot_manager as sm
+        from src.database.models import Server
+
+        mgr, slot, old_id, target = self._slot_and_target(
+            db_session, two_visible_servers, client_user)
+        db_session.query(Server).filter(Server.id == old_id).update(
+            {"lifecycle_status": "online"})
+        target_peer = next(
+            p for p in mgr.get_slot_peers(slot.id) if p.server_id == target.id)
+        target_peer.last_handshake = datetime.now(timezone.utc)
+        db_session.commit()
+        monkeypatch.setattr(sm, "_agent_apply", lambda *args: False)
+
+        assert mgr.auto_sync_active_from_handshake(slot, cooldown_seconds=0) is False
+        db_session.refresh(slot)
+        assert slot.active_server_id == old_id
+
+    def test_handshake_sync_target_failure_restores_old_and_keeps_pointer(
+        self, db_session, two_visible_servers, client_user, patched_wg, monkeypatch,
+    ):
+        import src.modules.subscription.slot_manager as sm
+
+        mgr, slot, old_id, target = self._slot_and_target(
+            db_session, two_visible_servers, client_user)
+        target_peer = next(
+            p for p in mgr.get_slot_peers(slot.id) if p.server_id == target.id)
+        target_peer.last_handshake = datetime.now(timezone.utc)
+        db_session.commit()
+        calls = []
+
+        def fake_apply(core, client, action):
+            calls.append((client.server_id, action))
+            if action == "disable":
+                client.enabled = False
+                db_session.commit()
+                return True
+            if client.server_id == target.id:
+                return False
+            client.enabled = True
+            db_session.commit()
+            return True
+
+        monkeypatch.setattr(sm, "_agent_apply", fake_apply)
+        assert mgr.auto_sync_active_from_handshake(slot, cooldown_seconds=0) is False
+        db_session.refresh(slot)
+        assert slot.active_server_id == old_id
+        assert calls == [
+            (old_id, "disable"),
+            (target.id, "enable"),
+            (old_id, "enable"),
+        ]
+
+    def test_duplicate_switch_is_rejected_without_waiting(
+        self, db_session, two_visible_servers, client_user, patched_wg,
+    ):
+        import src.modules.subscription.slot_manager as sm
+        from src.modules.subscription.slot_manager import SlotManagerError
+
+        mgr, slot, _old_id, target = self._slot_and_target(
+            db_session, two_visible_servers, client_user)
+        with sm._slot_switch_guard(db_session, slot.id):
+            with pytest.raises(SlotManagerError) as ei:
+                mgr.switch_active_server(slot, target.id)
+        assert ei.value.code == "switch_in_progress"
+        assert ei.value.http_status == 409

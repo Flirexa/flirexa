@@ -191,10 +191,6 @@ export default {
     referralLink: 'Su enlace de referido',
     referralCount: 'Amigos referidos',
     referralBonus: '+7 d\u00edas por cada referido que pague',
-    autoRenew: 'Renovaci\u00f3n autom\u00e1tica',
-    autoRenewOn: 'Renovaci\u00f3n autom\u00e1tica activada',
-    autoRenewOff: 'Renovaci\u00f3n autom\u00e1tica desactivada',
-    autoRenewHint: 'Renovar autom\u00e1ticamente al expirar la suscripci\u00f3n',
     deviceDeleted: 'Dispositivo eliminado',
     deviceConnected: 'Conectado',
     deviceDisconnected: 'Desconectado',
@@ -339,7 +335,6 @@ export default {
     endpoint: 'IP:puerto público de este sitio. Requerido si otros sitios necesitan iniciar conexiones aquí. Deje en blanco si está detrás de NAT.',
     regenKeys: 'Genera un nuevo par de claves WireGuard para este sitio. Debe volver a descargar las configs para TODOS los sitios de la red.',
     diagnostics: 'Comprobaciones de conectividad entre todos los pares de sitios. Muestra qué sitios pueden comunicarse e identifica problemas de enrutamiento.',
-    autoRenew: 'Cuando está activado, su suscripción se renueva automáticamente antes de expirar usando su último método de pago.',
     referral: 'Comparta su enlace único. Cada amigo que se suscriba a un plan de pago le da +7 días añadidos a su suscripción actual. Nota: usted debe tener una suscripción de pago activa cuando su amigo paga — el bono extiende sus días restantes, así que no hay nada a lo que añadirlo si todavía está en el plan gratuito.',
   },
   support: {

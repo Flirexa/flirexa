@@ -5,7 +5,6 @@
   <!-- NEW design variant (default) — full shell + router content -->
   <template v-else-if="design.isNew">
     <D2App />
-    <DonateModal v-model="donateOpen" @dismissed="onDonateDismissed" />
     <UpgradeBanner />
     <UpgradeModal />
   </template>
@@ -14,12 +13,12 @@
     <Sidebar />
     <div class="sidebar-overlay" :class="{ active: system.sidebarOpen }" @click="system.closeSidebar()"></div>
     <div class="main-content">
-      <Navbar @open-donate="donateOpen = true" />
+      <Navbar :show-donate="showLegacyDonate" @open-donate="donateOpen = true" />
       <div class="content-area">
         <router-view />
       </div>
     </div>
-    <DonateModal v-model="donateOpen" @dismissed="onDonateDismissed" />
+    <DonateModal v-if="showLegacyDonate" v-model="donateOpen" />
     <UpgradeBanner />
     <UpgradeModal />
   </div>
@@ -48,28 +47,11 @@ const license = useLicenseStore()
 const isLoginPage = computed(() => route.name === 'Login')
 
 const donateOpen = ref(false)
-const DONATE_DISMISS_KEY = 'flirexa_donate_dismissed_at'
-const REMINDER_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
-
-function onDonateDismissed() {
-  try {
-    localStorage.setItem(DONATE_DISMISS_KEY, String(Date.now()))
-  } catch (_) { /* private browsing — ignore */ }
-}
-
-function maybeOpenDonateReminder() {
-  let last
-  try { last = localStorage.getItem(DONATE_DISMISS_KEY) } catch (_) { return }
-  // First-install: never dismissed → show after a short delay so the dashboard renders first.
-  if (!last) {
-    setTimeout(() => { donateOpen.value = true }, 1500)
-    return
-  }
-  const ts = parseInt(last, 10)
-  if (Number.isFinite(ts) && Date.now() - ts >= REMINDER_INTERVAL_MS) {
-    setTimeout(() => { donateOpen.value = true }, 1500)
-  }
-}
+// The old donation surface belongs only to the legacy FREE UI. The new shell
+// owns its own design2 modal, and paid operators must never see either one.
+const showLegacyDonate = computed(() =>
+  !design.isNew && license.loaded && !license.isPaid
+)
 
 onMounted(() => {
   system.initTheme()
@@ -80,7 +62,6 @@ onMounted(() => {
   // Skip on the login page — /api/v1/system/license requires auth and
   // would just 401 anyway; will get loaded after login by the watcher below.
   if (!isLoginPage.value && !license.loaded) license.load()
-  if (!isLoginPage.value) maybeOpenDonateReminder()
 })
 
 // When the user navigates away from the login page (i.e. just logged
@@ -89,5 +70,9 @@ onMounted(() => {
 // full-page reload.
 watch(isLoginPage, (onLogin) => {
   if (!onLogin && !license.loaded) license.load()
+})
+
+watch(showLegacyDonate, (allowed) => {
+  if (!allowed) donateOpen.value = false
 })
 </script>

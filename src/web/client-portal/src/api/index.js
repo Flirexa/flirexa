@@ -120,8 +120,6 @@ export const portalApi = {
   // Subscription actions
   cancelSubscription: () => api.post('/client-portal/subscription/cancel'),
   changePassword: (data) => api.post('/client-portal/auth/change-password', data),
-  toggleAutoRenew: (enabled) => api.post('/client-portal/subscription/auto-renew', { auto_renew: enabled }),
-
   // Referral
   getReferral: () => api.get('/client-portal/referral'),
 

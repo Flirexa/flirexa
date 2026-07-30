@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 
+from src.modules import restore_cli
 from src.modules.restore_cli import create_restore_command
 from src.modules.system_status.models import (
     BackupStatusSummary,
@@ -65,12 +66,16 @@ def test_restore_command_success(monkeypatch, tmp_path):
         lambda: post_status.to_dict(),
     )
     monkeypatch.setattr("src.modules.restore_cli.get_db_context", _db_context)
+    monkeypatch.setattr(
+        "src.modules.restore_cli._destructive_restore_db_context", _db_context
+    )
     monkeypatch.setattr("src.modules.restore_cli.os.geteuid", lambda: 0)
     monkeypatch.setattr("src.modules.restore_cli.os.access", lambda path, mode: True)
     monkeypatch.setattr("src.modules.restore_cli.shutil.which", lambda tool: f"/usr/bin/{tool}")
     monkeypatch.setattr("src.modules.restore_cli.shutil.disk_usage", lambda path: type("DU", (), {"free": 1024 * 1024 * 1024})())
 
     maintenance_calls = []
+    post_maintenance_calls = []
     monkeypatch.setattr(
         "src.modules.restore_cli.get_explicit_maintenance_state",
         lambda db: type("State", (), {"enabled": False, "reason": None})(),
@@ -79,6 +84,11 @@ def test_restore_command_success(monkeypatch, tmp_path):
         "src.modules.restore_cli.set_maintenance_mode",
         lambda enabled, reason, source, actor: maintenance_calls.append((enabled, reason, source, actor)) or type("Mode", (), {"mode": "maintenance" if enabled else "normal", "maintenance_reason": reason if enabled else None})(),
     )
+    monkeypatch.setattr(
+        "src.modules.restore_cli._set_post_restore_maintenance",
+        lambda enabled, reason=None: post_maintenance_calls.append((enabled, reason))
+        or ("maintenance" if enabled else "normal", reason if enabled else None),
+    )
 
     class FakeManager:
         def __init__(self, db, backup_dir=None):
@@ -86,7 +96,7 @@ def test_restore_command_success(monkeypatch, tmp_path):
 
         def verify_backup(self, backup_id):
             assert backup_id == "20260327-100000"
-            return {"ok": True, "errors": []}
+            return {"ok": True, "errors": [], "metadata": {"backup_type": "full"}}
 
         def restore_full_system(self, backup_id, **kwargs):
             return {
@@ -106,7 +116,7 @@ def test_restore_command_success(monkeypatch, tmp_path):
     assert result.backup_id == "20260327-100000"
     assert result.restored_sections == ["db", "env", "wireguard", "services"]
     assert maintenance_calls[0][0] is True
-    assert maintenance_calls[-1][0] is False
+    assert post_maintenance_calls == [(False, None)]
 
 
 def test_restore_command_fails_when_update_active(monkeypatch, tmp_path):
@@ -141,6 +151,9 @@ def test_restore_command_fails_when_backend_reports_error(monkeypatch, tmp_path)
         lambda: _status(tmp_path).to_dict(),
     )
     monkeypatch.setattr("src.modules.restore_cli.get_db_context", _db_context)
+    monkeypatch.setattr(
+        "src.modules.restore_cli._destructive_restore_db_context", _db_context
+    )
     monkeypatch.setattr("src.modules.restore_cli.os.geteuid", lambda: 0)
     monkeypatch.setattr("src.modules.restore_cli.os.access", lambda path, mode: True)
     monkeypatch.setattr("src.modules.restore_cli.shutil.which", lambda tool: f"/usr/bin/{tool}")
@@ -153,13 +166,17 @@ def test_restore_command_fails_when_backend_reports_error(monkeypatch, tmp_path)
         "src.modules.restore_cli.set_maintenance_mode",
         lambda enabled, reason, source, actor: type("Mode", (), {"mode": "maintenance", "maintenance_reason": reason})(),
     )
+    monkeypatch.setattr(
+        "src.modules.restore_cli._set_post_restore_maintenance",
+        lambda enabled, reason=None: ("maintenance", reason),
+    )
 
     class FakeManager:
         def __init__(self, db, backup_dir=None):
             pass
 
         def verify_backup(self, backup_id):
-            return {"ok": True, "errors": []}
+            return {"ok": True, "errors": [], "metadata": {"backup_type": "full"}}
 
         def restore_full_system(self, backup_id, **kwargs):
             return {
@@ -190,6 +207,9 @@ def test_restore_command_honors_existing_maintenance(monkeypatch, tmp_path):
         lambda: post_status.to_dict(),
     )
     monkeypatch.setattr("src.modules.restore_cli.get_db_context", _db_context)
+    monkeypatch.setattr(
+        "src.modules.restore_cli._destructive_restore_db_context", _db_context
+    )
     monkeypatch.setattr("src.modules.restore_cli.os.geteuid", lambda: 0)
     monkeypatch.setattr("src.modules.restore_cli.os.access", lambda path, mode: True)
     monkeypatch.setattr("src.modules.restore_cli.shutil.which", lambda tool: f"/usr/bin/{tool}")
@@ -206,7 +226,7 @@ def test_restore_command_honors_existing_maintenance(monkeypatch, tmp_path):
             pass
 
         def verify_backup(self, backup_id):
-            return {"ok": True, "errors": []}
+            return {"ok": True, "errors": [], "metadata": {"backup_type": "full"}}
 
         def restore_full_system(self, backup_id, **kwargs):
             return {
@@ -225,3 +245,96 @@ def test_restore_command_honors_existing_maintenance(monkeypatch, tmp_path):
     assert result.success is True
     assert calls == []
     assert any("Maintenance mode already enabled" in warning for warning in result.warnings)
+
+
+def test_post_restore_subprocess_drops_stale_dotenv_values(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "DATABASE_URL=postgresql://restored\n"
+        "VMS_ENCRYPTION_KEY=restored-key\n"
+        "LICENSE_KEY=restored-license\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(restore_cli, "_restored_env_path", lambda: env_file)
+    monkeypatch.setenv("DATABASE_URL", "stale-db")
+    monkeypatch.setenv("VMS_ENCRYPTION_KEY", "stale-key")
+    monkeypatch.setenv("LICENSE_KEY", "stale-license")
+
+    child_env = restore_cli._post_restore_env()
+
+    assert "DATABASE_URL" not in child_env
+    assert "VMS_ENCRYPTION_KEY" not in child_env
+    assert "LICENSE_KEY" not in child_env
+    assert child_env["VMS_SUPPRESS_ENCRYPTION_WARNING"] == "1"
+
+
+def test_destructive_restore_context_never_commits(monkeypatch):
+    calls = []
+
+    class FakeSession:
+        def rollback(self):
+            calls.append("rollback")
+
+        def close(self):
+            calls.append("close")
+
+    session = FakeSession()
+    monkeypatch.setattr(restore_cli, "SessionLocal", lambda: session)
+
+    with restore_cli._destructive_restore_db_context() as supplied:
+        assert supplied is session
+
+    assert calls == ["rollback", "close"]
+
+
+def test_db_only_archive_is_rejected_before_maintenance(monkeypatch, tmp_path):
+    archive = tmp_path / "vpnmanager-backup-20260327-100000.tar.gz"
+    archive.write_bytes(b"test")
+    monkeypatch.setattr(
+        "src.modules.restore_cli.collect_system_status", lambda: _status(tmp_path)
+    )
+    monkeypatch.setattr("src.modules.restore_cli.get_db_context", _db_context)
+    monkeypatch.setattr("src.modules.restore_cli.os.geteuid", lambda: 0)
+    monkeypatch.setattr("src.modules.restore_cli.os.access", lambda path, mode: True)
+    monkeypatch.setattr(
+        "src.modules.restore_cli.shutil.which", lambda tool: f"/usr/bin/{tool}"
+    )
+    monkeypatch.setattr(
+        "src.modules.restore_cli.shutil.disk_usage",
+        lambda path: type("DU", (), {"free": 1024 * 1024 * 1024})(),
+    )
+    monkeypatch.setattr(
+        "src.modules.restore_cli.get_explicit_maintenance_state",
+        lambda db: type("State", (), {"enabled": False, "reason": None})(),
+    )
+
+    class FakeManager:
+        def __init__(self, db, backup_dir=None):
+            pass
+
+        def verify_backup(self, backup_id):
+            return {
+                "ok": True,
+                "errors": [],
+                "metadata": {"backup_type": "db-only"},
+            }
+
+    monkeypatch.setattr("src.modules.restore_cli.BackupManager", FakeManager)
+    monkeypatch.setattr(
+        "src.modules.restore_cli.set_maintenance_mode",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("maintenance must not be enabled")
+        ),
+    )
+    monkeypatch.setattr(
+        "src.modules.restore_cli._destructive_restore_db_context",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("destructive restore must not start")
+        ),
+    )
+
+    result = create_restore_command(archive=str(archive))
+
+    assert result.success is False
+    assert result.mode == "normal"
+    assert "database-only backup" in result.error

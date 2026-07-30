@@ -4,6 +4,51 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.80 — 2026-07-30
+
+### Changed
+
+- Published a normal, non-mandatory patch release with no runtime behavior
+  changes so operators can verify automatic update discovery on the stable
+  channel.
+- Refreshed the bundled customer documentation to match the current licensing,
+  tier, renewal, installation, update, and support contracts.
+
+---
+
+## v2.2.79 — 2026-07-30
+
+### Security
+
+- Temporarily disabled automatic end-user subscription renewal until every
+  extension can be tied to a newly verified provider payment. Existing opt-ins
+  are cleared without adding paid time; manual checkout and renewal remain
+  available.
+
+### Fixed
+
+- Removed the legacy timed donation popup from the current admin design. FREE
+  and trial installations retain the optional design2 header action; purchased
+  tiers render no donation promotion.
+- In-place installation now restarts the background worker so upgraded
+  scheduler and payment code takes effect immediately.
+- In-place installation removes obsolete compiled frontend bundles before
+  copying replacements, preventing old hashed JavaScript from remaining on
+  disk after an update.
+- Background update discovery remains silent and non-blocking during transient
+  origin delays, while authoritative update checks continue to verify signed
+  manifests.
+- Manual rollback is detached from the API process and suppresses accidental
+  automatic reinstallation of the deliberately removed version.
+
+### Reliability
+
+- Strengthened payment reconciliation, scheduled-backup state, archive
+  validation, and cross-host restore handling while preserving existing panel,
+  licence, and customer data.
+
+---
+
 ## v2.2.72 — 2026-07-29
 
 ### Added

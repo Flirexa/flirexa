@@ -14,6 +14,7 @@ Trust model:
     SHA-256 verification together provide equivalent security.
 """
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -51,13 +52,16 @@ _READ_TIMEOUT    = 15.0   # seconds to read response
 _MAX_MANIFEST_BYTES = 64 * 1024   # 64KB — manifests are small JSON files
 _MAX_PACKAGE_BYTES = int(os.getenv("UPDATE_MAX_PACKAGE_BYTES", str(512 * 1024 * 1024)))
 
-# In-memory cache: (manifest_dict, fetched_at_timestamp, channel)
-# 1-minute TTL: Navbar's update-available badge polls /updates/status every
-# 60 seconds. If the cache outlived the poll cadence, the badge would only
-# refresh after a manual "Check for updates" click — exactly the bug the
-# operator hit when the panel kept showing the previous version.
+# In-memory cache: (manifest_dict, fetched_at_timestamp, channel).
+# GET /updates/status serves this cache immediately and schedules a coalesced
+# refresh when it is stale. The request itself must never wait for the public
+# update origin: a transient route delay used to trip the admin SPA's short
+# badge timeout even though the panel was otherwise healthy. Manual Check,
+# normal auto-apply, and the mandatory watcher still call check_for_update()
+# with force=True and therefore retain their authoritative network checks.
 _cache: Optional[Tuple[dict, float, str]] = None
 _CACHE_TTL = 60
+_refresh_tasks: dict[str, asyncio.Task] = {}
 
 
 # ── Manifest schema ────────────────────────────────────────────────────────────
@@ -342,6 +346,90 @@ def invalidate_cache():
     _cache = None
 
 
+def _cached_manifest(channel: str) -> Optional[dict]:
+    """Return the last verified manifest for ``channel``, even when stale."""
+    if _cache is None:
+        return None
+    manifest, _fetched_at, cached_channel = _cache
+    if cached_channel != channel:
+        return None
+    return manifest
+
+
+def _cache_is_fresh(channel: str) -> bool:
+    if _cache is None:
+        return False
+    _manifest, fetched_at, cached_channel = _cache
+    return cached_channel == channel and time.time() - fetched_at < _CACHE_TTL
+
+
+def _evaluate_manifest(
+    manifest: dict,
+    current_version: str,
+) -> Tuple[Optional[dict], Optional[str]]:
+    """Apply version/compatibility rules to an already verified manifest."""
+    available_version = manifest["version"]
+
+    if not is_newer(available_version, current_version):
+        return None, None
+
+    if not is_compatible(manifest, current_version):
+        return None, (
+            f"Update {available_version} requires minimum version "
+            f"{manifest['min_supported_version']}, current is {current_version}"
+        )
+
+    return manifest, None
+
+
+def check_cached_update(
+    current_version: str,
+    channel: str = "stable",
+) -> Tuple[Optional[dict], Optional[str]]:
+    """Evaluate the last verified manifest without performing network I/O."""
+    manifest = _cached_manifest(channel)
+    if manifest is None:
+        return None, None
+    return _evaluate_manifest(manifest, current_version)
+
+
+def schedule_manifest_refresh(channel: str = "stable") -> bool:
+    """Refresh a missing/stale manifest in the background, at most once/channel.
+
+    Returns True when a refresh is already running or was just scheduled. A
+    fresh cache returns False. This helper deliberately fetches and verifies
+    only the manifest; applying an update remains exclusively owned by the
+    normal auto-check and mandatory watcher loops.
+    """
+    if _cache_is_fresh(channel):
+        return False
+
+    existing = _refresh_tasks.get(channel)
+    if existing is not None and not existing.done():
+        return True
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug("Manifest refresh not scheduled: no running event loop")
+        return False
+
+    async def _refresh() -> None:
+        try:
+            _manifest, error = await fetch_manifest(channel=channel, force=True)
+            if error:
+                logger.debug("Background manifest refresh ({}): {}", channel, error)
+        except Exception as exc:
+            logger.warning("Background manifest refresh ({}) raised: {}", channel, exc)
+        finally:
+            current = _refresh_tasks.get(channel)
+            if current is asyncio.current_task():
+                _refresh_tasks.pop(channel, None)
+
+    _refresh_tasks[channel] = loop.create_task(_refresh())
+    return True
+
+
 async def check_for_update(
     current_version: str,
     channel: str = "stable",
@@ -358,19 +446,7 @@ async def check_for_update(
     manifest, err = await fetch_manifest(channel=channel, force=force)
     if err:
         return None, err
-
-    available_version = manifest["version"]
-
-    if not is_newer(available_version, current_version):
-        return None, None  # up to date
-
-    if not is_compatible(manifest, current_version):
-        return None, (
-            f"Update {available_version} requires minimum version "
-            f"{manifest['min_supported_version']}, current is {current_version}"
-        )
-
-    return manifest, None
+    return _evaluate_manifest(manifest, current_version)
 
 
 # ── Package checksum verification ─────────────────────────────────────────────

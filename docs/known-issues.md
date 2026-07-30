@@ -1,62 +1,50 @@
 # Known Issues
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-07-30._
 
-This document lists currently known product issues for the commercial baseline line.
+This page contains current, actionable product behavior only. Historical
+incidents and release notes live in Git and the changelog.
 
-## 1. Early Installer Portal Warning
+## 1. Portal startup warning during installation
 
-Symptom:
-- installer verification may print:
-  - `Client portal: not available (HTTP 000000)`
+The installer can report a client-portal warning while that service is still
+starting. A final healthy result means the installation completed correctly.
+If the warning remains, run:
 
-Observed behavior:
-- the client portal may still become healthy shortly after install
-- final `vpnmanager health` can be `ok`
+```bash
+sudo vpnmanager health
+sudo vpnmanager services status
+```
 
-Impact:
-- cosmetic / UX only
-- does not indicate a proven failed installation if post-install health is clean
+## 2. Brief portal warning after a full service restart
 
-Workaround:
-- run:
-  - `sudo vpnmanager health`
-  - `sudo vpnmanager services status`
+After `sudo vpnmanager services restart --all --yes`, wait a few seconds and
+run `sudo vpnmanager health`. A healthy result means no further action is
+required.
 
-## 2. Transient Portal Warning After Full Services Restart
+## 3. Legacy 2.2.59 archive activated but local panel is unlicensed
 
-Symptom:
-- `sudo vpnmanager services restart --all --yes` may return success with a temporary portal warning
+This applies only to a manually extracted legacy 2.2.59 archive. Do not request
+another code or reset the existing one. Contact support with the activation
+code and `vpnmanager license status`; support will provide the current
+checksum-verified recovery command for the same machine.
 
-Observed behavior:
-- portal can still be in startup window when command prints result
-- follow-up `vpnmanager health` becomes `ok`
+## 4. Automatic end-customer renewal is temporarily unavailable
 
-Impact:
-- minor operational UX issue
-- not a confirmed service failure if follow-up health is clean
+The client portal currently uses manual checkout/renewal. Existing signed
+`auto_renewal` entitlements remain compatible, but the toggle and API stay
+fail-closed until every extension can be tied to one newly verified provider
+settlement. This does not change Flirexa monthly, annual, or Lifetime licence
+purchases.
 
-Workaround:
-- wait a few seconds and rerun:
-  - `sudo vpnmanager health`
+## Support rule
 
-## 3. Backup Block During Active Update Not Fully Reproducible Through Public CLI Alone
+For inconsistent or degraded behavior, collect:
 
-Symptom:
-- in strict `install.sh + vpnmanager` testing, active update state is not easily inducible because there is no public `vpnmanager update` command
+```bash
+sudo vpnmanager status
+sudo vpnmanager health
+sudo vpnmanager support-bundle --output /tmp --redact-strict
+```
 
-Impact:
-- coverage gap in CLI-only validation
-- not a confirmed runtime defect in backup logic itself
-
-Operator note:
-- update flow is still supported through the product update system and UI
-- this item is documented so support does not treat it as an unexpected defect
-
-## Support Rule
-
-If a system is degraded or behavior looks inconsistent:
-1. run `sudo vpnmanager status`
-2. run `sudo vpnmanager health`
-3. run `sudo vpnmanager support-bundle --output <path> --redact-strict`
-4. attach the bundle to support
+Attach the redacted bundle and exact error message to the support request.

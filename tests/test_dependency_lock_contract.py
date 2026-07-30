@@ -38,6 +38,22 @@ def test_release_builder_includes_production_lock():
     assert 'rm -rf "$BUILD_DIR/requirements.lock"' not in source
     assert "--exclude='requirements-runtime-bootstrap.lock'" not in source
     assert 'rm -rf "$BUILD_DIR/requirements-runtime-bootstrap.lock"' not in source
+    assert "--exclude='requirements-dev.txt'" in source
+    assert "--exclude='requirements-dev.lock'" in source
+
+
+def test_runtime_lock_input_excludes_development_tools():
+    runtime = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    development = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+    for package in ("pytest", "pytest-asyncio", "black", "ruff"):
+        assert not any(
+            line.strip().lower().startswith(f"{package}>=")
+            for line in runtime.splitlines()
+        )
+        assert any(
+            line.strip().lower().startswith(f"{package}>=")
+            for line in development.splitlines()
+        )
 
 
 def test_fresh_installer_seeds_locked_build_backend_before_fallback():

@@ -28,9 +28,12 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Tuple
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from src.database.models import Client, Server
@@ -55,6 +58,53 @@ SLOT_SWITCH_BUCKET_SIZE = float(os.getenv("SLOT_SWITCH_BUCKET_SIZE", "5"))
 SLOT_SWITCH_REFILL_SECONDS_PER_TOKEN = float(os.getenv(
     "SLOT_SWITCH_REFILL_SECONDS_PER_TOKEN", "6",
 ))
+
+# PostgreSQL advisory locks serialize a device slot across API workers while
+# keeping the existing ClientManager calls free to commit their own DB changes.
+# SQLite (used by tests/small legacy installs) gets the equivalent process-local
+# guard. Acquiring is deliberately non-blocking: a duplicate click receives a
+# retryable response instead of occupying a worker indefinitely.
+_local_slot_locks: dict[int, threading.Lock] = {}
+_local_slot_locks_guard = threading.Lock()
+_SLOT_LOCK_NAMESPACE = 0x46584A  # stable Flirexa-specific advisory-lock prefix
+
+
+@contextmanager
+def _slot_switch_guard(db: Session, slot_id: int):
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        engine = getattr(bind, "engine", bind)
+        lock_key = (_SLOT_LOCK_NAMESPACE << 32) | int(slot_id)
+        with engine.connect() as lock_conn:
+            acquired = bool(lock_conn.execute(
+                text("SELECT pg_try_advisory_lock(:key)"), {"key": lock_key},
+            ).scalar())
+            if not acquired:
+                raise SlotManagerError(
+                    "switch_in_progress",
+                    "This device is already switching regions. Please try again in a moment.",
+                    http_status=409,
+                )
+            try:
+                yield
+            finally:
+                lock_conn.execute(
+                    text("SELECT pg_advisory_unlock(:key)"), {"key": lock_key},
+                )
+        return
+
+    with _local_slot_locks_guard:
+        local_lock = _local_slot_locks.setdefault(int(slot_id), threading.Lock())
+    if not local_lock.acquire(blocking=False):
+        raise SlotManagerError(
+            "switch_in_progress",
+            "This device is already switching regions. Please try again in a moment.",
+            http_status=409,
+        )
+    try:
+        yield
+    finally:
+        local_lock.release()
 
 
 def _slot_peer_name(
@@ -408,6 +458,25 @@ class SlotManager:
         slot: DeviceSlot,
         target_server_id: int,
     ) -> DeviceSlot:
+        """Serialize and move one device slot to another server."""
+        with _slot_switch_guard(self.db, slot.id):
+            current = (
+                self.db.query(DeviceSlot)
+                .filter(DeviceSlot.id == slot.id)
+                .populate_existing()
+                .first()
+            )
+            if current is None:
+                raise SlotManagerError(
+                    "device_not_found", "Device not found", http_status=404,
+                )
+            return self._switch_active_server_locked(current, target_server_id)
+
+    def _switch_active_server_locked(
+        self,
+        slot: DeviceSlot,
+        target_server_id: int,
+    ) -> DeviceSlot:
         """Flip the slot's active server. Rate-limited."""
         if target_server_id == slot.active_server_id:
             return slot  # no-op
@@ -520,7 +589,25 @@ class SlotManager:
                 )
 
         if not target_peer.enabled:
-            _agent_apply(self.core, target_peer, "enable")
+            enabled_ok = _agent_apply(self.core, target_peer, "enable")
+            if not enabled_ok:
+                # Keep the DB pointer on the previous server. If we already
+                # disabled its peer, make a best-effort compensation so a
+                # transient target-node failure does not leave the device
+                # needlessly offline. Reconciliation remains the backstop when
+                # that compensation itself cannot reach the old node.
+                restored_old = True
+                if old_peer and not old_peer.enabled:
+                    restored_old = _agent_apply(self.core, old_peer, "enable")
+                logger.warning(
+                    "slot %s: target peer %s could not be enabled; old peer restored=%s",
+                    slot.id, target_peer.id, restored_old,
+                )
+                raise SlotManagerError(
+                    "switch_target_failed",
+                    "Couldn't enable the new region just now. Your previous region was kept; please try again.",
+                    http_status=503,
+                )
 
         # Consume one token now that the switch is actually going through.
         slot.switch_tokens = stored - 1.0
@@ -538,6 +625,44 @@ class SlotManager:
     # ─────────────────────────────────────────────────────────────────
 
     def auto_sync_active_from_handshake(
+        self,
+        slot: DeviceSlot,
+        handshake_window_seconds: int = 180,
+        cooldown_seconds: int = 30,
+        peers: Optional[List[Client]] = None,
+    ) -> bool:
+        """Serialize best-effort handshake reconciliation for one slot."""
+        try:
+            with _slot_switch_guard(self.db, slot.id):
+                current = (
+                    self.db.query(DeviceSlot)
+                    .filter(DeviceSlot.id == slot.id)
+                    .populate_existing()
+                    .first()
+                )
+                if current is None:
+                    return False
+                # Refresh the peer rows in one query after acquiring the lock;
+                # the portal's prefetched list may predate a concurrent switch.
+                current_peers = (
+                    self.db.query(Client)
+                    .join(ClientUserClients, ClientUserClients.client_id == Client.id)
+                    .filter(ClientUserClients.slot_id == current.id)
+                    .populate_existing()
+                    .all()
+                )
+                return self._auto_sync_active_from_handshake_locked(
+                    current,
+                    handshake_window_seconds=handshake_window_seconds,
+                    cooldown_seconds=cooldown_seconds,
+                    peers=current_peers,
+                )
+        except SlotManagerError as exc:
+            if exc.code == "switch_in_progress":
+                return False
+            raise
+
+    def _auto_sync_active_from_handshake_locked(
         self,
         slot: DeviceSlot,
         handshake_window_seconds: int = 180,
@@ -602,13 +727,33 @@ class SlotManager:
         old_peer = next(
             (p for p in peers if p.server_id == slot.active_server_id), None
         )
-        try:
-            if old_peer and old_peer.enabled:
-                _agent_apply(self.core, old_peer, "disable")
-            if not winning_peer.enabled:
-                _agent_apply(self.core, winning_peer, "enable")
-        except Exception:
-            return False
+        if old_peer and old_peer.enabled:
+            disabled_ok = _agent_apply(self.core, old_peer, "disable")
+            if not disabled_ok:
+                old_server = self.db.query(Server).filter(
+                    Server.id == slot.active_server_id,
+                ).first()
+                old_node_live = (
+                    old_server is not None
+                    and getattr(old_server, "effective_lifecycle_status", None) == "online"
+                )
+                if old_node_live:
+                    logger.warning(
+                        "slot %s: handshake sync kept old region because live peer %s could not be disabled",
+                        slot.id, old_peer.id,
+                    )
+                    return False
+
+        if not winning_peer.enabled:
+            enabled_ok = _agent_apply(self.core, winning_peer, "enable")
+            if not enabled_ok:
+                if old_peer and not old_peer.enabled:
+                    _agent_apply(self.core, old_peer, "enable")
+                logger.warning(
+                    "slot %s: handshake sync could not enable target peer %s",
+                    slot.id, winning_peer.id,
+                )
+                return False
 
         slot.active_server_id = winning_peer.server_id
         slot.last_switched_at = now

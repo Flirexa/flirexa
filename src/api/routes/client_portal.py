@@ -93,6 +93,12 @@ _invoice_rate: dict[int, list[float]] = {}  # per user_id, max 5/hour
 _forgot_cooldowns: dict[str, float] = {}  # per-email cooldown for forgot-password
 _SUBSCRIPTION_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
 
+# Runtime safety switch. The former scheduler granted another paid period
+# without a newly verified provider settlement. Keep the signed entitlement
+# for compatibility, but hide and reject the feature until its replacement is
+# payment-bound and idempotent end to end.
+_AUTO_RENEWAL_RUNTIME_ENABLED = False
+
 
 def _positive_int_env(name: str, default: int, maximum: int = 86400) -> int:
     """Read a bounded positive integer without letting bad env break startup."""
@@ -1320,7 +1326,10 @@ async def get_features(
             "config_download": gates["config_download"],
             "qr": gates["qr"],
             "promo_codes": _operator_has_feature("promo_codes"),
-            "auto_renewal": _operator_has_feature("auto_renewal"),
+            "auto_renewal": (
+                _AUTO_RENEWAL_RUNTIME_ENABLED
+                and _operator_has_feature("auto_renewal")
+            ),
         }
     }
 
@@ -1458,7 +1467,9 @@ async def get_subscription(
         "price_monthly_usd": subscription.price_monthly_usd,
         "expiry_date": subscription.expiry_date.isoformat() if subscription.expiry_date else None,
         "days_remaining": subscription.days_remaining,
-        "auto_renew": subscription.auto_renew,
+        "auto_renew": bool(
+            _AUTO_RENEWAL_RUNTIME_ENABLED and subscription.auto_renew
+        ),
         "created_at": subscription.created_at.isoformat(),
         "needs_plan": False,
     }
@@ -3517,12 +3528,7 @@ def toggle_auto_renew(
     user_id: int = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Toggle auto-renewal for subscription"""
-    if not _operator_has_feature("auto_renewal"):
-        raise HTTPException(
-            status_code=403,
-            detail="Automatic renewal is not available for this service.",
-        )
+    """Keep automatic renewal fail-closed until payments are bound to it."""
 
     from src.modules.subscription.subscription_models import ClientPortalSubscription
     sub = db.query(ClientPortalSubscription).filter(
@@ -3531,10 +3537,22 @@ def toggle_auto_renew(
     if not sub:
         raise HTTPException(status_code=404, detail="No subscription found")
 
-    sub.auto_renew = bool(data.get("auto_renew", False))
-    db.commit()
+    requested_enable = bool(data.get("auto_renew", False))
+    if sub.auto_renew or (sub.auto_renew_failures or 0):
+        sub.auto_renew = False
+        sub.auto_renew_failures = 0
+        db.commit()
 
-    return {"message": "Auto-renew updated", "auto_renew": sub.auto_renew}
+    if requested_enable or not _AUTO_RENEWAL_RUNTIME_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Automatic renewal is temporarily unavailable. "
+                "Please renew the subscription manually."
+            ),
+        )
+
+    return {"message": "Automatic renewal is disabled", "auto_renew": False}
 
 
 # ═══════════════════════════════════════════════════════════════════════════

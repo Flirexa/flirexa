@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -443,6 +444,73 @@ class TestFetchManifest:
         assert "minimum" in err.lower() or "1.5.0" in err
 
 
+class TestCachedUpdateStatus:
+
+    def setup_method(self):
+        from src.modules.updates import checker
+        checker._cache = None
+        checker._refresh_tasks.clear()
+
+    def teardown_method(self):
+        from src.modules.updates import checker
+        checker._cache = None
+        checker._refresh_tasks.clear()
+
+    def test_stale_verified_manifest_is_evaluated_without_network(self):
+        from src.modules.updates import checker
+
+        manifest = _make_manifest(version="1.2.0")
+        checker._cache = (manifest, time.time() - 3600, "stable")
+
+        with patch.object(
+            checker,
+            "fetch_manifest",
+            new=AsyncMock(side_effect=AssertionError("cache read performed network I/O")),
+        ) as fetch_mock:
+            result, err = checker.check_cached_update("1.0.0", "stable")
+
+        assert err is None
+        assert result["version"] == "1.2.0"
+        fetch_mock.assert_not_awaited()
+
+    def test_cache_from_another_channel_is_not_reused(self):
+        from src.modules.updates import checker
+
+        checker._cache = (_make_manifest(channel="test"), time.time(), "test")
+        result, err = checker.check_cached_update("1.0.0", "stable")
+
+        assert result is None
+        assert err is None
+
+    @pytest.mark.asyncio
+    async def test_stale_refresh_is_coalesced_and_authoritative(self):
+        from src.modules.updates import checker
+
+        manifest = _make_manifest(version="1.2.0")
+        checker._cache = (manifest, time.time() - 3600, "stable")
+        fetch_mock = AsyncMock(return_value=(manifest, None))
+
+        with patch.object(checker, "fetch_manifest", new=fetch_mock):
+            assert checker.schedule_manifest_refresh("stable") is True
+            assert checker.schedule_manifest_refresh("stable") is True
+            tasks = list(checker._refresh_tasks.values())
+            assert len(tasks) == 1
+            await asyncio.gather(*tasks)
+
+        fetch_mock.assert_awaited_once_with(channel="stable", force=True)
+        assert checker._refresh_tasks == {}
+
+    @pytest.mark.asyncio
+    async def test_fresh_cache_does_not_schedule_refresh(self):
+        from src.modules.updates import checker
+
+        checker._cache = (_make_manifest(), time.time(), "stable")
+        with patch.object(checker, "fetch_manifest", new=AsyncMock()) as fetch_mock:
+            assert checker.schedule_manifest_refresh("stable") is False
+            await asyncio.sleep(0)
+        fetch_mock.assert_not_awaited()
+
+
 # ============================================================================
 # Manager helpers
 # ============================================================================
@@ -535,11 +603,48 @@ def updates_client(db_session):
 class TestUpdatesAPI:
 
     def test_status_returns_current_version(self, updates_client):
-        resp = updates_client.get("/api/v1/updates/status")
+        with patch(
+            "src.api.routes.updates.check_cached_update",
+            return_value=(None, None),
+        ) as cached_check, patch(
+            "src.api.routes.updates.schedule_manifest_refresh",
+            return_value=True,
+        ) as refresh:
+            resp = updates_client.get("/api/v1/updates/status")
         assert resp.status_code == 200
         data = resp.json()
         assert "current_version" in data
         assert "channel" in data
+        assert data["status_refreshing"] is True
+        cached_check.assert_called_once()
+        refresh.assert_called_once()
+
+    def test_status_does_not_call_the_network_checker(self, updates_client):
+        with patch(
+            "src.api.routes.updates.check_cached_update",
+            return_value=(_make_manifest(version="9.9.9"), None),
+        ), patch(
+            "src.api.routes.updates.schedule_manifest_refresh",
+            return_value=False,
+        ), patch(
+            "src.api.routes.updates.check_for_update",
+            new=AsyncMock(side_effect=AssertionError("status route performed network I/O")),
+        ) as network_check:
+            resp = updates_client.get("/api/v1/updates/status")
+
+        assert resp.status_code == 200
+        assert resp.json()["available_update"]["version"] == "9.9.9"
+        network_check.assert_not_awaited()
+
+    def test_manual_check_remains_a_forced_network_check(self, updates_client):
+        checker = AsyncMock(return_value=(None, None))
+        with patch("src.api.routes.updates.check_for_update", new=checker):
+            resp = updates_client.post("/api/v1/updates/check")
+
+        assert resp.status_code == 200
+        assert resp.json()["up_to_date"] is True
+        checker.assert_awaited_once()
+        assert checker.await_args.kwargs["force"] is True
 
     def test_history_returns_list(self, updates_client):
         resp = updates_client.get("/api/v1/updates/history")
@@ -747,6 +852,50 @@ class TestDiskSpacePreflight:
         with patch("shutil.disk_usage", side_effect=PermissionError("no access")):
             result = _check_disk_space(tmp_path, 100)
         assert result is None
+
+
+class TestRollbackProcessContract:
+
+    def test_rollback_is_detached_and_uses_durable_log(self, tmp_path):
+        from src.modules.updates.manager import _run_rollback_script
+
+        apply_script = tmp_path / "update_apply.sh"
+        apply_script.write_text("#!/bin/bash\nexit 0\n")
+        backup = tmp_path / "backup"
+        process = MagicMock()
+        process.wait.return_value = 0
+        process.pid = 12345
+
+        with patch("src.modules.updates.manager._APPLY_SCRIPT", apply_script), patch(
+            "src.modules.updates.manager.subprocess.Popen", return_value=process
+        ) as popen:
+            rc, _ = _run_rollback_script(
+                backup,
+                tmp_path,
+                rollback_id=12,
+                original_update_id=11,
+                from_version="2.2.75",
+                to_version="2.2.72",
+                started_by="admin",
+                started_at=datetime.now(timezone.utc),
+            )
+
+        assert rc == 0
+        kwargs = popen.call_args.kwargs
+        assert kwargs["start_new_session"] is True
+        assert kwargs["stderr"] == __import__("subprocess").STDOUT
+        assert kwargs["stdout"].name == str(backup / "rollback.log")
+        assert kwargs["env"]["ROLLBACK_ID"] == "12"
+        assert kwargs["env"]["ROLLBACK_ORIGINAL_ID"] == "11"
+        assert kwargs["env"]["ROLLBACK_FROM_VERSION"] == "2.2.75"
+        assert kwargs["env"]["ROLLBACK_TO_VERSION"] == "2.2.72"
+
+    def test_shell_records_rollback_exit_and_runs_finalizer(self):
+        shell = Path("update_apply.sh").read_text(encoding="utf-8")
+
+        assert 'marker="rollback.exitcode"' in shell
+        assert "update_rollback_finalize.py" in shell
+        assert "--rollback-id \"$ROLLBACK_ID\"" in shell
 
 
 # ============================================================================

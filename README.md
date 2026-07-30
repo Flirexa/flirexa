@@ -3,7 +3,7 @@
 **Self-hosted VPN management for WireGuard, AmneziaWG, Hysteria2, TUIC, and VLESS-Reality.**
 Open core under MIT. Paid plugins for the parts that turn it into a real business.
 
-_Repository and product claims last verified: 2026-07-24. Current checkout
+_Repository and product claims last verified: 2026-07-30. Current checkout
 pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
 
 [![Tests](https://github.com/Flirexa/flirexa/actions/workflows/test.yml/badge.svg)](https://github.com/Flirexa/flirexa/actions/workflows/test.yml)
@@ -13,7 +13,7 @@ pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
 [![Stars](https://img.shields.io/github/stars/Flirexa/flirexa?style=social)](https://github.com/Flirexa/flirexa/stargazers)
 
 ```bash
-# One command on a fresh Ubuntu 22.04+ / Debian 12 server:
+# One command on a supported Ubuntu Server 22.04/24.04 x86-64 host:
 curl -fsSL https://flirexa.biz/install.sh | sudo bash
 ```
 
@@ -102,13 +102,23 @@ If you can run a VPS, you can run a VPN service.
 
 ## What's paid
 
-Paid capabilities use feature flags. Several implementations, including the extra VPN protocols and Corporate VPN, are already present in this MIT repository and remain inactive without the matching licence. Some third-party payment-provider and remote-agent components are distributed separately under a commercial licence.
+Paid capabilities use signed feature flags and backend checks. The public tree
+contains the MIT open core and deterministic compatibility stubs; official
+customer archives supply protected commercial implementations under a separate
+licence.
 
 | Tier | Per month | Plugins unlocked |
 |---|---|---|
-| **Starter** | $12 | `extra-protocols` (Hysteria2, TUIC, VLESS-Reality), `promo-codes` (codes + auto-renewal) |
-| **Business** | $49 | + `multi-server`, `client-tg-bot`, `traffic-rules`, `white-label-basic`, `auto-backup` |
-| **Enterprise** | $149 | + `corporate-vpn` (site-to-site mesh), `manager-rbac` (multi-admin RBAC) |
+| **Starter** | $12 | `extra-protocols` (Hysteria2, TUIC, VLESS-Reality), `promo-codes` |
+| **Business** | $49 | + `multi-server`, `client-tg-bot`, full payment-provider suite, `traffic-rules`, `auto-backup` |
+| **Enterprise** | $149 | + full white-label/appearance controls, standard client-app package, `corporate-vpn`, `manager-rbac` |
+
+Automatic renewal of an operator's end-customer subscriptions is temporarily
+unavailable while it is rebuilt around one verified provider settlement per
+extension. Manual portal checkout and renewal continue to work. This is
+separate from purchasing a monthly, annual, or Lifetime Flirexa licence.
+The table applies to newly issued licences; an older key keeps any capability
+that is explicitly present in its signed feature set.
 
 **Subscriptions can be paid by card or crypto.** Card/fiat — Visa/Mastercard, Apple Pay, Google Pay, bank transfer in USD/EUR via [PayLio](https://paylio.org) recurring subscriptions; or pay in cryptocurrency via NOWPayments. If you need an invoice for accounting purposes, email `support@flirexa.biz` and we'll issue one.
 
@@ -135,7 +145,7 @@ features layered on top.
 
 ## Install
 
-### Quick install (Ubuntu 22.04+ / Debian 12+)
+### Quick install (Ubuntu Server 22.04 or 24.04, Linux x86-64)
 
 ```bash
 curl -fsSL https://flirexa.biz/install.sh | sudo bash
@@ -150,7 +160,7 @@ git clone https://github.com/Flirexa/flirexa.git
 cd flirexa
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 cp .env.example .env  # edit as needed
 alembic upgrade head
 python main.py
@@ -177,7 +187,7 @@ The admin API is a documented FastAPI app. After install:
 - **Architecture overview:** [docs/architecture.md](docs/architecture.md)
 - **API reference:** [docs/api.md](docs/api.md)
 
-REST endpoints are grouped by domain (`/api/v1/clients`, `/api/v1/servers`, `/api/v1/payments`, …). Authentication is JWT via `/api/v1/auth/login`. The client portal API at `/client-portal/*` uses a separate JWT scope for end-user accounts.
+REST endpoints are grouped by domain (`/api/v1/clients`, `/api/v1/servers`, `/api/v1/payments`, …). Admin authentication uses a Bearer JWT. Browser client-portal sessions use short-lived HttpOnly access cookies, rotating hash-only refresh families, and CSRF protection; released mobile clients retain their compatible Bearer contract.
 
 ---
 
@@ -225,6 +235,7 @@ Android, Windows, and Linux client apps are available to Enterprise customers. T
 Active items, in rough order. See [ROADMAP.md](ROADMAP.md) for the full picture.
 
 - **2026 Q3** — Signed distribution for separately delivered commercial extensions
+- **2026 Q3** — Settlement-backed end-customer subscription renewal
 - **2026 Q3** — Plugin marketplace (community-authored plugins)
 - **2026 Q3** — Documentation site and additional community plugin examples
 - **2026 Q4** — iOS client app and localisation expansion
@@ -239,16 +250,9 @@ If Flirexa saves you time or money, consider:
 
 - ⭐ **Starring this repository** — costs nothing, helps massively with visibility.
 - 💬 **Telling us what worked / what didn't** — open an issue or [discussion](https://github.com/Flirexa/flirexa/discussions).
-- ₿ **Crypto donations** — any amount, one-off, no account needed:
-
-  | Currency | Network | Address |
-  |---|---|---|
-  | Bitcoin (BTC) | Bitcoin | `bc1qpznnfvrvnnz7g4na7kcd69c48c79yxgfjappf0` |
-  | Ethereum (ETH) | Ethereum | `0xc9428847bf4a741c946cfc33a726a293fd97cc07` |
-  | USDT | Ethereum (ERC-20) | `0xc9428847bf4a741c946cfc33a726a293fd97cc07` |
-  | USDT | Tron (TRC-20) | `TGGQrmJqsjmbnieXhfeRBMyUML3zGWKY3x` |
-
-- 💼 **Recurring sponsorship via crypto** — email `support@flirexa.biz` if you want to set up a $5/$25/$100/month NOWPayments recurring sponsorship; we'll send a payment link and credit you in the README.
+- 💛 **Supporting development** — FREE and trial installations expose an
+  optional support action in the current admin header. Purchased tiers do not
+  show donation prompts or controls.
 
 For commercial support (priority response, custom integrations, training): `support@flirexa.biz`.
 

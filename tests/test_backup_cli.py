@@ -113,6 +113,31 @@ def test_create_backup_command_db_only_uses_existing_backend(monkeypatch, tmp_pa
     assert called["kwargs"]["audit_source"] == "cli"
 
 
+def test_create_backup_without_output_uses_configured_storage(monkeypatch, tmp_path):
+    called = {}
+    status = _status(tmp_path)
+    monkeypatch.setattr("src.modules.backup_cli.collect_system_status", lambda: status)
+    monkeypatch.setattr("src.modules.backup_cli.get_db_context", _db_context)
+
+    class FakeManager:
+        def __init__(self, db, backup_dir=None):
+            called["backup_dir"] = backup_dir
+
+        def create_full_backup(self, **kwargs):
+            return {
+                "archive_path": "/configured/vpnmanager-backup-20260327-100000.tar.gz",
+                "archive_size_bytes": 12345,
+                "errors": [],
+            }
+
+    monkeypatch.setattr("src.modules.backup_cli.BackupManager", FakeManager)
+
+    result = create_backup_command(backup_type="full")
+
+    assert result.success is True
+    assert called["backup_dir"] is None
+
+
 def test_create_backup_command_fails_when_update_active(monkeypatch, tmp_path):
     status = _status(tmp_path)
     status.mode = "update_in_progress"
@@ -158,3 +183,26 @@ def test_create_backup_command_fails_strictly_on_backend_partial_error(monkeypat
 
     assert result.success is False
     assert "env copy failed" in result.error
+
+
+def test_explicit_backup_dir_is_not_replaced_by_storage_config(monkeypatch, tmp_path):
+    from src.modules.backup_manager import BackupManager
+
+    explicit = tmp_path / "operator-selected"
+    manager = BackupManager(object(), backup_dir=str(explicit))
+    monkeypatch.setattr(
+        manager,
+        "_get_backup_dir",
+        lambda: str(tmp_path / "dashboard-default"),
+    )
+
+    ready = manager.ensure_storage_ready()
+
+    assert ready == {
+        "target": str(explicit),
+        "storage_type": "explicit",
+        "ready": True,
+        "auto_mounted": False,
+        "error": None,
+    }
+    assert manager.backup_dir == str(explicit)

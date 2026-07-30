@@ -191,10 +191,6 @@ export default {
     referralLink: 'Votre lien de parrainage',
     referralCount: 'Amis parrainés',
     referralBonus: '+7 jours pour chaque parrainage payant',
-    autoRenew: 'Renouvellement auto',
-    autoRenewOn: 'Renouvellement automatique activé',
-    autoRenewOff: 'Renouvellement automatique désactivé',
-    autoRenewHint: 'Renouvellement automatique à l\'expiration de l\'abonnement',
     deviceDeleted: 'Appareil supprimé',
     deviceConnected: 'Connecté',
     deviceDisconnected: 'Déconnecté',
@@ -339,7 +335,6 @@ export default {
     endpoint: 'IP:port public de ce site. Requis si d\'autres sites doivent initier des connexions ici. Laisser vide si derrière NAT.',
     regenKeys: 'Génère une nouvelle paire de clés WireGuard pour ce site. Vous devez re-télécharger les configs pour TOUS les sites du réseau.',
     diagnostics: 'Vérifications de connectivité entre toutes les paires de sites. Montre quels sites peuvent se joindre et identifie les problèmes de routage.',
-    autoRenew: 'Lorsqu\'activé, votre abonnement est renouvelé automatiquement avant expiration via votre dernier moyen de paiement.',
     referral: "Partagez votre lien unique. Chaque ami qui souscrit à un plan payant vous donne +7 jours ajoutés à votre abonnement actuel. Note : vous devez avoir un abonnement payant actif au moment du paiement de votre ami — le bonus prolonge vos jours restants, il n'y a donc rien à prolonger si vous êtes encore sur le plan gratuit.",
   },
   support: {

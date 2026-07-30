@@ -504,12 +504,17 @@ PY
         systemctl stop vpnmanager-admin-bot 2>/dev/null || true
         systemctl stop vpnmanager-client-bot 2>/dev/null || true
         systemctl stop vpnmanager-client-portal 2>/dev/null || true
+        # The worker imports application modules once at process startup.  It
+        # must be stopped before files are replaced or an upgraded install can
+        # keep executing the previous scheduler/payment code from memory.
+        systemctl stop vpnmanager-worker 2>/dev/null || true
 
         # Kill any manual processes
         pkill -f "main.py api" 2>/dev/null || true
         pkill -f "main.py admin-bot" 2>/dev/null || true
         pkill -f "main.py client-bot" 2>/dev/null || true
         pkill -f "client_portal_main.py" 2>/dev/null || true
+        pkill -f "worker_main.py" 2>/dev/null || true
         sleep 2
     fi
 }
@@ -815,6 +820,18 @@ copy_files() {
         log_info "  Source and target are the same directory, skipping copy"
         return
     fi
+
+    # Vite gives changed bundles new hashed filenames. A merge-only in-place
+    # copy leaves the previous JavaScript reachable on disk indefinitely even
+    # though index.html no longer references it. Prune only these two
+    # package-owned build outputs (never runtime data) before copying the
+    # verified replacements from the release archive.
+    local frontend_output
+    for frontend_output in src/web/static/dist src/web/client-portal-dist; do
+        if [[ -d "$SCRIPT_DIR/$frontend_output" ]]; then
+            rm -rf "$INSTALL_DIR/$frontend_output"
+        fi
+    done
 
     rsync -a \
         --exclude='.git' \
