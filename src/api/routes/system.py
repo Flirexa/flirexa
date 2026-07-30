@@ -39,7 +39,6 @@ router = APIRouter()
 
 # Feature-gated dependencies for paid-tier endpoints in this router.
 _white_label_gate = Depends(require_license_feature("white_label"))
-_auto_backup_gate = Depends(require_license_feature("auto_backup"))
 _app_integration_gate = Depends(require_license_feature("app_integration"))
 
 
