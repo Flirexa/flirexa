@@ -9,24 +9,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, and_, or_
 from loguru import logger
-import threading
 
 from ..database.models import Client, Server, ClientStatus
 from .wireguard import WireGuardManager
 from .amneziawg import AmneziaWGManager
-
-# Per-server locks for _apply_proxy_config: prevents race condition when
-# multiple clients are disabled/enabled simultaneously on the same server.
-_PROXY_CONFIG_LOCKS: Dict[int, threading.Lock] = {}
-_PROXY_CONFIG_LOCKS_META = threading.Lock()
-
-
-def _get_proxy_config_lock(server_id: int) -> threading.Lock:
-    with _PROXY_CONFIG_LOCKS_META:
-        if server_id not in _PROXY_CONFIG_LOCKS:
-            _PROXY_CONFIG_LOCKS[server_id] = threading.Lock()
-        return _PROXY_CONFIG_LOCKS[server_id]
-
 
 class ClientManager:
     """
@@ -266,178 +252,24 @@ class ClientManager:
         proxy_password: Optional[str] = None,
         proxy_uuid: Optional[str] = None,
     ) -> Optional[Client]:
-        """
-        Create a proxy client (Hysteria2 / TUIC).
+        from ..modules.proxy_client_adapter import create_proxy_client
 
-        Proxy clients have no WG keys or IP assignment.
-        Auth is done via password (Hysteria2) or UUID+password (TUIC).
-        After DB insert, the server config is regenerated and applied.
-        """
-        import secrets as _sec
-        import uuid as _uuid_mod
-        import string
-
-        # Check name uniqueness
-        existing = self.db.query(Client).filter(
-            and_(Client.server_id == server.id, Client.name == name)
-        ).first()
-        if existing:
-            logger.error(f"Client '{name}' already exists on proxy server {server.id}")
-            return None
-
-        # Auto-generate credentials if not provided
-        if not proxy_password:
-            alphabet = string.ascii_letters + string.digits
-            proxy_password = "".join(_sec.choice(alphabet) for _ in range(20))
-
-        if server.server_type in ("tuic", "vless-reality") and not proxy_uuid:
-            proxy_uuid = str(_uuid_mod.uuid4())
-
-        expiry_date = None
-        if expiry_days and expiry_days > 0:
-            expiry_date = datetime.now(timezone.utc) + timedelta(days=expiry_days)
-
-        client = Client(
+        return create_proxy_client(
+            self,
             name=name,
-            server_id=server.id,
-            public_key=None,    # proxy clients have no WireGuard key
-            private_key=None,
-            preshared_key=None,
-            ip_index=None,   # no VPN IP for proxy clients
-            ipv4=None,
-            ipv6=None,
-            status=ClientStatus.ACTIVE,
-            enabled=True,
+            server=server,
             bandwidth_limit=bandwidth_limit,
             traffic_limit_mb=traffic_limit_mb,
-            expiry_date=expiry_date,
+            expiry_days=expiry_days,
             telegram_user_id=telegram_user_id,
-            peer_visibility=False,
             proxy_password=proxy_password,
             proxy_uuid=proxy_uuid,
         )
 
-        try:
-            self.db.add(client)
-            self.db.commit()
-            self.db.refresh(client)
-            logger.info(f"Created proxy client '{name}' on {server.name}")
-
-            # Regenerate and apply server config
-            if not self._apply_proxy_config(server):
-                logger.error(f"Proxy config apply failed for '{name}' on {server.name} — rolling back")
-                self.db.delete(client)
-                self.db.commit()
-                return None
-
-            return client
-
-        except Exception as e:
-            self.db.rollback()
-            logger.error(f"Failed to create proxy client: {e}")
-            return None
-
     def _apply_proxy_config(self, server: Server) -> bool:
-        """
-        Regenerate proxy server config with current client list and apply.
-        Called after client create/delete/enable/disable on proxy servers.
-        Uses both a per-process threading lock (same worker) and a PostgreSQL
-        advisory lock (cross-worker) to prevent race conditions.
-        """
-        server_type = getattr(server, 'server_type', '')
-        lock = _get_proxy_config_lock(server.id)
+        from ..modules.proxy_client_adapter import apply_proxy_config
 
-        with lock:
-            # pg_advisory_xact_lock for cross-process safety
-            try:
-                from sqlalchemy import text as _sql_text
-                self.db.execute(_sql_text(f"SELECT pg_advisory_xact_lock(2000000 + {int(server.id)})"))
-            except Exception:
-                pass  # Fallback to thread lock only (e.g. SQLite in tests)
-            return self._apply_proxy_config_locked(server, server_type)
-
-    def _apply_proxy_config_locked(self, server: Server, server_type: str) -> bool:
-        """Inner implementation — must be called while holding the server lock."""
-        # Collect active clients (fresh query inside the lock for consistency)
-        clients_db = self.db.query(Client).filter(
-            and_(Client.server_id == server.id, Client.enabled == True)
-        ).all()
-
-        try:
-            if server_type == "hysteria2":
-                from .hysteria2 import Hysteria2Manager
-                mgr = Hysteria2Manager(
-                    config_path=server.proxy_config_path,
-                    service_name=server.proxy_service_name or "hysteria-server",
-                    listen_port=server.listen_port,
-                    domain=server.proxy_domain,
-                    tls_mode=server.proxy_tls_mode or "self_signed",
-                    cert_path=server.proxy_cert_path,
-                    key_path=server.proxy_key_path,
-                    obfs_password=server.proxy_obfs_password,
-                    auth_password=server.proxy_auth_password,
-                    ssh_host=server.ssh_host,
-                    ssh_port=server.ssh_port or 22,
-                    ssh_user=server.ssh_user or "root",
-                    ssh_password=server.ssh_password,
-                    ssh_private_key=server.ssh_private_key,
-                )
-                proxy_clients = [
-                    {"name": c.name, "password": c.proxy_password}
-                    for c in clients_db if c.proxy_password
-                ]
-                result = mgr.apply_config(proxy_clients)
-                mgr.close()
-                return result
-
-            elif server_type == "tuic":
-                from .tuic import TUICManager
-                mgr = TUICManager(
-                    config_path=server.proxy_config_path,
-                    service_name=server.proxy_service_name or "tuic-server",
-                    listen_port=server.listen_port,
-                    domain=server.proxy_domain,
-                    tls_mode=server.proxy_tls_mode or "self_signed",
-                    cert_path=server.proxy_cert_path,
-                    key_path=server.proxy_key_path,
-                    ssh_host=server.ssh_host,
-                    ssh_port=server.ssh_port or 22,
-                    ssh_user=server.ssh_user or "root",
-                    ssh_password=server.ssh_password,
-                    ssh_private_key=server.ssh_private_key,
-                )
-                proxy_clients = [
-                    {"uuid": c.proxy_uuid, "password": c.proxy_password}
-                    for c in clients_db if c.proxy_uuid and c.proxy_password
-                ]
-                result = mgr.apply_config(proxy_clients)
-                mgr.close()
-                return result
-
-            elif server_type == "vless-reality":
-                from .vless_reality import VlessRealityManager
-                mgr = VlessRealityManager(
-                    config_path=server.proxy_config_path,
-                    service_name=server.proxy_service_name or "xray-reality",
-                    listen_port=server.listen_port,
-                    domain=server.proxy_domain,
-                    reality_private_key=server.proxy_reality_private_key,
-                    reality_public_key=server.proxy_reality_public_key,
-                    short_id=server.proxy_reality_short_id,
-                    ssh_host=server.ssh_host,
-                    ssh_port=server.ssh_port or 22,
-                    ssh_user=server.ssh_user or "root",
-                    ssh_password=server.ssh_password,
-                    ssh_private_key=server.ssh_private_key,
-                )
-                proxy_clients = [{"uuid": c.proxy_uuid} for c in clients_db if c.proxy_uuid]
-                result = mgr.apply_config(proxy_clients)
-                mgr.close()
-                return result
-
-        except Exception as e:
-            logger.error(f"Failed to apply proxy config for {server.name}: {e}")
-        return False
+        return apply_proxy_config(self, server)
 
     def get_client(self, client_id: int) -> Optional[Client]:
         """Get a client by ID"""
@@ -958,63 +790,9 @@ class ClientManager:
 
     def _get_proxy_client_config_dict(self, client, server) -> Optional[dict]:
         """Return full proxy client config dict including URI."""
-        server_type = getattr(server, 'server_type', '')
-        endpoint_host = server.endpoint.split(":")[0] if ":" in server.endpoint else server.endpoint
+        from ..modules.proxy_client_adapter import get_proxy_client_config_dict
 
-        if server_type == "hysteria2":
-            from .hysteria2 import Hysteria2Manager
-            mgr = Hysteria2Manager(
-                config_path=server.proxy_config_path,
-                service_name=server.proxy_service_name or "hysteria-server",
-                listen_port=server.listen_port,
-                domain=server.proxy_domain,
-                tls_mode=server.proxy_tls_mode or "self_signed",
-                cert_path=server.proxy_cert_path,
-                key_path=server.proxy_key_path,
-                obfs_password=server.proxy_obfs_password,
-                auth_password=server.proxy_auth_password,
-            )
-            return mgr.generate_client_config(
-                client_name=client.name,
-                client_password=client.proxy_password or "",
-                server_endpoint=server.endpoint,
-            )
-
-        elif server_type == "tuic":
-            from .tuic import TUICManager
-            mgr = TUICManager(
-                config_path=server.proxy_config_path,
-                service_name=server.proxy_service_name or "tuic-server",
-                listen_port=server.listen_port,
-                domain=server.proxy_domain,
-                tls_mode=server.proxy_tls_mode or "self_signed",
-                cert_path=server.proxy_cert_path,
-                key_path=server.proxy_key_path,
-            )
-            return mgr.generate_client_config(
-                client_name=client.name,
-                client_uuid=client.proxy_uuid or "",
-                client_password=client.proxy_password or "",
-                server_endpoint=server.endpoint,
-            )
-
-        elif server_type == "vless-reality":
-            from .vless_reality import VlessRealityManager
-            mgr = VlessRealityManager(
-                config_path=server.proxy_config_path,
-                service_name=server.proxy_service_name or "xray-reality",
-                listen_port=server.listen_port,
-                domain=server.proxy_domain,
-                reality_private_key=server.proxy_reality_private_key,
-                reality_public_key=server.proxy_reality_public_key,
-                short_id=server.proxy_reality_short_id,
-            )
-            return mgr.generate_client_config(
-                client_name=client.name,
-                client_uuid=client.proxy_uuid or "",
-                server_endpoint=server.endpoint,
-            )
-        return None
+        return get_proxy_client_config_dict(client, server)
 
     def get_peer_devices(self, client_id: int) -> List[Dict[str, Any]]:
         """
