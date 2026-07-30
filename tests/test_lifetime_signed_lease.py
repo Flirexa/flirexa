@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from src.modules.license import online_validator as ov
+from src.modules.license import instance_manager as im
 
 
 def _key(payload: dict) -> str:
@@ -41,6 +42,13 @@ def _local_lifetime(monkeypatch):
     monkeypatch.setattr(ov, "_instance_id", "instance-12345678")
     monkeypatch.setattr(ov, "_cache_warmed", True)
     monkeypatch.setattr(ov, "_last_apply_wall_time", 0.0)
+
+
+def test_validator_uses_persisted_shared_instance_id(monkeypatch):
+    full_id = "12345678-1234-1234-1234-123456789abc"
+    monkeypatch.setattr(im, "get_instance_id", lambda: full_id)
+
+    assert ov._get_persistent_instance_id() == full_id[:32]
 
 
 def test_lifetime_works_inside_signed_30_day_window(monkeypatch):

@@ -4,6 +4,21 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.81 — 2026-07-30
+
+### Fixed
+
+- Paid installations now create and persist one shared installation identity
+  during first activation, so a valid signed Lifetime lease remains readable
+  after managed services restart.
+
+### Documentation
+
+- Clarified the persistent installation-identity contract used by Lifetime
+  validation and heartbeats.
+
+---
+
 ## v2.2.80 — 2026-07-30
 
 ### Changed

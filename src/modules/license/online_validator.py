@@ -129,11 +129,18 @@ def _get_online_tier()      -> str:           return _state.tier
 def _get_server_reachable() -> bool:          return _state.server_reachable
 
 def _get_persistent_instance_id() -> str:
-    """Use the persistent INSTANCE_ID from .env (same as instance_manager)."""
-    env_id = os.getenv("INSTANCE_ID", "").strip()
-    if env_id and len(env_id) >= 8:
-        return env_id[:32]
-    return str(uuid.uuid4())[:32]
+    """Use the one persistent INSTANCE_ID shared with instance heartbeats.
+
+    The validator used to create an in-memory UUID when ``INSTANCE_ID`` was
+    absent.  The heartbeat manager could then persist a different UUID later
+    in the same startup, leaving the freshly signed offline lease unreadable
+    after a restart.  Delegate creation and persistence to the canonical
+    instance manager, while retaining the validator protocol's 32-character
+    identifier.
+    """
+    from .instance_manager import get_instance_id
+
+    return get_instance_id()[:32]
 
 _instance_id = _get_persistent_instance_id()
 
