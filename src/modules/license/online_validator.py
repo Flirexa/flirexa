@@ -27,6 +27,8 @@ import certifi
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
+from src.utils.runtime_paths import get_app_version
+
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -740,7 +742,7 @@ async def _do_check():
         "hardware_id":    hw_id,
         "instance_id":    _instance_id,
         "timestamp":      int(time.time()),
-        "client_version": os.getenv("APP_VERSION", ""),
+        "client_version": get_app_version(),
     }
 
     # Try primary server first

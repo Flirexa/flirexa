@@ -4,6 +4,23 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.82 — 2026-07-31
+
+### Security
+
+- Expanded native protection across the remaining commercial server-management,
+  paid payment-provider administration, and Enterprise branding paths in the
+  official customer package. Existing paid licences and plan entitlements are
+  unchanged.
+
+### Fixed
+
+- Licence validation now reports the installed panel version even when no
+  explicit version environment variable is configured, improving update
+  compatibility checks and support diagnostics.
+
+---
+
 ## v2.2.81 — 2026-07-30
 
 ### Fixed

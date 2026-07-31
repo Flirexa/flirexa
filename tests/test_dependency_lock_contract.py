@@ -56,6 +56,32 @@ def test_runtime_lock_input_excludes_development_tools():
         )
 
 
+def test_seller_runtime_lock_excludes_development_tools():
+    seller_runtime = (
+        ROOT / "license_server" / "requirements.txt"
+    ).read_text(encoding="utf-8")
+    seller_lock = (
+        ROOT / "license_server" / "requirements.lock"
+    ).read_text(encoding="utf-8")
+
+    for package in (
+        "pytest",
+        "pytest-asyncio",
+        "pytest-cov",
+        "coverage",
+        "black",
+        "ruff",
+    ):
+        assert not any(
+            line.strip().lower().startswith(f"{package}>=")
+            for line in seller_runtime.splitlines()
+        )
+        assert not any(
+            line.strip().lower().startswith(f"{package}==")
+            for line in seller_lock.splitlines()
+        )
+
+
 def test_fresh_installer_seeds_locked_build_backend_before_fallback():
     source = (ROOT / "install.sh").read_text(encoding="utf-8")
     bootstrap = source.index('$INSTALL_DIR/requirements-runtime-bootstrap.lock')
