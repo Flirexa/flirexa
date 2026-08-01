@@ -3774,15 +3774,33 @@ def get_notifications(
 ):
     """Get unread notifications for user (personal + broadcasts)"""
     from src.database.models import PushNotification
-    from sqlalchemy import or_
-
-    notifications = db.query(PushNotification).filter(
-        or_(
+    personal = db.query(PushNotification).filter(
+        PushNotification.user_id == user_id,
+        PushNotification.is_read.is_(False),
+    ).all()
+    # Broadcast read receipts are stored as per-user read clones so the
+    # original broadcast remains visible to everyone else.  The old list
+    # query ignored those receipts and returned the same broadcast forever.
+    read_broadcast_signatures = {
+        (row.title, row.message, row.created_at)
+        for row in db.query(PushNotification).filter(
             PushNotification.user_id == user_id,
-            PushNotification.user_id == None  # broadcasts
-        ),
-        PushNotification.is_read == False
-    ).order_by(PushNotification.created_at.desc()).limit(50).all()
+            PushNotification.is_read.is_(True),
+        ).all()
+    }
+    broadcasts = db.query(PushNotification).filter(
+        PushNotification.user_id.is_(None),
+        PushNotification.is_read.is_(False),
+    ).all()
+    notifications = personal + [
+        row for row in broadcasts
+        if (row.title, row.message, row.created_at) not in read_broadcast_signatures
+    ]
+    notifications.sort(
+        key=lambda row: row.created_at.timestamp() if row.created_at else 0,
+        reverse=True,
+    )
+    notifications = notifications[:50]
 
     return [
         {
@@ -3818,15 +3836,22 @@ def mark_notification_read(
         # For broadcasts, create a read record per user (or just mark read for simplicity)
         if notif.user_id is None:
             # Clone as read for this user so broadcast stays for others
-            read_copy = PushNotification(
-                user_id=user_id,
-                title=notif.title,
-                message=notif.message,
-                notification_type=notif.notification_type,
-                is_read=True,
-                created_at=notif.created_at
-            )
-            db.add(read_copy)
+            exists = db.query(PushNotification).filter(
+                PushNotification.user_id == user_id,
+                PushNotification.title == notif.title,
+                PushNotification.message == notif.message,
+                PushNotification.created_at == notif.created_at,
+                PushNotification.is_read.is_(True),
+            ).first()
+            if not exists:
+                db.add(PushNotification(
+                    user_id=user_id,
+                    title=notif.title,
+                    message=notif.message,
+                    notification_type=notif.notification_type,
+                    is_read=True,
+                    created_at=notif.created_at
+                ))
         else:
             notif.is_read = True
         db.commit()
@@ -3857,14 +3882,14 @@ def mark_all_notifications_read(
         PushNotification.user_id == None,  # noqa: E711
     ).all()
     if broadcasts:
-        existing_clone_titles = {
-            (n.title, n.created_at) for n in db.query(PushNotification).filter(
+        existing_clone_signatures = {
+            (n.title, n.message, n.created_at) for n in db.query(PushNotification).filter(
                 PushNotification.user_id == user_id,
                 PushNotification.is_read.is_(True),
             ).all()
         }
         for b in broadcasts:
-            if (b.title, b.created_at) in existing_clone_titles:
+            if (b.title, b.message, b.created_at) in existing_clone_signatures:
                 continue
             db.add(PushNotification(
                 user_id=user_id,

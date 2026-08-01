@@ -4,6 +4,39 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.86 — 2026-08-01
+
+### Added
+
+- Expanded the Telegram admin bot with current operational views and guarded
+  actions for portal users, payments, support, subscriptions, servers,
+  backups, updates, licence health, audit history, and traffic rules.
+- Brought the Telegram client bot in line with the current customer portal,
+  including multi-region device slots, location switching, payment history,
+  threaded support, and notifications.
+
+### Fixed
+
+- Reading a broadcast notification now affects only the current customer and
+  no longer hides that notification from other customers.
+- Telegram device limits now count one logical device slot instead of counting
+  every replicated regional peer separately.
+
+---
+
+## v2.2.83 — 2026-07-31
+
+### Changed
+
+- Published a signed mandatory version-only roll-forward so supported
+  installations converge on the accepted protected release even when normal
+  automatic updates are disabled. Existing in-flight, maintenance, rollback,
+  and failed-update cooldown safeguards remain enforced.
+- No application behavior, plan entitlement, dependency, or database migration
+  changes are included.
+
+---
+
 ## v2.2.82 — 2026-07-31
 
 ### Security

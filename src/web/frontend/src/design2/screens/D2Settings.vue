@@ -44,10 +44,17 @@
               <div style="padding:11px 13px;border:1px solid var(--border);border-radius:10px"><div style="font-size:11px;color:var(--text-3)">{{ tr('settings.serverId') || 'Server ID' }}</div><div style="display:flex;align-items:center;gap:8px;margin-top:3px"><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2)">{{ license.server_id || '—' }}</span><button @click="copyServerId" style="border:none;background:transparent;color:var(--text-3);cursor:pointer;display:flex"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 012-2h10"></path></svg></button></div></div>
               <div style="padding:11px 13px;border:1px solid var(--border);border-radius:10px"><div style="font-size:11px;color:var(--text-3)">{{ tr('settings.licenseOwner') || 'Owner' }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);margin-top:3px">{{ license.owner || '—' }}</div></div>
             </div>
+            <div style="padding:13px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2);margin-bottom:14px">
+              <label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.refetchLicense') || 'Recover license with activation code' }}</label>
+              <div style="display:flex;gap:8px;align-items:center">
+                <input v-model="license.replayCode" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" style="min-width:0;flex:1;height:38px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text);border-radius:9px;padding:0 11px;font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none" @focus="onFocus" @blur="onBlur">
+                <button @click="replayLicense2" :disabled="busy.replay || !license.replayCode.trim()" :style="{ height:'38px', padding:'0 13px', border:'1px solid var(--accent)', background:'var(--accent-soft)', color:'var(--accent)', borderRadius:'9px', font:'inherit', fontSize:'12.5px', fontWeight:600, cursor:busy.replay ? 'wait' : 'pointer', opacity:busy.replay ? .65 : 1, flex:'none' }">{{ busy.replay ? (tr('settings.fetching') || 'Recovering…') : (tr('settings.refetch') || 'Recover') }}</button>
+              </div>
+              <div style="font-size:11.5px;color:var(--text-3);line-height:1.5;margin-top:7px">{{ tr('settings.refetchHint') || 'Use the activation code from the original purchase. Recovery works only on the same server.' }}</div>
+            </div>
             <div style="display:flex;flex-wrap:wrap;gap:8px">
-              <button @click="refetchLicense" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.refetch') || 'Re-fetch' }}</button>
+              <button @click="refreshLicenseCheck" :disabled="busy.refresh || !licensed" :style="{ height:'36px', padding:'0 13px', border:'1px solid var(--border-strong)', background:'var(--panel)', color:'var(--text-2)', borderRadius:'9px', font:'inherit', fontSize:'12.5px', fontWeight:550, cursor:busy.refresh ? 'wait' : (!licensed ? 'not-allowed' : 'pointer'), opacity:busy.refresh || !licensed ? .6 : 1 }">{{ busy.refresh ? (tr('settings.fetching') || 'Checking…') : (tr('settings.refreshNow') || 'Refresh license') }}</button>
               <button @click="openMigration" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.migrationCode') || 'Migration' }}</button>
-              <button @click="refreshLicenseCheck" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.refreshNow') || 'Refresh' }}</button>
             </div>
           </div>
 
@@ -56,7 +63,7 @@
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
               <div style="font-weight:650;font-size:15px;flex:1">{{ tr('settings.licenseServer') || 'License server' }}</div>
               <span :style="{ display:'inline-flex', alignItems:'center', gap:'6px', fontSize:'12px', fontWeight:600, color:licSrvColor }"><span :style="{ width:'7px', height:'7px', borderRadius:'50%', background:licSrvColor }"></span>{{ licSrvLabel }}</span>
-              <button @click="refreshLicenseCheck" style="height:32px;padding:0 12px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:8px;font:inherit;font-size:12px;font-weight:550;cursor:pointer">{{ tr('settings.refreshNow') || 'Refresh' }}</button>
+              <button @click="refreshLicenseCheck" :disabled="busy.refresh || !licensed" :style="{ height:'32px', padding:'0 12px', border:'1px solid var(--border-strong)', background:'var(--panel)', color:'var(--text-2)', borderRadius:'8px', font:'inherit', fontSize:'12px', fontWeight:550, cursor:busy.refresh ? 'wait' : (!licensed ? 'not-allowed' : 'pointer'), opacity:busy.refresh || !licensed ? .6 : 1 }">{{ busy.refresh ? (tr('settings.fetching') || 'Checking…') : (tr('settings.refreshNow') || 'Refresh') }}</button>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px">
               <div style="padding:11px 13px;border:1px solid var(--border);border-radius:10px"><div style="font-size:11px;color:var(--text-3)">{{ tr('settings.primaryServer') || 'Primary' }}</div><div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-2);margin-top:3px;word-break:break-all">{{ licServer.primary_url || '—' }}</div></div>
@@ -553,7 +560,7 @@ const settingsTabs = computed(() => [
 })))
 
 // ═══════════════ LICENSE ═══════════════
-const license = reactive({ type: '', tier: '', max_clients: null, max_servers: null, days_remaining: null, features: [], current_clients: 0, current_servers: 0, server_id: '', owner: '', newKey: '' })
+const license = reactive({ type: '', tier: '', max_clients: null, max_servers: null, days_remaining: null, features: [], current_clients: 0, current_servers: 0, server_id: '', owner: '', newKey: '', replayCode: '' })
 function hasLicenseFeature(feature) {
   return Array.isArray(license.features) && license.features.includes(feature)
 }
@@ -575,8 +582,68 @@ const licLastCheck = computed(() => { if (!licServer.last_check) return '—'; t
 async function loadLicense() { try { const r = await systemApi.getLicense(); Object.assign(license, r.data); license.newKey = '' } catch (_) {} }
 async function loadLicenseServer() { try { const r = await systemApi.getLicenseServer(); Object.assign(licServer, r.data) } catch (_) {} }
 async function activateLicense2() { if (!license.newKey) return; busy.lic = true; msgLicTone.value = 'ok'; try { await systemApi.activateLicense({ license_key: license.newKey.trim() }); msg.lic = tr('settings.licenseActivated') || 'License activated!'; license.newKey = ''; await loadLicense() } catch (e) { msgLicTone.value = 'err'; msg.lic = e.response?.data?.detail || 'Activation failed' } finally { busy.lic = false } }
-async function refetchLicense() { await loadLicense(); flash('lic', tr('common.done') || 'Re-fetched') }
-async function refreshLicenseCheck() { await loadLicenseServer(); await loadLicense(); flash('lic', tr('common.done') || 'Refreshed') }
+async function replayLicense2() {
+  const activationCode = license.replayCode.trim()
+  if (!activationCode || busy.replay) return
+  busy.replay = true
+  msgLicTone.value = 'ok'
+  msg.lic = ''
+  try {
+    const r = await systemApi.replayLicense({ activation_code: activationCode })
+    const refreshed = r.data?.license || {}
+    if (refreshed.license_type && !refreshed.type) refreshed.type = refreshed.license_type
+    Object.assign(license, refreshed)
+    license.replayCode = ''
+    await loadLicenseServer()
+    flash('lic', tr('settings.refetchSuccess') || 'License recovered successfully.')
+  } catch (e) {
+    msgLicTone.value = 'err'
+    msg.lic = errorText(e, 'License recovery failed')
+  } finally {
+    busy.replay = false
+  }
+}
+function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
+async function refreshLicenseCheck() {
+  if (busy.refresh || !licensed.value) return
+  busy.refresh = true
+  msgLicTone.value = 'ok'
+  msg.lic = ''
+  const previousCheck = licServer.last_check || ''
+  let observed = false
+  try {
+    await systemApi.triggerLicenseCheck()
+    // A normal check is quick; failover may need two 15-second attempts and a
+    // re-issued key may restart the API. Poll through that bounded window.
+    for (let attempt = 0; attempt < 35; attempt += 1) {
+      await wait(1000)
+      try {
+        const r = await systemApi.getLicenseServer()
+        Object.assign(licServer, r.data || {})
+        if (licServer.last_check && licServer.last_check !== previousCheck) {
+          observed = true
+          break
+        }
+      } catch (_) {
+        // Expected briefly when an in-band licence rotation restarts services.
+      }
+    }
+    await loadLicense()
+    await loadLicenseServer()
+    if (observed) {
+      flash('lic', tr('settings.licenseRefreshSuccess') || 'License status refreshed successfully.')
+    } else if (!licServer.server_reachable) {
+      throw new Error(tr('settings.licenseRefreshUnavailable') || 'License servers could not be reached. The existing signed offline license remains in use.')
+    } else {
+      throw new Error(tr('settings.licenseRefreshPending') || 'The license check is still running. Please try again in a moment.')
+    }
+  } catch (e) {
+    msgLicTone.value = 'err'
+    msg.lic = errorText(e, e?.message || 'License refresh failed')
+  } finally {
+    busy.refresh = false
+  }
+}
 async function openMigration() { const code = window.prompt(tr('settings.migrationCode') || 'Paste migration code (JSON):'); if (!code || !code.trim()) return; try { await systemApi.applyMigrationCode({ code: code.trim() }); await loadLicense(); await loadLicenseServer(); flash('lic', tr('settings.applied') || 'Applied') } catch (e) { msgLicTone.value = 'err'; msg.lic = e.response?.data?.detail || 'Migration failed' } }
 function copyServerId() { try { navigator.clipboard.writeText(license.server_id || '') } catch (_) {} }
 

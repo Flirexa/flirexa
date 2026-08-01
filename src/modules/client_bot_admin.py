@@ -25,7 +25,7 @@ def restart_after_config(env_updates: dict, control_service):
     return None
 
 def get_client_status(get_service_status) -> dict:
-    return {"is_running": False, "pid": None, "uptime": None, "status": "stopped"}
+    return {"is_running": False, "pid": None, "uptime": None, "uptime_seconds": None, "service": "vpnmanager-client-bot", "status": "stopped"}
 
 def control_client(action: str, control_service) -> bool:
     raise HTTPException(status_code=403, detail=_UPGRADE_HINT)

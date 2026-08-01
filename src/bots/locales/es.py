@@ -43,11 +43,14 @@ MESSAGES = {
         "/subscribe — Comprar suscripción\n\n"
         "*Otros:*\n"
         "/support — Contactar soporte\n"
+        "/tickets — Consultas de soporte\n"
+        "/payments — Historial de pagos\n"
+        "/notifications — Notificaciones sin leer\n"
         "/help — Este mensaje de ayuda\n\n"
         "*Cómo conectarse:*\n"
         "1. Compra una suscripción con /subscribe\n"
         "2. Selecciona un plan y completa el pago\n"
-        "3. Tu configuración se crea automáticamente tras el pago\n"
+        "3. Añade un dispositivo y elige una ubicación VPN\n"
         "4. Descarga tu configuración con /config\n"
         "5. Instala la app recomendada para tu protocolo\n"
         "6. Importa la configuración o escanea el QR\n"
@@ -183,7 +186,7 @@ MESSAGES = {
 
     "subscribe_select_duration": (
         "*{plan_name}*\n\n"
-        "Precio: ${price}/mes\n"
+        "Precio: {price}\n"
         "Tráfico: {traffic}\n"
         "Velocidad: {bandwidth}\n"
         "Dispositivos: {devices}\n"
@@ -242,7 +245,7 @@ MESSAGES = {
 
     "payment_confirmed_config_ready": "¡Tu configuración VPN está lista! Usa /config para descargarla.",
 
-    "payment_confirmed_creating": "Tu configuración se está creando...",
+    "payment_confirmed_creating": "Tu suscripción está activa. Añade un dispositivo, elige una ubicación y crea tu configuración.",
 
     "payment_pending": (
         "*Esperando pago*\n\n"
@@ -263,6 +266,18 @@ MESSAGES = {
     ),
 
     "payment_not_found": "Pago no encontrado.",
+
+    "payment_unavailable": "Los pagos no están disponibles temporalmente. Contacta con soporte o inténtalo más tarde.",
+
+    "payment_provider_error": "El proveedor de pagos no pudo crear una factura. No se realizó ningún cargo. Inténtalo más tarde.",
+
+    "payment_check_error": "No pudimos verificar este pago ahora. No vuelvas a pagar. Intenta comprobarlo más tarde o contacta con soporte.",
+
+    "too_many_attempts": "Demasiados intentos. Espera e inténtalo de nuevo más tarde.",
+
+    "device_name_invalid": "Usa de 1 a 48 letras latinas, números, guiones o guiones bajos. El nombre debe empezar por una letra o un número.",
+
+    "action_cancelled": "Acción cancelada.",
 
     # =========================================================================
     # SUPPORT
@@ -480,4 +495,21 @@ MESSAGES = {
         "Período: *{days}* días (hasta {date}).\n\n"
         "Descarga tu configuración VPN: /config"
     ),
+    "menu_payments": "Pagos", "menu_tickets": "Consultas", "menu_notifications": "Avisos",
+    "payments_title": "<b>Historial de pagos</b>", "payments_empty": "Aún no tienes pagos.",
+    "tickets_title": "*Consultas de soporte*", "tickets_empty": "Aún no tienes consultas de soporte.",
+    "tickets_new": "Nueva consulta", "ticket_not_found": "La consulta no existe o está cerrada.",
+    "ticket_sender_support": "Soporte", "ticket_sender_you": "Tú", "ticket_reply": "Responder",
+    "ticket_reply_prompt": "Escribe tu respuesta para la consulta #{ticket_id}:",
+    "ticket_reply_sent": "Tu respuesta se añadió a la consulta #{ticket_id}.",
+    "notifications_title": "*Notificaciones*", "notifications_empty": "No tienes notificaciones sin leer.",
+    "notifications_mark_all": "Marcar todas como leídas", "notifications_all_read": "Todas las notificaciones están marcadas como leídas.",
+    "btn_change_location": "Cambiar ubicación", "btn_rename_device": "Renombrar",
+    "btn_release_device": "Liberar dispositivo", "btn_confirm_release": "Liberar",
+    "device_choose_location": "*{name}*\n\nElige la ubicación VPN activa:",
+    "device_rename_prompt": "Introduce un nuevo nombre (1-64 caracteres):",
+    "device_label_invalid": "El nombre debe tener entre 1 y 64 caracteres.",
+    "device_not_found": "Dispositivo no encontrado.", "device_renamed": "Dispositivo renombrado a *{name}*.",
+    "device_release_confirm": "¿Liberar la vinculación? Otro dispositivo podrá ocupar este espacio.",
+    "device_released": "Vinculación del dispositivo liberada.",
 }

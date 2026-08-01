@@ -2,13 +2,12 @@
      two bot cards (icon/status/service·uptime·pid stats + start/stop/restart),
      config panel (admin token / client token / allowed IDs / client-on toggle /
      save) and an activity-log panel (svc tabs + errors filter + refresh).
-     Wired to existing botsApi (getConfig/updateConfig + admin/client status +
-     start/stop/restart); logs panel is a local client-side activity buffer
-     (no bot-logs endpoint exists — nothing invented). -->
+     Wired to botsApi (config, status, service control and token-redacted
+     systemd journal tails for both services). -->
 <template>
   <div>
     <!-- ===== bot cards ===== -->
-    <div :style="{ display:'grid', gridTemplateColumns:gPair, gap:'14px', marginBottom:'14px' }">
+    <div class="bot-grid" style="margin-bottom:14px">
       <div v-for="b in botCards" :key="b.key" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:18px 20px">
         <div style="display:flex;align-items:center;gap:11px;margin-bottom:14px">
           <div style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:none" v-html="b.icon"></div>
@@ -23,35 +22,38 @@
           <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em">{{ tr('bots.pid') || 'PID' }}</div><div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-2);margin-top:2px">{{ b.pid }}</div></div>
         </div>
         <div style="display:flex;gap:8px">
-          <button @click="botAction(b.key,'start')" :disabled="busy[b.key+'_start']" style="flex:1;height:36px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer" class="d2-btn-primary">{{ tr('common.start') || 'Start' }}</button>
-          <button @click="botAction(b.key,'stop')" :disabled="busy[b.key+'_stop']" style="flex:1;height:36px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('common.stop') || 'Stop' }}</button>
-          <button @click="botAction(b.key,'restart')" :disabled="busy[b.key+'_restart']" style="flex:1;height:36px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('common.restart') || 'Restart' }}</button>
+          <button @click="botAction(b.key,'start')" :disabled="busy[b.key+'_start'] || b.isRunning || !b.canRun" style="flex:1;height:36px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer" class="d2-btn-primary">{{ tr('common.start') || 'Start' }}</button>
+          <button @click="botAction(b.key,'stop')" :disabled="busy[b.key+'_stop'] || !b.isRunning" style="flex:1;height:36px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('common.stop') || 'Stop' }}</button>
+          <button @click="botAction(b.key,'restart')" :disabled="busy[b.key+'_restart'] || !b.canRun" style="flex:1;height:36px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('common.restart') || 'Restart' }}</button>
         </div>
+        <div v-if="!b.configured" style="font-size:11.5px;color:var(--amber);margin-top:9px">{{ tr('bots.configureFirst') || 'Configure this bot before starting it.' }}</div>
       </div>
     </div>
 
     <!-- ===== config + logs ===== -->
-    <div :style="{ display:'grid', gridTemplateColumns:gPair, gap:'14px', alignItems:'start' }">
+    <div class="bot-grid" style="align-items:start">
       <!-- config -->
       <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:18px 20px">
         <div style="font-weight:600;font-size:14px;margin-bottom:14px">{{ tr('bots.botConfig') || 'Bot configuration' }}</div>
         <div style="display:flex;flex-direction:column;gap:14px">
           <div>
             <label style="display:block;font-size:12.5px;font-weight:550;margin-bottom:7px">{{ tr('bots.adminBotToken') || 'Admin bot token' }}</label>
-            <input v-model="form.admin_bot_token" @focus="focused='at'" @blur="focused=''" :placeholder="cfg?.admin_bot_token_masked || tr('bots.enterAdminBotToken') || 'Enter token'" :style="inputStyle('at')" />
+            <input v-model="form.admin_bot_token" type="password" autocomplete="new-password" @focus="focused='at'" @blur="focused=''" :placeholder="cfg?.admin_bot_token_masked || tr('bots.enterAdminBotToken') || 'Enter token'" :style="inputStyle('at')" />
+            <div class="field-hint">{{ tr('bots.tokenHelp') || 'Create a bot with @BotFather, then paste its token here.' }}</div>
           </div>
           <div>
             <label style="display:block;font-size:12.5px;font-weight:550;margin-bottom:7px">{{ tr('bots.clientBotToken') || 'Client bot token' }}</label>
-            <input v-model="form.client_bot_token" @focus="focused='ct'" @blur="focused=''" :placeholder="cfg?.client_bot_token_masked || tr('bots.enterClientBotToken') || 'Enter token'" :style="inputStyle('ct')" />
+            <input v-model="form.client_bot_token" type="password" autocomplete="new-password" :disabled="cfg && !cfg.client_bot_available" @focus="focused='ct'" @blur="focused=''" :placeholder="cfg?.client_bot_token_masked || tr('bots.enterClientBotToken') || 'Enter token'" :style="inputStyle('ct')" />
           </div>
           <div>
             <label style="display:block;font-size:12.5px;font-weight:550;margin-bottom:7px">{{ tr('bots.adminAllowedUsers') || 'Admin allowed user IDs' }}</label>
             <input v-model="form.admin_allowed_users" @focus="focused='al'" @blur="focused=''" :placeholder="tr('bots.commaSeparatedIds') || 'comma-separated IDs'" :style="inputStyle('al')" />
           </div>
           <div style="display:flex;align-items:center;gap:11px">
-            <button @click="form.client_bot_enabled = !form.client_bot_enabled" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background: form.client_bot_enabled ? 'var(--accent)' : 'var(--border-strong)', transition:'background .15s', flex:'none' }"><span :style="{ position:'absolute', top:'2px', left: form.client_bot_enabled ? '18px' : '2px', width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button>
+            <button @click="form.client_bot_enabled = !form.client_bot_enabled" :disabled="cfg && !cfg.client_bot_available" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background: form.client_bot_enabled ? 'var(--accent)' : 'var(--border-strong)', transition:'background .15s', flex:'none', opacity: cfg && !cfg.client_bot_available ? .5 : 1 }"><span :style="{ position:'absolute', top:'2px', left: form.client_bot_enabled ? '18px' : '2px', width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button>
             <span style="font-size:13px;color:var(--text-2)">{{ tr('bots.clientBotEnabled') || 'Client bot enabled' }}</span>
           </div>
+          <div v-if="cfg && !cfg.client_bot_available" class="feature-note">{{ tr('bots.clientBotPaid') || 'The client self-service bot is available with Business and Enterprise.' }}</div>
           <div v-if="msg" style="color:var(--green);font-size:13px">{{ msg }}</div>
           <div v-if="err" style="color:var(--red);font-size:13px">{{ err }}</div>
           <button @click="saveConfig" :disabled="saving" style="align-self:flex-start;height:40px;padding:0 18px;border:none;background:var(--accent);color:#fff;border-radius:10px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer" class="d2-btn-primary">{{ tr('bots.saveConfiguration') || 'Save configuration' }}</button>
@@ -63,7 +65,7 @@
         <div style="display:flex;align-items:center;gap:8px;padding:16px 20px 12px;flex-wrap:wrap">
           <div style="font-weight:600;font-size:14px;flex:1">{{ tr('bots.activityLog') || 'Activity log' }}</div>
           <div style="display:flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px">
-            <button v-for="c in botLogTabs" :key="c.key" @click="logTab = c.key" :style="{ padding:'4px 11px', border:'none', borderRadius:'6px', font:'inherit', fontSize:'11px', fontWeight: logTab===c.key ? 600 : 500, cursor:'pointer', background: logTab===c.key ? 'var(--panel)' : 'transparent', color: logTab===c.key ? 'var(--text)' : 'var(--text-3)' }">{{ c.label }}</button>
+            <button v-for="c in botLogTabs" :key="c.key" @click="logTab = c.key; loadLogs()" :style="{ padding:'4px 11px', border:'none', borderRadius:'6px', font:'inherit', fontSize:'11px', fontWeight: logTab===c.key ? 600 : 500, cursor:'pointer', background: logTab===c.key ? 'var(--panel)' : 'transparent', color: logTab===c.key ? 'var(--text)' : 'var(--text-3)' }">{{ c.label }}</button>
           </div>
           <button @click="logErrorsOnly = !logErrorsOnly" :style="{ height:'30px', padding:'0 11px', border:'1px solid '+(logErrorsOnly?'var(--red-soft)':'var(--border-strong)'), background:(logErrorsOnly?'var(--red-soft)':'var(--panel)'), color:(logErrorsOnly?'var(--red)':'var(--text-2)'), borderRadius:'8px', font:'inherit', fontSize:'11.5px', fontWeight:550, cursor:'pointer' }">{{ tr('bots.errorsOnly') || 'Errors' }}</button>
           <button @click="refreshBotLogs" style="height:30px;padding:0 11px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:8px;font:inherit;font-size:11.5px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('bots.refresh') || 'Refresh' }}</button>
@@ -95,15 +97,14 @@ const adminBot = ref(null)
 const clientBot = ref(null)
 const cfg = ref(null)
 const form = ref({ admin_bot_token: '', admin_allowed_users: '', client_bot_token: '', client_bot_enabled: false })
+const original = ref({ admin_allowed_users: '', client_bot_enabled: false })
 const busy = reactive({})
 const saving = ref(false)
 const msg = ref('')
 const err = ref('')
 const focused = ref('')
-const logTab = ref('api')
+const logTab = ref('admin')
 const logErrorsOnly = ref(false)
-
-const gPair = 'minmax(0,1fr) minmax(0,1fr)'
 
 // --- his focus/input style (border+ring on focus) ---
 function inputStyle(id) {
@@ -131,8 +132,12 @@ function fmtUptime(s) {
 }
 function card(key, title, icon, bot, svc) {
   const on = !!bot?.is_running
+  const available = key !== 'client' || cfg.value?.client_bot_available !== false
   return {
     key, title, icon,
+    isRunning: on,
+    configured: !!bot?.configured,
+    canRun: available && !!bot?.configured && !!bot?.enabled,
     statusColor: on ? 'var(--green)' : 'var(--text-3)',
     statusLabel: on ? (tr('bots.running') || 'Running') : (tr('bots.stopped') || 'Stopped'),
     service: bot?.service || svc,
@@ -141,50 +146,58 @@ function card(key, title, icon, bot, svc) {
   }
 }
 const botCards = computed(() => [
-  card('admin', tr('bots.adminBot') || 'Admin bot', ICON_ADMIN, adminBot.value, 'vpn-admin-bot.service'),
-  card('client', tr('bots.clientBot') || 'Client bot', ICON_CLIENT, clientBot.value, 'vpn-client-bot.service'),
+  card('admin', tr('bots.adminBot') || 'Admin bot', ICON_ADMIN, adminBot.value, 'vpnmanager-admin-bot'),
+  card('client', tr('bots.clientBot') || 'Client bot', ICON_CLIENT, clientBot.value, 'vpnmanager-client-bot'),
 ])
 
-// --- local activity log (no bot-logs endpoint exists) ---
 const logs = ref([])
-const LVL = { info: ['var(--blue)', 'var(--blue-soft)'], ok: ['var(--green)', 'var(--green-soft)'], error: ['var(--red)', 'var(--red-soft)'] }
-function pushLog(level, msgText) {
-  const [c, bg] = LVL[level] || LVL.info
-  logs.value.unshift({ ts: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), level, levelColor: c, levelBg: bg, msg: msgText, tag: 'admin' })
-  if (logs.value.length > 200) logs.value.pop()
-}
-// his exact tabs: [['api','API'],['worker','Worker']] (handoff L3977)
+const LVL = { info: ['var(--blue)', 'var(--blue-soft)'], ok: ['var(--green)', 'var(--green-soft)'], warning: ['var(--amber)', 'var(--amber-soft)'], error: ['var(--red)', 'var(--red-soft)'] }
 const botLogTabs = computed(() => [
-  { key: 'api', label: 'API' },
-  { key: 'worker', label: 'Worker' },
+  { key: 'admin', label: tr('bots.adminBot') || 'Admin bot' },
+  { key: 'client', label: tr('bots.clientBot') || 'Client bot' },
 ])
-// map an entry's bot to his api/worker component grouping (admin→api, client→worker)
-function compOf(tag) { return tag === 'client' ? 'worker' : 'api' }
 const filteredLogs = computed(() => logs.value.filter(l => {
   if (logErrorsOnly.value && l.level !== 'error') return false
-  if (compOf(l.tag) !== logTab.value) return false
   return true
 }))
-function refreshBotLogs() { loadStatus(); loadConfig(); pushLog('info', tr('bots.refreshed') || 'Status refreshed') }
+async function refreshBotLogs() { await Promise.all([loadStatus(), loadConfig(), loadLogs()]) }
+
+async function loadLogs() {
+  try {
+    const { data } = await botsApi.getLogs(logTab.value, 120)
+    logs.value = (data.entries || []).map(entry => {
+      const [color, bg] = LVL[entry.level] || LVL.info
+      const match = entry.message.match(/^(\S+\s+\S+)/)
+      return { ts: match ? match[1] : '—', level: entry.level, levelColor: color, levelBg: bg, msg: entry.message, tag: logTab.value }
+    }).reverse()
+  } catch (e) {
+    const [color, bg] = LVL.error
+    logs.value = [{ ts: '—', level: 'error', levelColor: color, levelBg: bg, msg: e.response?.data?.detail || e.message, tag: logTab.value }]
+  }
+}
 
 async function loadStatus() {
-  try { const [a, c] = await Promise.all([botsApi.getAdminStatus(), botsApi.getClientStatus()]); adminBot.value = a.data; clientBot.value = c.data } catch (_) {}
+  try { const [a, c] = await Promise.all([botsApi.getAdminStatus(), botsApi.getClientStatus()]); adminBot.value = a.data; clientBot.value = c.data }
+  catch (e) { err.value = e.response?.data?.detail || e.message }
 }
 async function loadConfig() {
   try {
     const { data } = await botsApi.getConfig(); cfg.value = data
     form.value.admin_allowed_users = data.admin_allowed_users || ''
     form.value.client_bot_enabled = !!data.client_bot_enabled
-  } catch (_) {}
+    original.value = { admin_allowed_users: form.value.admin_allowed_users, client_bot_enabled: form.value.client_bot_enabled }
+  } catch (e) { err.value = e.response?.data?.detail || e.message }
 }
 async function botAction(bot, action) {
   const key = `${bot}_${action}`; busy[key] = true; err.value = ''; msg.value = ''
   try {
+    if ((action === 'stop' || action === 'restart') && !window.confirm(tr('bots.confirmServiceAction') || 'This may briefly interrupt bot service. Continue?')) return
     const fn = { admin_start: botsApi.startAdmin, admin_stop: botsApi.stopAdmin, admin_restart: botsApi.restartAdmin, client_start: botsApi.startClient, client_stop: botsApi.stopClient, client_restart: botsApi.restartClient }[key]
     await fn()
     await loadStatus()
     msg.value = tr('bots.actionDone') || 'Done'
     logs.value.unshift({ ts: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), level: 'ok', levelColor: LVL.ok[0], levelBg: LVL.ok[1], msg: `${bot} ${action}`, tag: bot })
+    await loadLogs()
     setTimeout(() => msg.value = '', 2500)
   } catch (e) {
     err.value = e.response?.data?.detail || e.message
@@ -194,9 +207,12 @@ async function botAction(bot, action) {
 async function saveConfig() {
   saving.value = true; err.value = ''; msg.value = ''
   try {
-    const payload = { admin_allowed_users: form.value.admin_allowed_users, client_bot_enabled: form.value.client_bot_enabled }
+    const payload = {}
+    if (form.value.admin_allowed_users !== original.value.admin_allowed_users) payload.admin_allowed_users = form.value.admin_allowed_users
+    if (cfg.value?.client_bot_available && form.value.client_bot_enabled !== original.value.client_bot_enabled) payload.client_bot_enabled = form.value.client_bot_enabled
     if (form.value.admin_bot_token) payload.admin_bot_token = form.value.admin_bot_token
-    if (form.value.client_bot_token) payload.client_bot_token = form.value.client_bot_token
+    if (cfg.value?.client_bot_available && form.value.client_bot_token) payload.client_bot_token = form.value.client_bot_token
+    if (!Object.keys(payload).length) { err.value = tr('bots.noChanges') || 'No changes to save'; return }
     await botsApi.updateConfig(payload)
     form.value.admin_bot_token = ''; form.value.client_bot_token = ''
     await loadConfig(); await loadStatus()
@@ -211,13 +227,19 @@ async function saveConfig() {
 
 onMounted(() => {
   ui.set({ title: tr('nav.bots') || 'Bots' })
-  loadStatus(); loadConfig()
+    loadStatus(); loadConfig(); loadLogs()
 })
 </script>
 
 <style scoped>
+.bot-grid { display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px; }
+.field-hint { margin-top:6px;font-size:11.5px;line-height:1.45;color:var(--text-3); }
+.feature-note { padding:10px 12px;border-radius:9px;background:var(--accent-soft);color:var(--text-2);font-size:12px;line-height:1.45; }
 .d2-btn-primary:hover { background: var(--accent-2) !important; }
 .d2-btn-primary:disabled { opacity: .6; cursor: default; }
 .d2-btn-ghost:hover { background: var(--panel-2) !important; }
 .d2-btn-ghost:disabled { opacity: .6; cursor: default; }
+@media (max-width: 820px) {
+  .bot-grid { grid-template-columns:minmax(0,1fr); }
+}
 </style>

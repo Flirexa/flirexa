@@ -4,9 +4,11 @@ Send notifications to users (Telegram) and admins (Telegram + Email)
 Uses direct Telegram Bot API calls (no bot process dependency)
 """
 
+import html
+import os
+import time
 import httpx
 from typing import Optional
-from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from loguru import logger
 
@@ -28,6 +30,7 @@ class NotificationService:
                 "client_bot_token",
                 "admin_bot_token",
                 "admin_telegram_chat_id",
+                "ADMIN_TELEGRAM_CHAT_ID",
                 "notifications_enabled",
                 "notify_admin_new_user",
                 "notify_admin_new_payment",
@@ -47,17 +50,35 @@ class NotificationService:
         try:
             url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
             with httpx.Client(timeout=10) as client:
-                resp = client.post(url, json={
+                payload = {
                     "chat_id": chat_id,
                     "text": text,
                     "parse_mode": parse_mode,
-                })
+                    "disable_web_page_preview": True,
+                }
+                resp = client.post(url, json=payload)
                 if resp.status_code == 200:
                     return True
+                # Telegram occasionally rate-limits or transiently returns 5xx.
+                # One bounded retry improves delivery without making callers hang.
+                if resp.status_code == 429 or 500 <= resp.status_code < 600:
+                    delay = 1.0
+                    if resp.status_code == 429:
+                        try:
+                            delay = min(2.0, max(0.1, float(resp.json().get("parameters", {}).get("retry_after", 1))))
+                        except (AttributeError, TypeError, ValueError):
+                            pass
+                    time.sleep(delay)
+                    resp = client.post(url, json=payload)
+                    if resp.status_code == 200:
+                        return True
                 logger.warning(f"Telegram API returned {resp.status_code}: {resp.text[:200]}")
                 return False
         except Exception as e:
-            logger.error(f"Failed to send Telegram notification: {e}")
+            # httpx exception text may include the token-bearing Telegram URL.
+            logger.error(
+                "Failed to send Telegram notification ({})", type(e).__name__
+            )
             return False
 
     # =========================================================================
@@ -69,8 +90,20 @@ class NotificationService:
         settings = self._get_settings()
         if settings.get("notifications_enabled") == "false":
             return False
-        token = settings.get("admin_bot_token") or settings.get("client_bot_token")
-        chat_id = settings.get("admin_telegram_chat_id")
+        token = (
+            os.getenv("ADMIN_BOT_TOKEN", "").strip()
+            or settings.get("admin_bot_token")
+            or os.getenv("CLIENT_BOT_TOKEN", "").strip()
+            or settings.get("client_bot_token")
+        )
+        chat_id = (
+            os.getenv("ADMIN_TELEGRAM_CHAT_ID", "").strip()
+            or settings.get("ADMIN_TELEGRAM_CHAT_ID")
+            or settings.get("admin_telegram_chat_id")
+        )
+        if not chat_id:
+            allowed = os.getenv("ADMIN_BOT_ALLOWED_USERS", "")
+            chat_id = next((part.strip() for part in allowed.split(",") if part.strip().isdigit()), "")
         if not token or not chat_id:
             return False
         return self._send_telegram(token, chat_id, text)
@@ -82,8 +115,8 @@ class NotificationService:
             return
         self.notify_admin(
             f"👤 <b>New user registered</b>\n"
-            f"Username: {username}\n"
-            f"Email: {email}"
+            f"Username: {html.escape(str(username))}\n"
+            f"Email: {html.escape(str(email))}"
         )
 
     def notify_admin_new_payment(self, username: str, amount: float, tier: str, method: str):
@@ -93,10 +126,10 @@ class NotificationService:
             return
         self.notify_admin(
             f"💰 <b>Payment received</b>\n"
-            f"User: {username}\n"
+            f"User: {html.escape(str(username))}\n"
             f"Amount: ${amount:.2f}\n"
-            f"Tier: {tier}\n"
-            f"Method: {method}"
+            f"Tier: {html.escape(str(tier))}\n"
+            f"Method: {html.escape(str(method))}"
         )
 
     def notify_admin_subscription_expired(self, username: str, tier: str):
@@ -106,8 +139,8 @@ class NotificationService:
             return
         self.notify_admin(
             f"⏰ <b>Subscription expired</b>\n"
-            f"User: {username}\n"
-            f"Tier: {tier}"
+            f"User: {html.escape(str(username))}\n"
+            f"Tier: {html.escape(str(tier))}"
         )
 
     # =========================================================================
@@ -122,7 +155,7 @@ class NotificationService:
 
     def _get_client_bot_token(self) -> Optional[str]:
         settings = self._get_settings()
-        return settings.get("client_bot_token")
+        return os.getenv("CLIENT_BOT_TOKEN", "").strip() or settings.get("client_bot_token")
 
     def notify_user(self, user_id: int, text: str) -> bool:
         """Send notification to a portal user via Telegram"""
@@ -142,7 +175,7 @@ class NotificationService:
             return
         self.notify_user(user_id,
             f"⚠️ <b>Subscription expiring</b>\n\n"
-            f"Your <b>{tier}</b> subscription expires in <b>{days_left} days</b>.\n"
+            f"Your <b>{html.escape(str(tier))}</b> subscription expires in <b>{int(days_left)} days</b>.\n"
             f"Renew now to keep your VPN access!\n\n"
             f"Use /subscribe to renew."
         )
@@ -154,7 +187,7 @@ class NotificationService:
             return
         self.notify_user(user_id,
             f"📊 <b>Traffic warning</b>\n\n"
-            f"You've used <b>{percent_used}%</b> of your traffic limit.\n"
+            f"You've used <b>{int(percent_used)}%</b> of your traffic limit.\n"
             f"{'Consider upgrading your plan.' if percent_used >= 90 else 'Monitor your usage.'}\n\n"
             f"Use /traffic to check details."
         )
@@ -193,10 +226,20 @@ class NotificationService:
         settings = self._get_settings()
         if settings.get("notify_user_payment_confirmed") == "false":
             return
+        from src.modules.subscription.subscription_models import ClientUserClients
+
+        has_device = self.db.query(ClientUserClients).filter(
+            ClientUserClients.client_user_id == user_id
+        ).first() is not None
+        next_step = (
+            "Use /config to download your VPN config."
+            if has_device
+            else "Use Add Device to choose a location and create your VPN config."
+        )
         self.notify_user(user_id,
             f"✅ <b>Payment confirmed!</b>\n\n"
-            f"Your <b>{tier}</b> subscription is now active.\n"
-            f"Duration: {days} days\n"
-            f"Expires: {expiry_date}\n\n"
-            f"Use /config to download your VPN config."
+            f"Your <b>{html.escape(str(tier))}</b> subscription is now active.\n"
+            f"Duration: {int(days)} days\n"
+            f"Expires: {html.escape(str(expiry_date))}\n\n"
+            f"{next_step}"
         )

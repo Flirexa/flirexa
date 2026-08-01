@@ -47,11 +47,14 @@ MESSAGES = {
         "/subscribe — Purchase a subscription\n\n"
         "*Other:*\n"
         "/support — Contact support\n"
+        "/tickets — Support conversations\n"
+        "/payments — Payment history\n"
+        "/notifications — Unread notifications\n"
         "/help — This help message\n\n"
         "*How to connect:*\n"
         "1. Purchase a subscription with /subscribe\n"
         "2. Select a plan and complete payment\n"
-        "3. Your config is created automatically after payment\n"
+        "3. Add a device and choose a VPN location\n"
         "4. Download your config with /config\n"
         "5. Install the recommended client app for your protocol\n"
         "6. Import or scan the configuration\n"
@@ -187,7 +190,7 @@ MESSAGES = {
 
     "subscribe_select_duration": (
         "*{plan_name}*\n\n"
-        "Price: ${price}/mo\n"
+        "Price: {price}\n"
         "Traffic: {traffic}\n"
         "Speed: {bandwidth}\n"
         "Devices: {devices}\n"
@@ -246,7 +249,7 @@ MESSAGES = {
 
     "payment_confirmed_config_ready": "Your VPN config is ready! Use /config to download it.",
 
-    "payment_confirmed_creating": "Your configuration is being created...",
+    "payment_confirmed_creating": "Your subscription is active. Use Add Device to choose a location and create your configuration.",
 
     "payment_pending": (
         "*Waiting for payment*\n\n"
@@ -267,6 +270,18 @@ MESSAGES = {
     ),
 
     "payment_not_found": "Payment not found.",
+
+    "payment_unavailable": "Payments are temporarily unavailable. Please contact support or try again later.",
+
+    "payment_provider_error": "The payment provider could not create an invoice. No charge was made. Please try again later.",
+
+    "payment_check_error": "We could not verify this payment right now. Do not pay again. Please retry the check later or contact support.",
+
+    "too_many_attempts": "Too many attempts. Please wait and try again later.",
+
+    "device_name_invalid": "Use 1-48 Latin letters, numbers, hyphens or underscores. The name must start with a letter or number.",
+
+    "action_cancelled": "Action cancelled.",
 
     # =========================================================================
     # SUPPORT
@@ -484,4 +499,36 @@ MESSAGES = {
         "Period: *{days}* days (until {date}).\n\n"
         "Download your VPN config: /config"
     ),
+    "menu_payments": "Payments",
+    "menu_tickets": "Tickets",
+    "menu_notifications": "Notices",
+    "payments_title": "<b>Payment history</b>",
+    "payments_empty": "You do not have any payments yet.",
+    "tickets_title": "*Support conversations*",
+    "tickets_empty": "You do not have any support conversations yet.",
+    "tickets_new": "New message",
+    "ticket_not_found": "This support conversation was not found or is closed.",
+    "ticket_sender_support": "Support",
+    "ticket_sender_you": "You",
+    "ticket_reply": "Reply",
+    "ticket_reply_prompt": "Write your reply for ticket #{ticket_id}:",
+    "ticket_reply_sent": "Your reply was added to ticket #{ticket_id}.",
+    "notifications_title": "*Notifications*",
+    "notifications_empty": "You have no unread notifications.",
+    "notifications_mark_all": "Mark all as read",
+    "notifications_all_read": "All notifications are marked as read.",
+    "btn_change_location": "Change location",
+    "btn_rename_device": "Rename",
+    "btn_release_device": "Release device",
+    "btn_confirm_release": "Release",
+    "device_choose_location": "*{name}*\n\nChoose the active VPN location:",
+    "device_rename_prompt": "Enter a new device name (1-64 characters):",
+    "device_label_invalid": "Use a device name between 1 and 64 characters.",
+    "device_not_found": "Device not found.",
+    "device_renamed": "Device renamed to *{name}*.",
+    "device_release_confirm": (
+        "Release this device binding? The current app will lose its exclusive "
+        "binding and another device can claim the slot on its next connection."
+    ),
+    "device_released": "Device binding released.",
 }

@@ -237,7 +237,27 @@ export const segmentsApi = {
 
 // ===== Servers =====
 export const serversApi = {
-  getAll: () => api.get('/servers'),
+  // The backend defaults to 100 rows for generic API consumers and caps one
+  // page at 500. The admin panel is the fleet view, so consume every page and
+  // never make Enterprise nodes disappear after an arbitrary row boundary.
+  getAll: async () => {
+    const pageSize = 500
+    const first = await api.get('/servers', { params: { limit: pageSize, offset: 0 } })
+    const body = first.data
+    if (!body || !Array.isArray(body.items)) return first
+
+    const items = [...body.items]
+    const total = Number(body.total) || items.length
+    let offset = items.length
+    while (offset < total) {
+      const next = await api.get('/servers', { params: { limit: pageSize, offset } })
+      const page = Array.isArray(next.data?.items) ? next.data.items : []
+      if (page.length === 0) break
+      items.push(...page)
+      offset += page.length
+    }
+    return { ...first, data: { ...body, items, limit: items.length, offset: 0 } }
+  },
   get: (id) => api.get(`/servers/${id}`),
   create: (data) => api.post('/servers', data, { timeout: 300000 }),
   update: (id, data) => api.put(`/servers/${id}`, data),
@@ -298,6 +318,7 @@ export const botsApi = {
   restartClient: () => api.post('/bots/client/restart'),
   getConfig: () => api.get('/bots/config'),
   updateConfig: (data) => api.post('/bots/config', data),
+  getLogs: (bot, limit = 100) => api.get(`/bots/${bot}/logs`, { params: { limit } }),
 }
 
 // ===== Payments =====

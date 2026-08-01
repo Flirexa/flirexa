@@ -413,6 +413,16 @@ class SystemHealthChecker:
         bots_configured = []
         bots_issues = []
 
+        admin_token = os.getenv("ADMIN_BOT_TOKEN", "").strip()
+        admin_users = os.getenv("ADMIN_BOT_ALLOWED_USERS", "").strip()
+        if admin_token:
+            if admin_users:
+                bots_configured.append("admin_bot")
+            else:
+                bots_issues.append("ADMIN_BOT_TOKEN is set but ADMIN_BOT_ALLOWED_USERS is empty")
+        elif admin_users:
+            bots_issues.append("ADMIN_BOT_ALLOWED_USERS is set but ADMIN_BOT_TOKEN is missing")
+
         client_token = os.getenv("CLIENT_BOT_TOKEN", "")
         client_enabled = os.getenv("CLIENT_BOT_ENABLED", "false").lower() == "true"
         if client_enabled:

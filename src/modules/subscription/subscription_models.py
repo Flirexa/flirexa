@@ -5,7 +5,7 @@ Database models for subscription and payment management
 
 from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, Float, Text, ForeignKey, Enum as SQLEnum, UniqueConstraint, Index, JSON
 from sqlalchemy.orm import relationship
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 import json
@@ -366,7 +366,10 @@ class ClientPortalPayment(Base):
         """Check if payment has expired"""
         if not self.expires_at:
             return False
-        return datetime.now(timezone.utc) >= self.expires_at
+        expiry = self.expires_at
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) >= expiry
 
     def set_provider_data(self, data: dict):
         """Set provider data as JSON"""

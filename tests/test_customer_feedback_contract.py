@@ -132,3 +132,25 @@ def test_branding_preview_switches_between_admin_and_customer_surfaces():
     assert "--bp-accent-fg" in preview
     assert "<iframe" not in preview
     assert "v-html" not in preview
+
+
+def test_design2_license_actions_execute_real_recovery_and_validation_flows():
+    settings = _read("src/web/frontend/src/design2/screens/D2Settings.vue")
+
+    assert 'v-model="license.replayCode"' in settings
+    assert "systemApi.replayLicense({ activation_code: activationCode })" in settings
+    assert "systemApi.triggerLicenseCheck()" in settings
+    assert "licServer.last_check !== previousCheck" in settings
+    assert "Expected briefly when an in-band licence rotation restarts services" in settings
+    assert ":disabled=\"busy.refresh || !licensed\"" in settings
+    assert "async function refetchLicense() { await loadLicense()" not in settings
+
+
+def test_admin_server_api_consumes_the_complete_paginated_fleet():
+    api = _read("src/web/frontend/src/api/index.js")
+
+    assert "getAll: async () =>" in api
+    assert "const pageSize = 500" in api
+    assert "while (offset < total)" in api
+    assert "items.push(...page)" in api
+    assert "data: { ...body, items, limit: items.length, offset: 0 }" in api

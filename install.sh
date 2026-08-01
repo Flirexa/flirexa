@@ -482,6 +482,23 @@ PY
     fi
 
     if [[ "$found" == "true" ]]; then
+        # A versioned release-layout installation must only move `current`
+        # through update_apply.sh. Copying a newer archive into INSTALL_DIR
+        # leaves the symlink on the previous release and used to end with a
+        # misleading "Installation Complete" banner naming code that was not
+        # actually running. Fail before backup, service stop, or file writes.
+        local current_runtime=""
+        if [[ -L "$INSTALL_DIR/current" ]]; then
+            current_runtime=$(readlink -f "$INSTALL_DIR/current" 2>/dev/null || true)
+        fi
+        case "$current_runtime" in
+            "$INSTALL_DIR"/releases/*)
+                log_error "This panel uses atomic release updates; install.sh is only for a fresh server."
+                log_info "Open Settings -> Updates to install a new version."
+                die "For recovery of an existing installation, contact Flirexa support instead of rerunning the installer."
+                ;;
+        esac
+
         EXISTING_INSTALL=true
         log_info "Creating backup before upgrade..."
 

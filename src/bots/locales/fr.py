@@ -43,11 +43,14 @@ MESSAGES = {
         "/subscribe — Acheter un abonnement\n\n"
         "*Autre :*\n"
         "/support — Contacter le support\n"
+        "/tickets — Demandes d'assistance\n"
+        "/payments — Historique des paiements\n"
+        "/notifications — Notifications non lues\n"
         "/help — Ce message d'aide\n\n"
         "*Comment se connecter :*\n"
         "1. Achetez un abonnement avec /subscribe\n"
         "2. Sélectionnez un plan et effectuez le paiement\n"
-        "3. Votre configuration est créée automatiquement après le paiement\n"
+        "3. Ajoutez un appareil et choisissez un emplacement VPN\n"
         "4. Téléchargez votre configuration avec /config\n"
         "5. Installez l’application recommandée pour votre protocole\n"
         "6. Importez la configuration ou scannez le QR code\n"
@@ -183,7 +186,7 @@ MESSAGES = {
 
     "subscribe_select_duration": (
         "*{plan_name}*\n\n"
-        "Prix : ${price}/mois\n"
+        "Prix : {price}\n"
         "Trafic : {traffic}\n"
         "Vitesse : {bandwidth}\n"
         "Appareils : {devices}\n"
@@ -242,7 +245,7 @@ MESSAGES = {
 
     "payment_confirmed_config_ready": "Votre configuration VPN est prête ! Utilisez /config pour la télécharger.",
 
-    "payment_confirmed_creating": "Votre configuration est en cours de création...",
+    "payment_confirmed_creating": "Votre abonnement est actif. Ajoutez un appareil, choisissez un emplacement et créez votre configuration.",
 
     "payment_pending": (
         "*En attente de paiement*\n\n"
@@ -263,6 +266,18 @@ MESSAGES = {
     ),
 
     "payment_not_found": "Paiement introuvable.",
+
+    "payment_unavailable": "Les paiements sont temporairement indisponibles. Contactez le support ou réessayez plus tard.",
+
+    "payment_provider_error": "Le prestataire de paiement n'a pas pu créer de facture. Aucun débit n'a été effectué. Réessayez plus tard.",
+
+    "payment_check_error": "Nous ne pouvons pas vérifier ce paiement pour le moment. Ne payez pas une seconde fois. Réessayez plus tard ou contactez le support.",
+
+    "too_many_attempts": "Trop de tentatives. Veuillez patienter et réessayer plus tard.",
+
+    "device_name_invalid": "Utilisez 1 à 48 lettres latines, chiffres, tirets ou traits de soulignement. Le nom doit commencer par une lettre ou un chiffre.",
+
+    "action_cancelled": "Action annulée.",
 
     # =========================================================================
     # SUPPORT
@@ -480,4 +495,21 @@ MESSAGES = {
         "Période : *{days}* jours (jusqu'au {date}).\n\n"
         "Téléchargez votre configuration VPN : /config"
     ),
+    "menu_payments": "Paiements", "menu_tickets": "Demandes", "menu_notifications": "Notifications",
+    "payments_title": "<b>Historique des paiements</b>", "payments_empty": "Vous n'avez encore aucun paiement.",
+    "tickets_title": "*Demandes d'assistance*", "tickets_empty": "Vous n'avez encore aucune demande d'assistance.",
+    "tickets_new": "Nouvelle demande", "ticket_not_found": "Cette demande est introuvable ou fermée.",
+    "ticket_sender_support": "Assistance", "ticket_sender_you": "Vous", "ticket_reply": "Répondre",
+    "ticket_reply_prompt": "Écrivez votre réponse pour la demande #{ticket_id} :",
+    "ticket_reply_sent": "Votre réponse a été ajoutée à la demande #{ticket_id}.",
+    "notifications_title": "*Notifications*", "notifications_empty": "Vous n'avez aucune notification non lue.",
+    "notifications_mark_all": "Tout marquer comme lu", "notifications_all_read": "Toutes les notifications sont marquées comme lues.",
+    "btn_change_location": "Changer de région", "btn_rename_device": "Renommer",
+    "btn_release_device": "Libérer l'appareil", "btn_confirm_release": "Libérer",
+    "device_choose_location": "*{name}*\n\nChoisissez la région VPN active :",
+    "device_rename_prompt": "Saisissez un nouveau nom (1-64 caractères) :",
+    "device_label_invalid": "Le nom doit contenir entre 1 et 64 caractères.",
+    "device_not_found": "Appareil introuvable.", "device_renamed": "Appareil renommé en *{name}*.",
+    "device_release_confirm": "Libérer l'association ? Un autre appareil pourra occuper cet emplacement.",
+    "device_released": "Association de l'appareil libérée.",
 }

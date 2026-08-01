@@ -43,11 +43,14 @@ MESSAGES = {
         "/subscribe — Abonnement kaufen\n\n"
         "*Sonstiges:*\n"
         "/support — Support kontaktieren\n"
+        "/tickets — Support-Anfragen\n"
+        "/payments — Zahlungsverlauf\n"
+        "/notifications — Ungelesene Benachrichtigungen\n"
         "/help — Diese Hilfe\n\n"
         "*So verbinden Sie sich:*\n"
         "1. Kaufen Sie ein Abonnement mit /subscribe\n"
         "2. Wählen Sie einen Plan und schließen Sie die Zahlung ab\n"
-        "3. Ihre Konfiguration wird automatisch nach der Zahlung erstellt\n"
+        "3. Fügen Sie ein Gerät hinzu und wählen Sie einen VPN-Standort\n"
         "4. Laden Sie Ihre Konfiguration mit /config herunter\n"
         "5. Installieren Sie die empfohlene App für Ihr Protokoll\n"
         "6. Importieren oder scannen Sie die Konfiguration\n"
@@ -183,7 +186,7 @@ MESSAGES = {
 
     "subscribe_select_duration": (
         "*{plan_name}*\n\n"
-        "Preis: ${price}/Mo.\n"
+        "Preis: {price}\n"
         "Traffic: {traffic}\n"
         "Geschwindigkeit: {bandwidth}\n"
         "Geräte: {devices}\n"
@@ -242,7 +245,7 @@ MESSAGES = {
 
     "payment_confirmed_config_ready": "Ihre VPN-Konfiguration ist bereit! Verwenden Sie /config zum Herunterladen.",
 
-    "payment_confirmed_creating": "Ihre Konfiguration wird erstellt...",
+    "payment_confirmed_creating": "Ihr Abonnement ist aktiv. Fügen Sie ein Gerät hinzu, wählen Sie einen Standort und erstellen Sie Ihre Konfiguration.",
 
     "payment_pending": (
         "*Warten auf Zahlung*\n\n"
@@ -263,6 +266,18 @@ MESSAGES = {
     ),
 
     "payment_not_found": "Zahlung nicht gefunden.",
+
+    "payment_unavailable": "Zahlungen sind vorübergehend nicht verfügbar. Kontaktieren Sie den Support oder versuchen Sie es später erneut.",
+
+    "payment_provider_error": "Der Zahlungsanbieter konnte keine Rechnung erstellen. Es wurde nichts belastet. Bitte versuchen Sie es später erneut.",
+
+    "payment_check_error": "Diese Zahlung konnte gerade nicht geprüft werden. Zahlen Sie nicht erneut. Prüfen Sie später noch einmal oder kontaktieren Sie den Support.",
+
+    "too_many_attempts": "Zu viele Versuche. Bitte warten Sie und versuchen Sie es später erneut.",
+
+    "device_name_invalid": "Verwenden Sie 1-48 lateinische Buchstaben, Zahlen, Bindestriche oder Unterstriche. Der Name muss mit einem Buchstaben oder einer Zahl beginnen.",
+
+    "action_cancelled": "Aktion abgebrochen.",
 
     # =========================================================================
     # SUPPORT
@@ -480,4 +495,21 @@ MESSAGES = {
         "Zeitraum: *{days}* Tage (bis {date}).\n\n"
         "Laden Sie Ihre VPN-Konfiguration herunter: /config"
     ),
+    "menu_payments": "Zahlungen", "menu_tickets": "Anfragen", "menu_notifications": "Hinweise",
+    "payments_title": "<b>Zahlungsverlauf</b>", "payments_empty": "Du hast noch keine Zahlungen.",
+    "tickets_title": "*Support-Anfragen*", "tickets_empty": "Du hast noch keine Support-Anfragen.",
+    "tickets_new": "Neue Anfrage", "ticket_not_found": "Diese Anfrage wurde nicht gefunden oder ist geschlossen.",
+    "ticket_sender_support": "Support", "ticket_sender_you": "Du", "ticket_reply": "Antworten",
+    "ticket_reply_prompt": "Schreibe deine Antwort für Anfrage #{ticket_id}:",
+    "ticket_reply_sent": "Deine Antwort wurde zu Anfrage #{ticket_id} hinzugefügt.",
+    "notifications_title": "*Benachrichtigungen*", "notifications_empty": "Keine ungelesenen Benachrichtigungen.",
+    "notifications_mark_all": "Alle als gelesen markieren", "notifications_all_read": "Alle Benachrichtigungen wurden als gelesen markiert.",
+    "btn_change_location": "Standort wechseln", "btn_rename_device": "Umbenennen",
+    "btn_release_device": "Gerät freigeben", "btn_confirm_release": "Freigeben",
+    "device_choose_location": "*{name}*\n\nWähle den aktiven VPN-Standort:",
+    "device_rename_prompt": "Gib einen neuen Gerätenamen ein (1-64 Zeichen):",
+    "device_label_invalid": "Der Gerätename muss 1 bis 64 Zeichen lang sein.",
+    "device_not_found": "Gerät nicht gefunden.", "device_renamed": "Gerät wurde in *{name}* umbenannt.",
+    "device_release_confirm": "Gerätebindung freigeben? Danach kann ein anderes Gerät diesen Platz übernehmen.",
+    "device_released": "Gerätebindung wurde freigegeben.",
 }

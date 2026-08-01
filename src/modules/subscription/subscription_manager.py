@@ -13,7 +13,7 @@ import logging
 
 from src.modules.subscription.subscription_models import (
     ClientUser, ClientPortalSubscription, ClientPortalPayment, SubscriptionPlan,
-    SubscriptionTier, SubscriptionStatus, PaymentMethod, ClientUserClients
+    SubscriptionStatus, PaymentMethod, ClientUserClients
 )
 
 # Client model import — only needed for legacy direct-DB operations (admin bot).
@@ -730,6 +730,22 @@ class SubscriptionManager:
             logger.info(f"Payment {invoice_id} already completed, skipping")
             return True
 
+        # A provider-paid invoice must never be marked completed unless its
+        # purchased tier can actually be materialised. Keeping it pending makes
+        # the settlement safely retryable after the operator repairs the plan
+        # catalogue instead of recording revenue with no entitlement.
+        if (
+            payment.subscription_tier
+            and payment.subscription_tier.strip().lower() != "free"
+            and not self.get_plan_by_tier(payment.subscription_tier)
+        ):
+            logger.error(
+                "[PAY:%s] refusing completion: plan not found for tier %s",
+                invoice_id,
+                payment.subscription_tier,
+            )
+            return False
+
         payment.status = "completed"
         payment.completed_at = datetime.now(timezone.utc)
         if tx_hash:
@@ -809,12 +825,22 @@ class SubscriptionManager:
                 )
                 if tracer:
                     tracer.step("create_paid_sub", status="error", detail={"error": str(_sub_err)})
+                self.db.rollback()
+                return False
         if subscription and payment.subscription_tier and not just_created_paid:
-            self.upgrade_subscription(
+            upgraded, upgrade_error = self.upgrade_subscription(
                 payment.user_id,
                 payment.subscription_tier,
                 payment.duration_days or 30
             )
+            if not upgraded or upgrade_error:
+                logger.error(
+                    "[PAY:%s] subscription activation failed: %s",
+                    invoice_id,
+                    upgrade_error or "unknown error",
+                )
+                self.db.rollback()
+                return False
 
         self.db.commit()
 
@@ -855,7 +881,6 @@ class SubscriptionManager:
                 if first_paid == 1:  # This is the first one (just completed)
                     referrer_sub = self.get_subscription(user.referred_by_id)
                     if referrer_sub and referrer_sub.expiry_date and referrer_sub.status == SubscriptionStatus.ACTIVE:
-                        from datetime import timedelta
                         expiry = referrer_sub.expiry_date
                         if expiry.tzinfo is None:
                             expiry = expiry.replace(tzinfo=timezone.utc)
@@ -1213,7 +1238,6 @@ class SubscriptionManager:
             ClientPortalSubscription.user_id.in_(traffic_by_user.keys()),
         ).all()
 
-        from datetime import timedelta
         updated = 0
         for sub in subs:
             total_rx, total_tx = traffic_by_user.get(sub.user_id, (0, 0))
