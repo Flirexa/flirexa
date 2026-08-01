@@ -57,12 +57,12 @@ def test_runtime_lock_input_excludes_development_tools():
 
 
 def test_seller_runtime_lock_excludes_development_tools():
-    seller_runtime = (
-        ROOT / "license_server" / "requirements.txt"
-    ).read_text(encoding="utf-8")
-    seller_lock = (
-        ROOT / "license_server" / "requirements.lock"
-    ).read_text(encoding="utf-8")
+    seller_runtime_path = ROOT / "license_server" / "requirements.txt"
+    seller_lock_path = ROOT / "license_server" / "requirements.lock"
+    if not seller_runtime_path.exists() or not seller_lock_path.exists():
+        pytest.skip("seller runtime is intentionally absent from open core")
+    seller_runtime = seller_runtime_path.read_text(encoding="utf-8")
+    seller_lock = seller_lock_path.read_text(encoding="utf-8")
 
     for package in (
         "pytest",

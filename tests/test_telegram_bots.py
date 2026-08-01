@@ -22,6 +22,12 @@ from src.modules.subscription.subscription_models import (
 from src.database.models import Client, PushNotification, Server
 
 
+pytestmark = pytest.mark.skipif(
+    bool(getattr(client_bot_module, "FLIREXA_COMMERCIAL_STUB", False)),
+    reason="commercial client Telegram implementation is absent from open core",
+)
+
+
 FAKE_BOT_TOKEN = "123456789" + ":" + ("a" * 35)
 ALT_FAKE_BOT_TOKEN = "987654321" + ":" + ("B" * 35)
 
