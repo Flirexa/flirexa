@@ -217,6 +217,25 @@ class TestClientManager:
         assert c2 is not None
         assert c1.ip_index != c2.ip_index
 
+    def test_ip_allocator_respects_ipv4_when_legacy_ip_index_is_stale(
+        self, db_session, sample_server, mock_wg_manager
+    ):
+        """The real address is occupied even when imported metadata lies."""
+        legacy = Client(
+            name="LegacyAddress",
+            server_id=sample_server.id,
+            public_key="LegacyPublicKeyBase64XXXXXXXXXXXXXXXXXXXXXX=",
+            private_key="LegacyPrivateKeyBase64XXXXXXXXXXXXXXXXXXXXX=",
+            ip_index=99,
+            ipv4="10.66.66.2/32",
+            enabled=True,
+        )
+        db_session.add(legacy)
+        db_session.commit()
+
+        cm = self._make_cm(db_session, mock_wg_manager)
+        assert cm._get_next_available_ip(sample_server.id, sample_server.address_pool_ipv4) == 3
+
 
 # ============================================================================
 # SERVER MANAGER TESTS

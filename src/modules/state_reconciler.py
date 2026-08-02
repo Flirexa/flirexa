@@ -415,7 +415,24 @@ def reconcile_server(server: Server, db: Session) -> Dict[str, Any]:
                 result["drift_detected"] = True
                 logger.warning(f"[RECONCILE] {server.name}: failed to re-add peer {client.name} → DRIFTED")
 
-    # ── 4. Update DB state ───────────────────────────────────────────────────
+    # ── 4. Address-integrity guard ───────────────────────────────────────────
+    # Duplicate AllowedIPs on one interface make clients kick each other off
+    # and look like random Android disconnects. Detect and surface the drift,
+    # but never renumber customers automatically (their downloaded configs
+    # must be updated together with the live peer).
+    try:
+        from .client_address_integrity import audit_server_client_addresses
+
+        address_audit = audit_server_client_addresses(db, server.id)
+        for issue in address_audit["issues"]:
+            code = issue.get("code", "unknown")
+            result["issues"].append(f"client_address_integrity:{code}")
+        if address_audit["issues"]:
+            result["drift_detected"] = True
+    except Exception as exc:
+        logger.warning(f"[RECONCILE] {server.name}: address-integrity audit failed: {exc}")
+
+    # ── 5. Update DB state ───────────────────────────────────────────────────
     _apply_drift_result(server, result, now, db)
     return result
 

@@ -20,6 +20,18 @@ def test_design2_server_cards_consume_the_server_clients_envelope():
     assert "c.traffic_used_rx" in source
 
 
+def test_design2_server_migration_and_key_export_keep_legacy_safety_contract():
+    source = _read("src/web/frontend/src/design2/screens/D2Servers.vue")
+    assert "s.agent_mode !== 'mikrotik'" in source
+    assert "kp.data.awg_params" in source
+    assert "copyText(kp.data.private_key)" in source
+    assert "x.public_key === mig.source.public_key" in source
+    assert "sync_to_remote: mig.syncRemote" in source
+    assert "remove_from_old: mig.keepSource ? false : mig.removeSource" in source
+    assert "keep_on_source: mig.keepSource" in source
+    assert "payload.client_ids" in source
+
+
 def test_design2_add_server_cards_keep_dark_theme_text_color():
     source = _read("src/web/frontend/src/design2/screens/D2Servers.vue")
     card_style = source[source.index("function cardStyle"):source.index("function setCategory")]

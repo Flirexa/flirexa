@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_, or_
+from sqlalchemy import select, update, delete, and_, or_, text
 from loguru import logger
 
 from ..database.models import Client, Server, ClientStatus
@@ -866,10 +866,43 @@ class ClientManager:
             logger.error(f"Invalid address_pool_ipv4 on server {server_id}: {address_pool}")
             return None
 
-        used_ips = self.db.query(Client.ip_index).filter(
+        # Every creation path (admin UI, portal/device slots, payment
+        # provisioning and bot) funnels through this allocator. Serialize the
+        # check-and-reserve window per server on PostgreSQL; otherwise two API
+        # workers can both observe offset N as free and mint the same address.
+        # The xact lock is held until the caller commits/rolls back.
+        bind = self.db.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            self.db.execute(
+                text("SELECT pg_advisory_xact_lock(:namespace, :server_id)"),
+                {"namespace": 0x464C4950, "server_id": int(server_id)},
+            )
+
+        used_rows = self.db.query(Client.ip_index, Client.ipv4).filter(
             Client.server_id == server_id
         ).all()
-        used_set = {ip[0] for ip in used_ips if ip[0] is not None}
+        used_set = {row.ip_index for row in used_rows if row.ip_index is not None}
+
+        # Imported/legacy rows can have a NULL or stale ip_index even though
+        # ipv4 is valid. Trusting only ip_index was the manual-client vs portal
+        # collision reported by a paid operator: the allocator reused an
+        # address already present in the DB. Derive occupancy from BOTH fields.
+        network_int = int(net.network_address)
+        for row in used_rows:
+            raw = (row.ipv4 or "").split("/", 1)[0].strip()
+            if not raw:
+                continue
+            try:
+                addr = _ipaddress.IPv4Address(raw)
+            except _ipaddress.AddressValueError:
+                logger.warning(
+                    "Client address allocator ignored invalid IPv4 {!r} on server {}",
+                    row.ipv4,
+                    server_id,
+                )
+                continue
+            if addr in net:
+                used_set.add(int(addr) - network_int)
 
         from ..modules.remote_client_adapter import get_live_peer_ip_offsets
 

@@ -4,6 +4,29 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.87 — 2026-08-03
+
+### Added
+
+- Added a read-only `vpnmanager clients audit-addresses` diagnostic, including
+  server filtering and JSON output, for detecting duplicate, invalid,
+  out-of-pool, or inconsistent client addresses
+- Restored IPv4 pool and public-key details in the current Servers interface,
+  together with audited WireGuard/AmneziaWG keypair export
+- Added safe client migration controls with protocol and public-key
+  compatibility checks, optional canary selection, remote synchronization,
+  and explicit source-retention behavior
+
+### Fixed
+
+- Serialized per-server address allocation on PostgreSQL and now derives
+  occupied addresses from both stored indexes and real IPv4 values, preventing
+  concurrent or legacy/manual records from receiving duplicate AllowedIPs
+- Server reconciliation now reports address-integrity drift instead of leaving
+  duplicate client routes to appear as intermittent VPN disconnections
+
+---
+
 ## v2.2.86 — 2026-08-01
 
 ### Added

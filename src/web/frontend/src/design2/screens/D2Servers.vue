@@ -207,8 +207,16 @@
       <div v-if="kp.loading" style="color:var(--text-3);text-align:center;padding:16px">{{ tr('common.loading') || 'Loading…' }}</div>
       <div v-else style="display:flex;flex-direction:column;gap:14px">
         <div style="display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border:1px solid var(--red-soft);background:var(--red-soft);border-radius:10px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="1.8" style="margin-top:1px;flex:none"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 018 0v3"></path></svg><span style="font-size:12px;color:var(--text-2);line-height:1.45">{{ tr('servers.keypairWarn') || 'The private key is secret. Anyone with it can impersonate this server.' }}</span></div>
-        <div class="d2-field"><label class="d2-flabel">{{ tr('servers.privateKey') || 'Private key' }}</label><input class="mono d2f-input" :value="kp.data.private_key" readonly @focus="$event.target.select()" /></div>
-        <div class="d2-field"><label class="d2-flabel">{{ tr('servers.publicKey') || 'Public key' }}</label><input class="mono d2f-input" :value="kp.data.public_key" readonly @focus="$event.target.select()" /></div>
+        <div class="d2-field"><label class="d2-flabel">{{ tr('servers.privateKey') || 'Private key' }}</label><div class="d2-copyrow"><input class="mono d2f-input" :value="kp.data.private_key" readonly @focus="$event.target.select()" /><button type="button" class="d2-copybtn" @click="copyText(kp.data.private_key)"><Icon name="copy" :size="15" />{{ tr('common.copy') || 'Copy' }}</button></div></div>
+        <div class="d2-field"><label class="d2-flabel">{{ tr('servers.publicKey') || 'Public key' }}</label><div class="d2-copyrow"><input class="mono d2f-input" :value="kp.data.public_key" readonly @focus="$event.target.select()" /><button type="button" class="d2-copybtn" @click="copyText(kp.data.public_key)"><Icon name="copy" :size="15" />{{ tr('common.copy') || 'Copy' }}</button></div></div>
+        <div class="d2-kpmeta">
+          <div><span>{{ tr('servers.interface') || 'Interface' }}</span><code>{{ kp.data.interface || '—' }}</code></div>
+          <div><span>{{ tr('servers.listenPort') || 'Port' }}</span><code>{{ kp.data.listen_port || '—' }}</code></div>
+          <div><span>{{ tr('servers.endpoint') || 'Endpoint' }}</span><code>{{ kp.data.endpoint || '—' }}</code></div>
+          <div><span>{{ tr('servers.addressPool') || 'Address pool' }}</span><code>{{ kp.data.address_pool_ipv4 || '—' }}</code></div>
+        </div>
+        <div v-if="kp.data.awg_params" class="d2-field"><label class="d2-flabel">AmneziaWG parameters</label><pre class="mono d2-kpparams">{{ formatAwgParams(kp.data.awg_params) }}</pre></div>
+        <div style="font-size:11.5px;color:var(--text-3);line-height:1.5">{{ tr('servers.keypairUseHintBody') || 'When replacing or migrating a server, create the destination with this private key. Existing client configs will then recognise the same server identity.' }}</div>
       </div>
       <template #footer><D2Button variant="secondary" @click="kp.show = false">{{ tr('common.close') || 'Close' }}</D2Button></template>
     </D2Modal>
@@ -224,14 +232,28 @@
       <template #footer><D2Button variant="secondary" @click="ep.show = false">{{ tr('common.cancel') || 'Cancel' }}</D2Button><D2Button :loading="ep.busy" :disabled="!ep.cidr.trim()" @click="doExpandPool">{{ tr('servers.apply') || 'Apply' }}</D2Button></template>
     </D2Modal>
 
-    <D2Modal :open="mig.show" :title="tr('servers.migrateClients') || 'Migrate clients'" size="sm" @close="mig.show = false">
+    <D2Modal :open="mig.show" :title="tr('servers.migrateClients') || 'Migrate clients'" size="lg" @close="mig.show = false">
       <div style="display:flex;flex-direction:column;gap:12px">
-        <div class="d2-2col"><div class="d2-field"><label class="d2-flabel">{{ tr('servers.migrateFrom') || 'From' }}</label><div style="height:40px;border:1px solid var(--border);background:var(--panel-2);border-radius:10px;padding:0 12px;display:flex;align-items:center;font-size:13px;color:var(--text-2)">{{ mig.source?.name }}</div></div><D2Select v-model="mig.targetId" numeric :label="tr('servers.migrateTo') || 'Target server'" :options="migrateTargets" /></div>
-        <D2Toggle v-model="mig.pushConfigs">{{ tr('servers.migratePush') || 'Push updated configs to devices' }}</D2Toggle>
-        <D2Toggle v-model="mig.removeSource">{{ tr('servers.migrateRemove') || 'Remove peers from source' }}</D2Toggle>
+        <div style="font-size:12px;color:var(--text-3);line-height:1.5">{{ tr('servers.migrateClientsHint') || 'Move clients to a server with the same protocol and keypair so their existing configs keep working.' }}</div>
+        <div class="d2-2col"><div class="d2-field"><label class="d2-flabel">{{ tr('servers.migrateFrom') || 'From' }}</label><div style="min-height:40px;border:1px solid var(--border);background:var(--panel-2);border-radius:10px;padding:0 12px;display:flex;align-items:center;font-size:13px;color:var(--text-2)">{{ mig.source?.display_name || mig.source?.name }}</div></div><D2Select v-model="mig.targetId" numeric :label="tr('servers.migrateTo') || 'Target server'" :placeholder="tr('servers.selectTarget') || 'Select a compatible server'" :options="migrateTargets" /></div>
+        <div v-if="!migrateTargets.length" style="padding:10px 12px;border-radius:9px;background:var(--amber-soft);color:var(--text-2);font-size:12px;line-height:1.5">{{ migrateProtocolTargets.length ? (tr('servers.migrateNoKeypairMatch') || 'No target has the same keypair. Create the replacement server with Add server → Reuse private key, using Export keypair from the source.') : (tr('servers.migrateNoTargets') || 'No other server with the same protocol is available.') }}</div>
+        <D2Toggle v-model="mig.syncRemote">{{ tr('servers.migrateSyncRemote') || 'Push peers to the destination server' }}</D2Toggle>
+        <D2Toggle :model-value="mig.keepSource" @update:model-value="setKeepSource">{{ tr('servers.migrateKeepOnSource') || 'Keep clients active on the source during cutover' }}</D2Toggle>
+        <D2Toggle v-if="!mig.keepSource" v-model="mig.removeSource">{{ tr('servers.migrateRemoveOld') || 'Remove peers from the source server' }}</D2Toggle>
+        <div v-else style="font-size:11.5px;color:var(--text-3);padding-left:48px">{{ tr('servers.migrateKeepOnSourceHint') || 'Both endpoints remain active during DNS propagation. Run a normal migration later to complete the move.' }}</div>
+
+        <div class="d2-migclients">
+          <div class="d2-mighead"><div><div style="font-size:13px;font-weight:650">{{ tr('servers.migrateClientsToPick') || 'Clients to migrate' }}</div><div style="font-size:11px;color:var(--text-3);margin-top:2px">{{ mig.selectedIds.length }} / {{ mig.clients.length }}</div></div><div style="display:flex;gap:6px"><button type="button" class="d2-mini" @click="selectAllMigrationClients">{{ tr('servers.migrateSelectAll') || 'All' }}</button><button type="button" class="d2-mini" @click="mig.selectedIds = []">{{ tr('servers.migrateSelectNone') || 'None' }}</button></div></div>
+          <input v-if="mig.clients.length" v-model="mig.filter" class="d2f-input" type="search" :placeholder="tr('servers.migrateFilterPlaceholder') || 'Filter by name, IP or ID'" />
+          <div v-if="mig.loadingClients" style="padding:18px;text-align:center;color:var(--text-3);font-size:12px">{{ tr('common.loading') || 'Loading…' }}</div>
+          <div v-else-if="!mig.clients.length" style="padding:18px;text-align:center;color:var(--text-3);font-size:12px">{{ tr('servers.migrateNoClients') || 'No clients on this server' }}</div>
+          <div v-else class="d2-miglist">
+            <label v-for="c in filteredMigrationClients" :key="c.id" class="d2-migrow"><input type="checkbox" :checked="mig.selectedIds.includes(c.id)" @change="toggleMigrationClient(c.id)" /><span style="flex:1;min-width:0"><strong>{{ c.name }}</strong><small class="mono">{{ c.ipv4 || '—' }} · #{{ c.id }}</small></span></label>
+          </div>
+        </div>
         <div v-if="mig.result" class="d2-progress">{{ mig.result.message || 'Migrated' }}</div><div v-if="mig.error" style="color:var(--red);font-size:13px">{{ mig.error }}</div>
       </div>
-      <template #footer><D2Button variant="secondary" @click="mig.show = false">{{ tr('common.cancel') || 'Cancel' }}</D2Button><D2Button :loading="mig.busy" :disabled="!mig.targetId" @click="doMigrate">{{ tr('servers.migrate') || 'Migrate' }}</D2Button></template>
+      <template #footer><D2Button variant="secondary" @click="mig.show = false">{{ tr('common.cancel') || 'Cancel' }}</D2Button><D2Button :loading="mig.busy" :disabled="!mig.targetId || migrationSelectionMode === 'none' || mig.loadingClients" @click="doMigrate">{{ migrationSelectionMode === 'subset' ? (tr('servers.migrateSelected') || 'Migrate selected') : (tr('servers.migrate') || 'Migrate') }}</D2Button></template>
     </D2Modal>
 
     <D2Modal :open="bw.show" :title="tr('servers.bandwidthLimit') || 'Bandwidth limit'" size="sm" @close="bw.show = false">
@@ -377,7 +399,7 @@ function menuItems(s) {
   items.push({ icon: 'pin', label: s.force_visible ? (tr('servers.disableForceVisible') || 'Unpin') : (tr('servers.enableForceVisible') || 'Pin visible'), onClick: () => toggleForceVisible(s) })
   items.push({ divider: true })
   if (!proxy && s.agent_mode !== 'mikrotik') items.push({ icon: 'layers', label: tr('servers.expandPool') || 'Expand pool', onClick: () => openExpandPool(s) })
-  if (!proxy && s.server_type !== 'amneziawg') items.push({ icon: 'key', label: tr('servers.exportKeypair') || 'Export keypair', onClick: () => openKeypair(s) })
+  if (!proxy && s.agent_mode !== 'mikrotik') items.push({ icon: 'key', label: tr('servers.exportKeypair') || 'Export keypair', onClick: () => openKeypair(s) })
   if (s.server_type === 'amneziawg') items.push({ icon: 'shuffle', label: tr('servers.obfsSettings') || 'Obfuscation', onClick: () => openObfs(s) })
   if (!proxy) items.push({ icon: 'migrate', label: tr('servers.migrateClients') || 'Migrate clients', onClick: () => openMigrate(s) })
   items.push({ divider: true })
@@ -681,6 +703,7 @@ async function doDiscover() { disc.busy = true; disc.error = ''; disc.result = '
 // keypair
 const kp = reactive({ show: false, loading: false, name: '', data: {} })
 async function openKeypair(s) { kp.data = {}; kp.name = s.display_name || s.name; kp.loading = true; kp.show = true; try { const { data } = await serversApi.getKeypair(s.id); kp.data = data } catch (e) { alert(e.response?.data?.detail || 'Error'); kp.show = false } finally { kp.loading = false } }
+function formatAwgParams(params) { return ['jc','jmin','jmax','s1','s2','h1','h2','h3','h4','mtu'].filter(k => params?.[k] != null).map(k => `${k.padEnd(5)} = ${params[k]}`).join('\n') }
 
 // expand pool
 const ep = reactive({ show: false, busy: false, server: null, cidr: '', current: '', result: '', error: '' })
@@ -688,10 +711,34 @@ function openExpandPool(s) { ep.server = s; ep.cidr = ''; ep.current = s.address
 async function doExpandPool() { ep.busy = true; ep.error = ''; ep.result = ''; try { const { data } = await serversApi.expandPool(ep.server.id, ep.cidr.trim()); ep.result = data.message || 'Expanded'; await store.fetchServers() } catch (e) { ep.error = e.response?.data?.detail || e.message } finally { ep.busy = false } }
 
 // migrate
-const mig = reactive({ show: false, busy: false, source: null, targetId: null, pushConfigs: true, removeSource: true, result: null, error: '' })
-const migrateTargets = computed(() => store.servers.filter(x => mig.source && x.id !== mig.source.id && x.server_category !== 'proxy').map(x => ({ value: x.id, label: x.display_name || x.name })))
-function openMigrate(s) { mig.source = s; mig.targetId = null; mig.pushConfigs = true; mig.removeSource = true; mig.result = null; mig.error = ''; mig.show = true }
-async function doMigrate() { mig.busy = true; mig.error = ''; try { const { data } = await serversApi.migrateClients(mig.source.id, { target_server_id: mig.targetId, push_configs: mig.pushConfigs, remove_from_source: mig.removeSource }); mig.result = data; await store.fetchServers() } catch (e) { mig.error = e.response?.data?.detail || e.message } finally { mig.busy = false } }
+const mig = reactive({ show: false, busy: false, loadingClients: false, source: null, targetId: null, syncRemote: true, removeSource: true, keepSource: false, clients: [], selectedIds: [], filter: '', result: null, error: '' })
+const migrateProtocolTargets = computed(() => {
+  if (!mig.source) return []
+  const sourceType = mig.source.server_type || 'wireguard'
+  return store.servers.filter(x => x.id !== mig.source.id && x.server_category !== 'proxy' && (x.server_type || 'wireguard') === sourceType)
+})
+const migrateTargets = computed(() => migrateProtocolTargets.value.filter(x => !!mig.source?.public_key && x.public_key === mig.source.public_key).map(x => ({ value: x.id, label: x.display_name || x.name })))
+const filteredMigrationClients = computed(() => { const q = mig.filter.trim().toLowerCase(); return q ? mig.clients.filter(c => (c.name || '').toLowerCase().includes(q) || (c.ipv4 || '').toLowerCase().includes(q) || String(c.id).includes(q)) : mig.clients })
+const migrationSelectionMode = computed(() => !mig.clients.length || !mig.selectedIds.length ? 'none' : (mig.selectedIds.length === mig.clients.length ? 'all' : 'subset'))
+async function openMigrate(s) {
+  Object.assign(mig, { source: s, targetId: null, syncRemote: true, removeSource: true, keepSource: false, clients: [], selectedIds: [], filter: '', result: null, error: '', loadingClients: true, show: true })
+  try { const { data } = await serversApi.getClients(s.id); mig.clients = serverClientsFromResponse(data); mig.selectedIds = mig.clients.map(c => c.id) }
+  catch (e) { mig.error = e.response?.data?.detail || e.message || 'Failed to load clients' }
+  finally { mig.loadingClients = false }
+}
+function setKeepSource(value) { mig.keepSource = value; if (value) mig.removeSource = false }
+function toggleMigrationClient(id) { mig.selectedIds = mig.selectedIds.includes(id) ? mig.selectedIds.filter(x => x !== id) : [...mig.selectedIds, id] }
+function selectAllMigrationClients() { mig.selectedIds = mig.clients.map(c => c.id) }
+async function doMigrate() {
+  if (!mig.source || !mig.targetId || migrationSelectionMode.value === 'none') return
+  mig.busy = true; mig.error = ''
+  try {
+    const payload = { target_server_id: mig.targetId, sync_to_remote: mig.syncRemote, remove_from_old: mig.keepSource ? false : mig.removeSource, keep_on_source: mig.keepSource }
+    if (migrationSelectionMode.value === 'subset') payload.client_ids = [...mig.selectedIds]
+    const { data } = await serversApi.migrateClients(mig.source.id, payload); mig.result = data; await store.fetchServers()
+  } catch (e) { mig.error = typeof e.response?.data?.detail === 'string' ? e.response.data.detail : (e.response?.data?.detail?.message || e.message) }
+  finally { mig.busy = false }
+}
 
 // bandwidth
 const bw = reactive({ show: false, busy: false, server: null, limit: 0 })
@@ -792,4 +839,19 @@ onUnmounted(() => document.removeEventListener('click', onDoc))
 .d2f-input { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text); font-family: inherit; font-size: 14px; }
 .d2f-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .d2f-input.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.d2-copyrow { display:flex; gap:8px; }
+.d2-copyrow .d2f-input { min-width:0; }
+.d2-copybtn,.d2-mini { display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;padding:0 11px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap; }
+.d2-kpmeta { display:grid;grid-template-columns:1fr 1fr;gap:8px; }
+.d2-kpmeta>div { display:flex;flex-direction:column;gap:3px;padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);min-width:0; }
+.d2-kpmeta span { font-size:10.5px;color:var(--text-3); }
+.d2-kpmeta code { font-size:11.5px;color:var(--text-2);word-break:break-all; }
+.d2-kpparams { margin:0;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--panel-2);font-size:11.5px;line-height:1.55;color:var(--text-2);white-space:pre-wrap; }
+.d2-migclients { border:1px solid var(--border);border-radius:11px;padding:11px;display:flex;flex-direction:column;gap:9px;background:var(--panel-2); }
+.d2-mighead { display:flex;align-items:center;justify-content:space-between;gap:10px; }
+.d2-mini { height:29px;background:var(--panel); }
+.d2-miglist { max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:9px;background:var(--panel); }
+.d2-migrow { display:flex;align-items:center;gap:10px;padding:9px 10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12.5px; }
+.d2-migrow:last-child { border-bottom:0; }
+.d2-migrow small { display:block;color:var(--text-3);font-size:10.5px;margin-top:2px; }
 </style>

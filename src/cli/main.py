@@ -138,6 +138,14 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--from-dir", help="directory containing the restore archive")
     restore.add_argument("--yes", action="store_true", help="confirm destructive restore")
     restore.add_argument("--json", action="store_true", help="machine-readable JSON output")
+
+    clients_parser = subparsers.add_parser("clients", help="client integrity operations")
+    clients_subparsers = clients_parser.add_subparsers(dest="clients_command", required=True)
+    address_audit = clients_subparsers.add_parser(
+        "audit-addresses", help="detect duplicate or inconsistent VPN client addresses"
+    )
+    address_audit.add_argument("--server-id", type=int, help="audit one server only")
+    address_audit.add_argument("--json", action="store_true", help="machine-readable JSON output")
     return parser
 
 
@@ -244,6 +252,32 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(render_restore_result(result))
         return 0 if result.success else 1
+
+    if args.command == "clients" and args.clients_command == "audit-addresses":
+        from src.database.connection import get_db_context
+        from src.modules.client_address_integrity import audit_all_client_addresses
+
+        with get_db_context() as db:
+            payload = audit_all_client_addresses(db, server_id=getattr(args, "server_id", None))
+        if json_output or getattr(args, "json", False):
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            result = "SUCCESS" if payload["success"] else "DEGRADED"
+            print(
+                f"RESULT: {result}\n"
+                f"Action: client address audit\n"
+                f"Servers checked: {payload['servers_checked']}\n"
+                f"Clients checked: {payload['clients_checked']}\n"
+                f"Issues: {payload['issue_count']}"
+            )
+            for report in payload["servers"]:
+                for issue in report["issues"]:
+                    print(
+                        f"- server={report['server_id']} "
+                        f"code={issue.get('code')} "
+                        f"clients={issue.get('client_ids', '-')}"
+                    )
+        return 0 if payload["success"] else 2
 
     if args.command == "services" and args.services_command == "restart":
         scope = "all"
