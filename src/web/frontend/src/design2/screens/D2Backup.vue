@@ -14,14 +14,14 @@
         <div style="font-size:24px;font-weight:680;margin-top:7px">{{ backupCount }}</div>
       </div>
       <div style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:16px 18px">
-        <div style="font-size:12.5px;color:var(--text-2)">{{ tr('backup.storageLocal') || 'Local' }}</div>
+        <div style="font-size:12.5px;color:var(--text-2)">{{ storageTypeLabel }}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
           <div style="flex:1;height:6px;border-radius:4px;background:var(--panel-3);overflow:hidden"><div :style="{ height:'100%', borderRadius:'4px', background:'var(--accent)', width:storagePct }"></div></div>
-          <span class="mono" style="font-size:11.5px;color:var(--text-3)">{{ storageUsed }}</span>
+          <span class="mono" style="font-size:11.5px;color:var(--text-3)">{{ storageUsed }} / {{ storageTotal }}</span>
         </div>
       </div>
       <div style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:16px 18px">
-        <div style="font-size:12.5px;color:var(--text-2)">{{ tr('backup.mounted') || 'Mounted' }}</div>
+        <div style="font-size:12.5px;color:var(--text-2)">{{ tr('backup.storageStatus') || 'Storage status' }}</div>
         <div style="display:flex;align-items:center;gap:7px;margin-top:10px">
           <span :style="{ width:'9px', height:'9px', borderRadius:'50%', background:storageMountColor }"></span>
           <span style="font-size:14px;font-weight:600">{{ storageMountLabel }}</span>
@@ -79,21 +79,32 @@
           <div style="display:flex;flex-direction:column;gap:13px">
             <div>
               <label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('backup.frequency') || 'Frequency' }}</label>
-              <select v-model="backupSettings.schedule" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 11px;font:inherit;font-size:13px;outline:none;cursor:pointer">
-                <option value="daily">{{ tr('backup.daily') || 'Daily' }}</option>
-                <option value="weekly">{{ tr('backup.weekly') || 'Weekly' }}</option>
-                <option value="off">{{ tr('backup.off') || 'Off' }}</option>
+              <select v-model="backupSettings.backup_interval_hours" :disabled="backupSettings.backup_enabled !== 'true'" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 11px;font:inherit;font-size:13px;outline:none;cursor:pointer">
+                <option value="6">{{ tr('backup.every6h') || 'Every 6 hours' }}</option>
+                <option value="12">{{ tr('backup.every12h') || 'Every 12 hours' }}</option>
+                <option value="24">{{ tr('backup.every24h') || 'Daily' }}</option>
+                <option value="48">{{ tr('backup.every48h') || 'Every 2 days' }}</option>
+                <option value="168">{{ tr('backup.weekly') || 'Weekly' }}</option>
               </select>
             </div>
             <div style="display:flex;gap:11px">
               <div style="flex:1">
-                <label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('backup.time') || 'Time' }}</label>
-                <input v-model="backupSettings.time" class="mono d2-in" style="height:40px;font-size:13px" />
+                <label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('backup.timeUtc') || 'Time (UTC)' }}</label>
+                <select v-model="backupSettings.backup_hour_utc" :disabled="backupSettings.backup_enabled !== 'true'" class="mono d2-in" style="height:40px;font-size:13px">
+                  <option v-for="hour in 24" :key="hour - 1" :value="String(hour - 1)">{{ String(hour - 1).padStart(2, '0') }}:00</option>
+                </select>
               </div>
               <div style="flex:1">
                 <label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('backup.keep') || 'Keep copies' }}</label>
-                <input v-model="backupSettings.keep" inputmode="numeric" class="mono d2-in" style="height:40px;font-size:13px" />
+                <input v-model="backupSettings.backup_retention_count" type="number" min="1" max="100" inputmode="numeric" class="mono d2-in" style="height:40px;font-size:13px" />
               </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 11px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)">
+              <div>
+                <div style="font-size:12.5px;font-weight:600">{{ tr('backup.autoBackup') || 'Automatic backups' }}</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:2px">{{ backupSettings.backup_enabled === 'true' ? (tr('backup.scheduleOn') || 'Active') : (tr('backup.scheduleOff') || 'Disabled') }}</div>
+              </div>
+              <input type="checkbox" :checked="backupSettings.backup_enabled === 'true'" @change="backupSettings.backup_enabled = $event.target.checked ? 'true' : 'false'" style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer" />
             </div>
             <button @click="saveBackupSettings" :disabled="savingSettings" style="height:38px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer" class="d2-btn-accent">{{ tr('backup.save') || 'Save' }}</button>
           </div>
@@ -103,30 +114,45 @@
         <template v-if="bkIsStorage">
           <div style="font-weight:600;font-size:14px;margin-bottom:14px">{{ tr('backup.tabStorage') || 'Storage' }}</div>
           <div style="display:flex;gap:8px;margin-bottom:13px">
-            <button @click="backupSettings.storage = 'local'" :style="{ flex:'1', height:'36px', border:'1px solid '+(bkIsLocal?'var(--accent)':'var(--border-strong)'), background:(bkIsLocal?'var(--accent-soft)':'var(--panel)'), color:(bkIsLocal?'var(--accent)':'var(--text-2)'), borderRadius:'9px', font:'inherit', fontSize:'12.5px', fontWeight:550, cursor:'pointer' }">{{ tr('backup.storageLocal') || 'Local' }}</button>
-            <button @click="backupSettings.storage = 'net'" :style="{ flex:'1', height:'36px', border:'1px solid '+(bkIsNet?'var(--accent)':'var(--border-strong)'), background:(bkIsNet?'var(--accent-soft)':'var(--panel)'), color:(bkIsNet?'var(--accent)':'var(--text-2)'), borderRadius:'9px', font:'inherit', fontSize:'12.5px', fontWeight:550, cursor:'pointer' }">{{ tr('backup.storageNet') || 'Network' }}</button>
+            <button @click="backupSettings.backup_storage_type = 'local'" :style="{ flex:'1', height:'36px', border:'1px solid '+(bkIsLocal?'var(--accent)':'var(--border-strong)'), background:(bkIsLocal?'var(--accent-soft)':'var(--panel)'), color:(bkIsLocal?'var(--accent)':'var(--text-2)'), borderRadius:'9px', font:'inherit', fontSize:'12.5px', fontWeight:550, cursor:'pointer' }">{{ tr('backup.storageLocal') || 'Local' }}</button>
+            <button @click="backupSettings.backup_storage_type = 'network'" :style="{ flex:'1', height:'36px', border:'1px solid '+(bkIsNet?'var(--accent)':'var(--border-strong)'), background:(bkIsNet?'var(--accent-soft)':'var(--panel)'), color:(bkIsNet?'var(--accent)':'var(--text-2)'), borderRadius:'9px', font:'inherit', fontSize:'12.5px', fontWeight:550, cursor:'pointer' }">{{ tr('backup.storageNet') || 'Network' }}</button>
           </div>
           <template v-if="bkIsNet">
             <div style="display:flex;flex-direction:column;gap:11px;margin-bottom:13px">
-              <input v-model="backupSettings.net_host" :placeholder="tr('backup.netHost') || 'Host'" class="mono d2-in" style="height:40px;font-size:12.5px" />
-              <input v-model="backupSettings.net_share" :placeholder="tr('backup.netShare') || 'Share'" class="mono d2-in" style="height:40px;font-size:12.5px" />
+              <select v-model="backupSettings.backup_mount_type" class="d2-in" style="height:40px;font-size:12.5px">
+                <option value="smb">SMB / CIFS</option>
+                <option value="nfs">NFS</option>
+              </select>
+              <input v-model="backupSettings.backup_mount_address" :placeholder="backupSettings.backup_mount_type === 'nfs' ? '192.0.2.10:/backups' : '//192.0.2.10/backups'" class="mono d2-in" style="height:40px;font-size:12.5px" />
               <div style="display:flex;gap:11px">
-                <input v-model="backupSettings.net_user" :placeholder="tr('backup.netUser') || 'Login'" class="d2-in" style="flex:1;height:40px;font-size:12.5px" />
-                <input type="password" v-model="backupSettings.net_pass" :placeholder="tr('backup.netPass') || 'Password'" class="d2-in" style="flex:1;height:40px;font-size:12.5px" />
+                <input v-model="backupSettings.backup_mount_username" :disabled="backupSettings.backup_mount_type === 'nfs'" :placeholder="tr('backup.username') || 'Username'" autocomplete="off" class="d2-in" style="flex:1;height:40px;font-size:12.5px" />
+                <input type="password" v-model="backupSettings.backup_mount_password" :disabled="backupSettings.backup_mount_type === 'nfs'" :placeholder="backupSettings.backup_mount_password_set ? (tr('backup.unchanged') || 'unchanged') : (tr('backup.password') || 'Password')" autocomplete="new-password" class="d2-in" style="flex:1;height:40px;font-size:12.5px" />
               </div>
+              <input v-model="backupSettings.backup_mount_point" :placeholder="tr('backup.mountPoint') || 'Mount point'" class="mono d2-in" style="height:40px;font-size:12.5px" />
+              <input v-model="backupSettings.backup_mount_options" :placeholder="tr('backup.extraOptions') || 'Extra options'" class="mono d2-in" style="height:40px;font-size:12.5px" />
             </div>
             <div style="display:flex;gap:7px;flex-wrap:wrap">
-              <button @click="mountStorage" style="height:36px;padding:0 13px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer" class="d2-btn-accent">{{ tr('backup.mount') || 'Mount' }}</button>
-              <button @click="unmountStorage" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('backup.unmount') || 'Unmount' }}</button>
-              <button @click="testWriteStorage" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('backup.testWrite') || 'Test write' }}</button>
+              <button @click="saveBackupSettings" :disabled="storageBusy" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('backup.save') || 'Save' }}</button>
+              <button @click="mountStorage" :disabled="storageBusy" style="height:36px;padding:0 13px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer" class="d2-btn-accent">{{ tr('backup.mount') || 'Mount' }}</button>
+              <button @click="unmountStorage" :disabled="storageBusy" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('backup.unmount') || 'Unmount' }}</button>
+              <button @click="testWriteStorage" :disabled="storageBusy" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('backup.testWrite') || 'Test write' }}</button>
             </div>
           </template>
-          <div v-if="bkIsLocal" style="font-size:12.5px;color:var(--text-3);line-height:1.5">{{ storageUsed }} / {{ storageTotal }} · {{ storageMountLabel }}</div>
+          <template v-if="bkIsLocal">
+            <div style="display:flex;flex-direction:column;gap:11px">
+              <input v-model="backupSettings.backup_path" :placeholder="tr('backup.path') || 'Backup directory'" class="mono d2-in" style="height:40px;font-size:12.5px" />
+              <div style="display:flex;gap:7px;flex-wrap:wrap">
+                <button @click="saveBackupSettings" :disabled="storageBusy" style="height:36px;padding:0 13px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12px;font-weight:600;cursor:pointer" class="d2-btn-accent">{{ tr('backup.save') || 'Save' }}</button>
+                <button @click="testWriteStorage" :disabled="storageBusy" style="height:36px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('backup.testWrite') || 'Test write' }}</button>
+              </div>
+              <div style="font-size:12.5px;color:var(--text-3);line-height:1.5">{{ storageUsed }} / {{ storageTotal }} · {{ storageMountLabel }}</div>
+            </div>
+          </template>
         </template>
       </div>
     </div>
 
-    <div v-if="msg" style="color:var(--green);font-size:13px;margin-top:12px">{{ msg }}</div>
+    <div v-if="msg" :style="{ color:msgIsError ? 'var(--red)' : 'var(--green)', fontSize:'13px', marginTop:'12px' }">{{ msg }}</div>
   </div>
 </template>
 
@@ -147,15 +173,17 @@ const creating = ref(false)
 const msg = ref('')
 
 async function load() { loading.value = true; try { const r = await backupApi.list(); const d = r.data; backups.value = d.backups || d.items || (Array.isArray(d) ? d : []) } catch (e) { console.error(e) } finally { loading.value = false } }
-async function create() { creating.value = true; try { await backupApi.create(); await load(); flash(tr('backup.createdOk') || 'Backup created') } catch (e) { alert(e.response?.data?.detail || 'Error') } finally { creating.value = false } }
+async function create() { creating.value = true; try { await backupApi.create(); await Promise.all([load(), loadStorage()]); flash(tr('backup.createdOk') || 'Backup created') } catch (e) { flash(errorDetail(e), true) } finally { creating.value = false } }
 function fileId(b) { return b.backup_id }
 function isDbOnly(b) { return !!(b.database_dump && b.env_backed_up === false) || b.type === 'db' }
-async function fmtBackupSize(b) { if (b.archive_size_bytes != null) return formatBytes(b.archive_size_bytes); if (b.archive_size_mb != null) return b.archive_size_mb + ' MB'; return '—' }
+function fmtBackupSize(b) { if (b.archive_size_bytes != null) return formatBytes(b.archive_size_bytes); if (b.archive_size_mb != null) return b.archive_size_mb + ' MB'; if (b.backup_size_mb != null) return b.backup_size_mb + ' MB'; return '—' }
 async function verify(b) { try { const r = await backupApi.verify(fileId(b)); alert(r.data?.valid === false ? (tr('backup.corrupt') || 'Backup is CORRUPT') : (tr('backup.valid') || 'Backup verified OK')) } catch (e) { alert(e.response?.data?.detail || 'Error') } }
 async function restoreFull(b) { if (!await d2confirm(tr('backup.restoreFullConfirm') || 'Full restore from this backup? This overwrites current data.')) return; try { await backupApi.restoreFull(fileId(b)); flash(tr('backup.restored') || 'Restore started') } catch (e) { alert(e.response?.data?.detail || 'Error') } }
 async function restoreDb(b) { if (!await d2confirm(tr('backup.restoreDbConfirm') || 'Restore database only from this backup?')) return; try { await backupApi.restoreDatabase(fileId(b)); flash(tr('backup.restored') || 'Restore started') } catch (e) { alert(e.response?.data?.detail || 'Error') } }
 async function remove(b) { if (!await d2confirm(tr('backup.deleteConfirm') || 'Delete this backup?')) return; try { await backupApi.delete(fileId(b)); await load() } catch (e) { alert(e.response?.data?.detail || 'Error') } }
-function flash(m) { msg.value = m; setTimeout(() => msg.value = '', 3000) }
+const msgIsError = ref(false)
+function flash(m, isError = false) { msg.value = m; msgIsError.value = isError; setTimeout(() => { msg.value = ''; msgIsError.value = false }, 4000) }
+function errorDetail(e) { return e?.response?.data?.detail || e?.message || 'Error' }
 function fmtBytes(b) { return formatBytes(b || 0) }
 function fmtDate(d) { try { return formatDate(d) } catch (_) { return String(d) } }
 
@@ -167,33 +195,110 @@ const refreshBackups = load
 const bkTab = ref('sched')
 const bkIsSched = computed(() => bkTab.value === 'sched')
 const bkIsStorage = computed(() => bkTab.value === 'storage')
-const backupSettings = reactive({ schedule: 'daily', time: '03:00', keep: 7, storage: 'local', net_host: '', net_share: '', net_user: '', net_pass: '' })
-const bkIsLocal = computed(() => backupSettings.storage === 'local')
-const bkIsNet = computed(() => backupSettings.storage === 'net')
+const backupSettings = reactive({
+  backup_enabled: 'true',
+  backup_interval_hours: '24',
+  backup_hour_utc: '3',
+  backup_retention_count: '7',
+  backup_auto_cleanup: 'true',
+  backup_storage_type: 'local',
+  backup_path: '/opt/vpnmanager/backups',
+  backup_mount_type: 'smb',
+  backup_mount_address: '',
+  backup_mount_username: '',
+  backup_mount_password: '',
+  backup_mount_password_set: false,
+  backup_mount_point: '/mnt/vpnmanager-backup',
+  backup_mount_options: '',
+})
+const SETTINGS_KEYS = [
+  'backup_enabled', 'backup_interval_hours', 'backup_hour_utc',
+  'backup_retention_count', 'backup_auto_cleanup', 'backup_storage_type',
+  'backup_path', 'backup_mount_type', 'backup_mount_address',
+  'backup_mount_username', 'backup_mount_password', 'backup_mount_point',
+  'backup_mount_options',
+]
+const bkIsLocal = computed(() => backupSettings.backup_storage_type === 'local')
+const bkIsNet = computed(() => backupSettings.backup_storage_type === 'network')
 const savingSettings = ref(false)
-const storage = ref({ mounted: false, used_bytes: null, total_bytes: null })
+const mountingStorage = ref(false)
+const testingStorage = ref(false)
+const storageBusy = computed(() => savingSettings.value || mountingStorage.value || testingStorage.value)
+const storageLoaded = ref(false)
+const storage = ref({ storage_type: 'local', mounted: null, ready: null, writable: null, target: '', usage: null })
 
 async function loadSettings() {
   try {
     const { data } = await backupApi.getSettings()
     if (data && typeof data === 'object') {
-      if (data.schedule != null) backupSettings.schedule = data.schedule
-      if (data.time != null) backupSettings.time = data.time
-      if (data.keep != null) backupSettings.keep = data.keep
-      if (data.storage != null) backupSettings.storage = data.storage
-      if (data.net_host != null) backupSettings.net_host = data.net_host
-      if (data.net_share != null) backupSettings.net_share = data.net_share
-      if (data.net_user != null) backupSettings.net_user = data.net_user
+      for (const key of SETTINGS_KEYS) {
+        if (data[key] != null) backupSettings[key] = data[key]
+      }
+      backupSettings.backup_mount_password_set = data.backup_mount_password_set === true
     }
-  } catch (_) { /* settings endpoint optional */ }
+  } catch (e) { flash(errorDetail(e), true) }
 }
 async function loadStorage() {
-  try { const { data } = await backupApi.storageStatus(); if (data && typeof data === 'object') storage.value = { ...storage.value, ...data } } catch (_) { /* optional */ }
+  try {
+    const { data } = await backupApi.storageStatus()
+    if (data && typeof data === 'object') storage.value = { ...storage.value, ...data }
+    storageLoaded.value = true
+  } catch (e) {
+    storageLoaded.value = false
+    flash(errorDetail(e), true)
+  }
 }
-async function saveBackupSettings() { savingSettings.value = true; try { await backupApi.saveSettings({ ...backupSettings, keep: Number(backupSettings.keep) || 0 }); flash(tr('backup.settingsSaved') || 'Settings saved') } catch (e) { alert(e.response?.data?.detail || 'Error') } finally { savingSettings.value = false } }
-async function mountStorage() { try { await backupApi.mount(); await loadStorage(); flash(tr('backup.mounted') || 'Mounted') } catch (e) { alert(e.response?.data?.detail || 'Error') } }
-async function unmountStorage() { try { await backupApi.unmount(); await loadStorage(); flash(tr('backup.unmounted') || 'Unmounted') } catch (e) { alert(e.response?.data?.detail || 'Error') } }
-async function testWriteStorage() { try { const r = await backupApi.testWrite(); alert(r.data?.ok === false ? (tr('backup.testWriteFail') || 'Write test FAILED') : (tr('backup.testWriteOk') || 'Write test OK')) } catch (e) { alert(e.response?.data?.detail || 'Error') } }
+function settingsPayload() {
+  const payload = {}
+  for (const key of SETTINGS_KEYS) payload[key] = backupSettings[key]
+  payload.backup_retention_count = Number(backupSettings.backup_retention_count)
+  payload.backup_hour_utc = Number(backupSettings.backup_hour_utc)
+  payload.backup_interval_hours = Number(backupSettings.backup_interval_hours)
+  if (!payload.backup_mount_password) delete payload.backup_mount_password
+  return payload
+}
+async function persistBackupSettings(announce = true) {
+  savingSettings.value = true
+  try {
+    const { data } = await backupApi.saveSettings(settingsPayload())
+    if (data?.updated === 0) throw new Error('No backup settings were updated')
+    await Promise.all([loadSettings(), loadStorage()])
+    if (announce) flash(tr('backup.settingsSaved') || 'Settings saved')
+    return true
+  } catch (e) {
+    flash(errorDetail(e), true)
+    return false
+  } finally {
+    savingSettings.value = false
+  }
+}
+async function saveBackupSettings() { await persistBackupSettings(true) }
+async function mountStorage() {
+  mountingStorage.value = true
+  try {
+    if (!await persistBackupSettings(false)) return
+    const { data } = await backupApi.mount()
+    await loadStorage()
+    flash(data?.message || tr('backup.mounted') || 'Mounted')
+  } catch (e) { flash(errorDetail(e), true) } finally { mountingStorage.value = false }
+}
+async function unmountStorage() {
+  mountingStorage.value = true
+  try {
+    const { data } = await backupApi.unmount()
+    await loadStorage()
+    flash(data?.message || tr('backup.unmounted') || 'Unmounted')
+  } catch (e) { flash(errorDetail(e), true) } finally { mountingStorage.value = false }
+}
+async function testWriteStorage() {
+  testingStorage.value = true
+  try {
+    if (!await persistBackupSettings(false)) return
+    const { data } = await backupApi.testWrite()
+    await loadStorage()
+    flash(data?.message || tr('backup.testWriteOk') || 'Write test OK')
+  } catch (e) { flash(errorDetail(e), true) } finally { testingStorage.value = false }
+}
 
 // --- computed adapters to his field names ---
 const g3 = 'repeat(3,1fr)'
@@ -214,14 +319,20 @@ const backupRows = computed(() => backups.value.map(b => {
   }
 }))
 const storagePct = computed(() => {
-  const u = storage.value.used_bytes, tot = storage.value.total_bytes
-  if (!u || !tot) return '0%'
+  const u = storage.value.usage?.used_bytes, tot = storage.value.usage?.total_bytes
+  if (storage.value.usage?.percent_used != null) return Math.min(100, Number(storage.value.usage.percent_used) || 0) + '%'
+  if (u == null || !tot) return '0%'
   return Math.min(100, Math.round((u / tot) * 100)) + '%'
 })
-const storageUsed = computed(() => storage.value.used_bytes != null ? fmtBytes(storage.value.used_bytes) : '—')
-const storageTotal = computed(() => storage.value.total_bytes != null ? fmtBytes(storage.value.total_bytes) : '—')
-const storageMountColor = computed(() => storage.value.mounted ? 'var(--green)' : 'var(--text-3)')
-const storageMountLabel = computed(() => storage.value.mounted ? (tr('backup.mountedYes') || 'Mounted') : (tr('backup.mountedNo') || 'Not mounted'))
+const storageUsed = computed(() => storage.value.usage?.used_bytes != null ? fmtBytes(storage.value.usage.used_bytes) : '—')
+const storageTotal = computed(() => storage.value.usage?.total_bytes != null ? fmtBytes(storage.value.usage.total_bytes) : '—')
+const storageTypeLabel = computed(() => (storage.value.storage_type || backupSettings.backup_storage_type) === 'network' ? (tr('backup.storageNetwork') || tr('backup.storageNet') || 'Network storage') : (tr('backup.storageLocal') || 'Local disk'))
+const storageMountColor = computed(() => !storageLoaded.value ? 'var(--text-3)' : (storage.value.ready ? 'var(--green)' : 'var(--red)'))
+const storageMountLabel = computed(() => {
+  if (!storageLoaded.value) return '—'
+  if (storage.value.storage_type === 'network') return storage.value.mounted ? (tr('backup.mountedYes') || 'Mounted') : (tr('backup.mountedNo') || 'Not mounted')
+  return storage.value.ready ? (tr('backup.storageReady') || 'Ready') : (tr('backup.storageUnavailable') || 'Unavailable')
+})
 
 onMounted(() => {
   ui.set({ title: tr('nav.backup') || 'Backup', primary: { label: tr('backup.create') || 'Create backup', onClick: createBackup } })

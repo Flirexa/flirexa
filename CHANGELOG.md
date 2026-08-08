@@ -4,6 +4,54 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.90 — 2026-08-08
+
+### Fixed
+
+- Backup storage status now distinguishes an ordinary local directory from a
+  network mount and reports the correct used and total disk capacity.
+- Backup schedule and storage settings in the current admin interface now
+  persist their actual interval, path, retention, and network-storage values
+  instead of reporting success after submitting obsolete fields.
+- Unmounted network storage no longer displays the capacity of the local
+  directory underneath its mount point.
+
+---
+
+## v2.2.89 — 2026-08-07
+
+### Fixed
+
+- Automatic HTTPS setup now rejects HTTP error pages and malformed public-IP
+  discovery responses before using a bounded set of validated fallback
+  sources. This prevents provider error pages from entering certificate and
+  nginx configuration.
+- A failed installation now produces one operator alert per install instead of
+  duplicate phase and wrapper notifications.
+
+---
+
+## v2.2.88 — 2026-08-07
+
+### Changed
+
+- The installer now checks whether AmneziaWG packages are available for the
+  detected Ubuntu release before changing application state. When they are not
+  available, it displays a prominent warning and requires explicit consent to
+  continue with WireGuard only instead of silently omitting AmneziaWG.
+
+### Fixed
+
+- A WireGuard-only retry removes only the incompatible Amnezia package source
+  left by an older interrupted attempt, allowing normal APT processing to
+  recover without touching unrelated repositories.
+- A failed legacy reinstall before application files are replaced restores the
+  managed services that were active before the attempt.
+- One failed installation no longer produces duplicate phase and generic
+  wrapper failure reports.
+
+---
+
 ## v2.2.87 — 2026-08-03
 
 ### Added

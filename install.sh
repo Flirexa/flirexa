@@ -22,6 +22,7 @@
 #   SB_ENDPOINT         — WireGuard server endpoint ip:port (auto-detected)
 #   SB_DB_PASSWORD      — PostgreSQL password (generated if empty)
 #   SB_SUPPORT_EMAIL    — Opt in to one help email if installation fails
+#   SB_ALLOW_WIREGUARD_ONLY=1 — explicitly continue when AmneziaWG is unavailable
 #===============================================================================
 
 set -euo pipefail
@@ -119,6 +120,7 @@ _phase() {
         return 0
     fi
     _PHASE_REPORTED=1
+    : > "${INSTALL_LOG}.inner-failure-reported" 2>/dev/null || true
     _inner_beacon "$name" "fail" "$rc" "$INSTALL_LOG"
     return "$rc"
 }
@@ -129,7 +131,11 @@ _phase() {
 # whatever phase we were in. Best-effort; this trap MUST never raise.
 _inner_exit_trap() {
     local rc=$?
+    if (( rc != 0 )) && declare -F _restore_previous_services_on_early_failure >/dev/null; then
+        _restore_previous_services_on_early_failure || true
+    fi
     if (( rc != 0 )) && (( _PHASE_REPORTED == 0 )); then
+        : > "${INSTALL_LOG}.inner-failure-reported" 2>/dev/null || true
         _inner_beacon "${CURRENT_PHASE}_died" "fail" "$rc" "$INSTALL_LOG" || true
     fi
 }
@@ -176,6 +182,10 @@ if [[ -f "$SCRIPT_DIR/src/api/main.abi3.so" ]]; then
 fi
 NON_INTERACTIVE=false
 EXISTING_INSTALL=false
+AMNEZIAWG_INSTALL_MODE="${SB_AMNEZIAWG_INSTALL_MODE:-auto}"
+EXISTING_SERVICES_STOPPED=false
+APPLICATION_FILES_REPLACED=false
+declare -a PREVIOUSLY_ACTIVE_SERVICES=()
 DB_USER="vpnmanager"
 DB_NAME="vpnmanager_db"
 DB_PASS="${SB_DB_PASSWORD:-}"
@@ -198,6 +208,118 @@ log_warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
 die() { log_error "$1"; exit 1; }
+
+
+_amnezia_ppa_http_code() {
+    local codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+    if [[ "${ID:-}" != "ubuntu" || -z "$codename" ]] || ! command -v curl >/dev/null 2>&1; then
+        printf '000'
+        return 0
+    fi
+    local http_code
+    http_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+        --connect-timeout 5 --max-time 12 \
+        "https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu/dists/${codename}/Release" \
+        2>/dev/null || true)"
+    printf '%s' "${http_code:-000}"
+}
+
+
+_confirm_wireguard_only() {
+    local reason="$1" reply=""
+    echo ""
+    echo -e "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}${BOLD}AmneziaWG is not supported on this operating system${NC}"
+    echo -e "${RED}${reason}${NC}"
+    echo -e "${RED}Flirexa can continue with WireGuard only. AmneziaWG can be added later${NC}"
+    echo -e "${RED}after compatible packages become available for this OS.${NC}"
+    echo -e "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    if [[ "${SB_ALLOW_WIREGUARD_ONLY:-0}" == "1" ]]; then
+        log_warn "Continuing without AmneziaWG (explicit SB_ALLOW_WIREGUARD_ONLY=1)."
+    elif [[ "$NON_INTERACTIVE" == "true" ]]; then
+        die "Confirmation is required. Re-run interactively or set SB_ALLOW_WIREGUARD_ONLY=1 to accept WireGuard-only installation."
+    elif exec 8</dev/tty 2>/dev/null; then
+        read -r -p "  Continue with WireGuard only? (y/N): " reply <&8 || reply=""
+        exec 8<&- || true
+        case "${reply,,}" in
+            y|yes) ;;
+            *) die "Installation cancelled before any application changes were made." ;;
+        esac
+    else
+        die "Confirmation is required, but no interactive terminal is available. Set SB_ALLOW_WIREGUARD_ONLY=1 only if WireGuard-only mode is acceptable."
+    fi
+
+    AMNEZIAWG_INSTALL_MODE="skip"
+    SB_AMNEZIAWG_INSTALL_MODE="skip"
+    SB_WIREGUARD_ONLY_CONFIRMED=1
+    export SB_AMNEZIAWG_INSTALL_MODE SB_WIREGUARD_ONLY_CONFIRMED
+}
+
+
+_check_amnezia_compatibility() {
+    case "$AMNEZIAWG_INSTALL_MODE" in
+        install) return 0 ;;
+        skip)
+            if [[ "${SB_WIREGUARD_ONLY_CONFIRMED:-0}" == "1" || "${SB_ALLOW_WIREGUARD_ONLY:-0}" == "1" ]]; then
+                return 0
+            fi
+            # This is an internal handoff value, not a public bypass. If it was
+            # injected without the confirmation marker, repeat normal detection
+            # and require the documented consent path.
+            AMNEZIAWG_INSTALL_MODE="auto"
+            ;;
+    esac
+
+    local http_code
+    http_code="$(_amnezia_ppa_http_code)"
+    if [[ "$http_code" == "200" ]]; then
+        AMNEZIAWG_INSTALL_MODE="install"
+        SB_AMNEZIAWG_INSTALL_MODE="install"
+        export SB_AMNEZIAWG_INSTALL_MODE
+        log_success "  AmneziaWG packages: available for ${PRETTY_NAME:-this OS}"
+        return 0
+    fi
+
+    if [[ "$http_code" == "404" ]]; then
+        _confirm_wireguard_only "The official AmneziaWG repository has no packages for ${PRETTY_NAME:-this OS}."
+    elif [[ "${ID:-}" != "ubuntu" ]]; then
+        _confirm_wireguard_only "The official AmneziaWG PPA supports Ubuntu releases; detected ${PRETTY_NAME:-a different OS}."
+    else
+        _confirm_wireguard_only "The installer could not verify compatible AmneziaWG packages for ${PRETTY_NAME:-this OS} (repository check: HTTP ${http_code})."
+    fi
+}
+
+
+_remove_broken_amnezia_ppa() {
+    local source_file
+    if command -v add-apt-repository >/dev/null 2>&1; then
+        add-apt-repository --remove -y ppa:amnezia/ppa >/dev/null 2>&1 || true
+    fi
+    if [[ -d /etc/apt/sources.list.d ]]; then
+        while IFS= read -r -d '' source_file; do
+            if grep -Eqi 'ppa\.launchpad(content)?\.net/amnezia/ppa/ubuntu|ppa:amnezia/ppa' "$source_file" 2>/dev/null; then
+                rm -f -- "$source_file"
+                log_info "  Removed incompatible AmneziaWG package source: $(basename "$source_file")"
+            fi
+        done < <(find /etc/apt/sources.list.d -maxdepth 1 -type f -print0 2>/dev/null)
+    fi
+}
+
+
+_restore_previous_services_on_early_failure() {
+    [[ "$EXISTING_SERVICES_STOPPED" == "true" ]] || return 0
+    [[ "$APPLICATION_FILES_REPLACED" == "false" ]] || return 0
+    ((${#PREVIOUSLY_ACTIVE_SERVICES[@]} > 0)) || return 0
+
+    echo -e "${YELLOW}[WARN]${NC} Restoring services that were active before this failed retry..."
+    local service
+    for service in "${PREVIOUSLY_ACTIVE_SERVICES[@]}"; do
+        systemctl start "$service" >/dev/null 2>&1 || true
+    done
+    EXISTING_SERVICES_STOPPED=false
+}
 
 
 _valid_support_email() {
@@ -344,6 +466,7 @@ parse_args() {
                 echo "  SB_CLIENT_TOKEN     Client bot token (optional)"
                 echo "  SB_ENDPOINT         WireGuard endpoint ip:port (auto-detected if empty)"
                 echo "  SB_DB_PASSWORD      PostgreSQL password (auto-generated if empty)"
+                echo "  SB_ALLOW_WIREGUARD_ONLY=1  Accept installation without AmneziaWG when unavailable"
                 echo "  SB_WEB_SETUP_MODE   none|portal_admin_ip|portal_admin_domain|auto_selfsigned_ip"
                 echo "  SB_CLIENT_PORTAL_DOMAIN  portal.example.com"
                 echo "  SB_ADMIN_PANEL_DOMAIN    admin.example.com (when using portal_admin_domain)"
@@ -371,6 +494,39 @@ generate_password() {
         || head -c 15 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 20
 }
 
+valid_ipv4() {
+    local value="$1" octet
+    local -a octets
+    [[ "$value" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
+    IFS='.' read -r -a octets <<< "$value"
+    ((${#octets[@]} == 4)) || return 1
+    for octet in "${octets[@]}"; do
+        ((10#$octet <= 255)) || return 1
+    done
+}
+
+detect_public_ipv4() {
+    local candidate url
+    for url in \
+        https://ifconfig.me/ip \
+        https://api.ipify.org \
+        https://checkip.amazonaws.com; do
+        candidate="$(curl -fsS --connect-timeout 3 --max-time 5 "$url" 2>/dev/null || true)"
+        candidate="$(printf '%s' "$candidate" | tr -d '[:space:]')"
+        if valid_ipv4 "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    for candidate in $(hostname -I 2>/dev/null || true); do
+        if valid_ipv4 "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 sed_escape_replacement() {
     printf '%s' "$1" | sed -e 's/[\&|]/\\&/g'
 }
@@ -394,6 +550,7 @@ preflight() {
             *) log_warn "Untested OS: $ID. Proceeding anyway (Debian/Ubuntu recommended)." ;;
         esac
         log_info "  OS: $PRETTY_NAME"
+        _check_amnezia_compatibility
     else
         log_warn "Cannot detect OS. Proceeding..."
     fi
@@ -517,6 +674,15 @@ PY
 
         # Stop running services
         log_info "Stopping existing services..."
+        PREVIOUSLY_ACTIVE_SERVICES=()
+        local managed_service
+        for managed_service in \
+            vpnmanager-api vpnmanager-admin-bot vpnmanager-client-bot \
+            vpnmanager-worker vpnmanager-client-portal; do
+            if systemctl is-active --quiet "$managed_service" 2>/dev/null; then
+                PREVIOUSLY_ACTIVE_SERVICES+=("$managed_service")
+            fi
+        done
         systemctl stop vpnmanager-api 2>/dev/null || true
         systemctl stop vpnmanager-admin-bot 2>/dev/null || true
         systemctl stop vpnmanager-client-bot 2>/dev/null || true
@@ -532,6 +698,7 @@ PY
         pkill -f "main.py client-bot" 2>/dev/null || true
         pkill -f "client_portal_main.py" 2>/dev/null || true
         pkill -f "worker_main.py" 2>/dev/null || true
+        EXISTING_SERVICES_STOPPED=true
         sleep 2
     fi
 }
@@ -623,6 +790,14 @@ install_system_deps() {
     pkill -f packagekit >/dev/null 2>&1 || true
     wait_for_apt_locks
 
+    # A previously interrupted attempt on an unsupported Ubuntu release may
+    # have left the Amnezia PPA configured even though that codename has no
+    # Release file. Remove only that exact PPA before the first apt refresh so
+    # an explicitly accepted WireGuard-only retry can repair itself.
+    if [[ "$AMNEZIAWG_INSTALL_MODE" == "skip" ]]; then
+        _remove_broken_amnezia_ppa
+    fi
+
     # Update package lists
     if ! apt_update_retry; then
         die "apt-get update failed. Check DNS/network connectivity and try again."
@@ -659,14 +834,29 @@ install_system_deps() {
         done
     }
 
-    # AmneziaWG (DPI-resistant) — FREE-tier feature, install best-effort.
-    # The DKMS build needs kernel headers, which may be missing on stripped
-    # VPS images; if any of these fail the panel still works, just without
-    # the AmneziaWG protocol. The user can add the PPA + install manually
-    # later if needed.
+    # AmneziaWG (DPI-resistant) is a FREE-tier feature. Never silently degrade
+    # to WireGuard-only: preflight verifies the PPA Release file and requires
+    # explicit consent when the OS has no compatible repository. If the PPA or
+    # package install changes state after preflight, ask again before continuing.
     log_info "Installing AmneziaWG (FREE-tier DPI-resistant protocol)..."
-    apt_install_retry 3 software-properties-common >/dev/null 2>&1 || true
-    if add-apt-repository -y ppa:amnezia/ppa >/dev/null 2>&1 && apt_update_retry >/dev/null 2>&1; then
+    if [[ "$AMNEZIAWG_INSTALL_MODE" == "skip" ]]; then
+        log_warn "  AmneziaWG skipped after explicit confirmation — WireGuard-only on this host"
+    else
+        apt_install_retry 3 software-properties-common >/dev/null 2>&1 || true
+        local ppa_ready=false
+        if add-apt-repository -y ppa:amnezia/ppa >/dev/null 2>&1 \
+            && apt_update_retry >/dev/null 2>&1; then
+            ppa_ready=true
+        fi
+        if [[ "$ppa_ready" != "true" ]]; then
+            _remove_broken_amnezia_ppa
+            apt_update_retry >/dev/null 2>&1 \
+                || die "Package lists remain unavailable after removing the AmneziaWG PPA. Check the server network and APT sources."
+            _confirm_wireguard_only "The AmneziaWG repository became unavailable while packages were being prepared."
+        fi
+    fi
+
+    if [[ "$AMNEZIAWG_INSTALL_MODE" == "install" ]]; then
         # Linux headers are needed by the DKMS module; without them awg-tools
         # still installs but the kernel module won't compile, and `awg` calls
         # at runtime will fail. Try to grab the running-kernel headers first.
@@ -676,11 +866,8 @@ install_system_deps() {
         if apt_install_retry 3 amneziawg amneziawg-tools amneziawg-dkms >/dev/null 2>&1; then
             log_success "  AmneziaWG installed"
         else
-            log_warn "  AmneziaWG install failed — WireGuard-only on this host"
-            log_warn "  To enable later: apt install amneziawg amneziawg-tools amneziawg-dkms"
+            _confirm_wireguard_only "Compatible AmneziaWG packages were advertised, but installation failed on this host."
         fi
-    else
-        log_warn "  Could not add amnezia PPA — WireGuard-only on this host"
     fi
 
     # Ensure we can actually create a virtual environment. Some bare Ubuntu
@@ -837,6 +1024,11 @@ copy_files() {
         log_info "  Source and target are the same directory, skipping copy"
         return
     fi
+
+    # From this point an early-failure restart cannot promise the previous
+    # application tree. The EXIT trap only restores services for failures that
+    # happen before package-owned files are replaced.
+    APPLICATION_FILES_REPLACED=true
 
     # Vite gives changed bundles new hashed filenames. A merge-only in-place
     # copy leaves the previous JavaScript reachable on disk indefinitely even
@@ -1235,16 +1427,8 @@ PYEOF
     done
 
     # Detect server IP for endpoint
-    local server_ip="" _raw
-    # Try each source and take the first that returns a valid IPv4 address.
-    for _raw in \
-        "$(curl -s --max-time 5 https://ifconfig.me/ip 2>/dev/null)" \
-        "$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null)" \
-        "$(curl -s --max-time 5 https://checkip.amazonaws.com 2>/dev/null)" \
-        "$(hostname -I 2>/dev/null | awk '{print $1}')"; do
-        server_ip=$(echo "$_raw" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1) || true
-        [[ -n "$server_ip" ]] && break
-    done
+    local server_ip=""
+    server_ip="$(detect_public_ipv4 || true)"
     [[ -n "$server_ip" ]] || server_ip="YOUR_SERVER_IP"
     sed -i "s|^SERVER_ENDPOINT=.*|SERVER_ENDPOINT=$(sed_escape_replacement "$server_ip:51820")|" "$INSTALL_DIR/.env"
 
@@ -1743,6 +1927,7 @@ start_services() {
 
     sleep 2
     log_success "Services started"
+    EXISTING_SERVICES_STOPPED=false
 }
 
 # ============================================================================
@@ -1933,9 +2118,12 @@ register_wireguard_server() {
         return
     fi
 
-    local endpoint
+    local endpoint detected_ip
     endpoint=$(grep "^SERVER_ENDPOINT=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2)
-    endpoint="${endpoint:-$(curl -s --max-time 3 https://ifconfig.me 2>/dev/null):${listen_port}}"
+    if [[ -z "$endpoint" ]]; then
+        detected_ip="$(detect_public_ipv4 || true)"
+        endpoint="${detected_ip:-YOUR_SERVER_IP}:${listen_port}"
+    fi
 
     # Get address pool from config
     local address_pool="10.66.66.0/24"
@@ -2217,7 +2405,8 @@ print_summary() {
     log_step_done
 
     local server_ip
-    server_ip=$(curl -s --max-time 3 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    server_ip="$(detect_public_ipv4 || true)"
+    server_ip="${server_ip:-YOUR_SERVER_IP}"
 
     echo ""
     echo "==============================================================="

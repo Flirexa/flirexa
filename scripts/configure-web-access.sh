@@ -127,6 +127,17 @@ validate_port() {
     (( numeric >= 1 && numeric <= 65535 ))
 }
 
+validate_ipv4() {
+    local value="$1" octet
+    local -a octets
+    [[ "$value" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
+    IFS='.' read -r -a octets <<< "$value"
+    ((${#octets[@]} == 4)) || return 1
+    for octet in "${octets[@]}"; do
+        ((10#$octet <= 255)) || return 1
+    done
+}
+
 load_env() {
     if [[ -z "$ENV_FILE" ]]; then
         ENV_FILE="$APP_DIR/.env"
@@ -166,13 +177,38 @@ load_env() {
 # ── Network discovery ────────────────────────────────────────────────────────
 
 detect_public_ip() {
+    local candidate url
     if [[ -n "${SERVER_ENDPOINT:-}" ]]; then
-        echo "$SERVER_ENDPOINT" | cut -d: -f1
-        return
+        candidate="${SERVER_ENDPOINT%%:*}"
+        if validate_ipv4 "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
     fi
-    curl -s --max-time 3 https://ifconfig.me 2>/dev/null \
-        || curl -s --max-time 3 https://api.ipify.org 2>/dev/null \
-        || hostname -I | awk '{print $1}'
+
+    # `curl -s` exits zero for HTTP 403 and used to feed the returned HTML into
+    # certificate and nginx templates as if it were an address. Fail on HTTP
+    # errors and accept only a complete IPv4 value before trying the next
+    # independent source.
+    for url in \
+        https://ifconfig.me/ip \
+        https://api.ipify.org \
+        https://checkip.amazonaws.com; do
+        candidate="$(curl -fsS --connect-timeout 3 --max-time 5 "$url" 2>/dev/null || true)"
+        candidate="$(printf '%s' "$candidate" | tr -d '[:space:]')"
+        if validate_ipv4 "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    for candidate in $(hostname -I 2>/dev/null || true); do
+        if validate_ipv4 "$candidate"; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Resolve a domain via the system resolver and emit each A record on its own

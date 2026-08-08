@@ -215,6 +215,69 @@ def test_self_signed_mode_does_not_install_unneeded_certbot_packages():
     assert "required+=(certbot python3-certbot-nginx)" in package_body
 
 
+def test_public_ip_detection_rejects_http_error_html_and_uses_fallback(tmp_path: Path):
+    library = _function_library(tmp_path)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    curl = fake_bin / "curl"
+    curl.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+url="${!#}"
+case "$url" in
+  *ifconfig.me*) printf '<h1>Error: Forbidden</h1>\\n' ;;
+  *api.ipify.org*) printf '203.0.113.42\\n' ;;
+  *) exit 22 ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    curl.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{env['PATH']}"
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; SERVER_ENDPOINT=""; detect_public_ip',
+            "bash",
+            str(library),
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "203.0.113.42\n"
+    assert "Forbidden" not in result.stdout
+
+
+def test_public_ip_detection_rejects_malformed_endpoint_and_octets(tmp_path: Path):
+    library = _function_library(tmp_path)
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                'source "$1"; '
+                'validate_ipv4 203.0.113.10; '
+                '! validate_ipv4 203.0.113.999; '
+                '! validate_ipv4 "<html>403</html>"'
+            ),
+            "bash",
+            str(library),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_env_file_is_parsed_as_data_and_never_executed(tmp_path: Path):
     library = _function_library(tmp_path)
     marker = tmp_path / "must-not-exist"
