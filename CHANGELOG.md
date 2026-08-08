@@ -4,6 +4,20 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.94 — 2026-08-08
+
+### Added
+
+- Added explicit password or private-key SSH authentication to the current Add
+  Server and Discover forms.
+
+### Fixed
+
+- Customer plan cards now preserve configured cent precision instead of
+  rounding fractional prices to whole dollars.
+
+---
+
 ## v2.2.93 — 2026-08-08
 
 ### Security

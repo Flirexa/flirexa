@@ -124,9 +124,15 @@ const yearlyDiscountPct = computed(() => {
 })
 
 function priceFor(plan) {
-  if (billing.value === 'monthly') return Number(plan.price_monthly_usd || 0).toFixed(0)
-  if (billing.value === 'quarterly') return Number(plan.price_quarterly_usd ?? plan.price_monthly_usd * 3).toFixed(0)
-  return Number(plan.price_yearly_usd ?? plan.price_monthly_usd * 12).toFixed(0)
+  if (billing.value === 'monthly') return formatPlanPrice(plan.price_monthly_usd || 0)
+  if (billing.value === 'quarterly') return formatPlanPrice(plan.price_quarterly_usd ?? plan.price_monthly_usd * 3)
+  return formatPlanPrice(plan.price_yearly_usd ?? plan.price_monthly_usd * 12)
+}
+
+function formatPlanPrice(value) {
+  const amount = Number(value ?? 0)
+  if (!Number.isFinite(amount)) return '0'
+  return amount.toFixed(2).replace(/\.00$/, '')
 }
 
 function planTagline(plan) {

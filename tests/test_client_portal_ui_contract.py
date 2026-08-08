@@ -54,6 +54,15 @@ def test_payment_screen_has_only_real_actions_and_configured_providers():
     assert 'rel="noreferrer"' in modal
 
 
+def test_plan_cards_preserve_cent_precision_used_by_checkout():
+    plans = _read("src/web/client-portal/src/views/Plans.vue")
+    price_function = plans[plans.index("function priceFor"):plans.index("function planTagline")]
+
+    assert "formatPlanPrice(plan.price_monthly_usd || 0)" in price_function
+    assert "amount.toFixed(2).replace(/\\.00$/, '')" in price_function
+    assert ".toFixed(0)" not in price_function
+
+
 def test_referral_link_reaches_the_registration_payload():
     dashboard = _read("src/web/client-portal/src/views/Dashboard.vue")
     register = _read("src/web/client-portal/src/views/Register.vue")

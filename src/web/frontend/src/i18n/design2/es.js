@@ -334,7 +334,7 @@ export default {
     "warning": "Advertencia"
   },
   "help": {
-    "agentMode": "El agente gestiona WG por SSH sin guardar credenciales.",
+    "agentMode": "SSH se utiliza para instalar o recuperar el agente. Después, el agente local gestiona el servidor y las credenciales guardadas se cifran.",
     "awgType": "AmneziaWG — protocolo ofuscado para redes restrictivas.",
     "bandwidthLimit": "Velocidad Mbps, 0 = sin límite.",
     "corpNetworks": "Redes VPN corporativas (sitio a sitio).",
@@ -670,6 +670,13 @@ export default {
     "sshHost": "Host SSH (vacío = local)",
     "sshMode": "Modo SSH",
     "sshPassword": "Contraseña SSH",
+    "sshAuthentication": "Autenticación SSH",
+    "sshPasswordOption": "Contraseña",
+    "sshPrivateKeyOption": "Clave privada",
+    "sshPrivateKey": "Clave privada SSH",
+    "sshPrivateKeyPlaceholder": "Pegue aquí la clave privada completa",
+    "sshPrivateKeyHint": "Pegue la clave privada OpenSSH, RSA o ECDSA completa y sin cifrar. Se almacena cifrada.",
+    "sshPrivateKeyRequired": "Pegue una clave privada SSH",
     "sshPort": "Puerto SSH",
     "sshUser": "Usuario SSH",
     "startInstall": "Iniciar instalación",

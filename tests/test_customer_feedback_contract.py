@@ -38,6 +38,21 @@ def test_design2_add_server_cards_keep_dark_theme_text_color():
     assert "color: 'var(--text)'" in card_style
 
 
+def test_design2_add_and_discover_server_support_explicit_ssh_private_keys():
+    source = _read("src/web/frontend/src/design2/screens/D2Servers.vue")
+
+    assert "ns.ssh_auth_method === 'private_key'" in source
+    assert 'v-model="ns.ssh_private_key"' in source
+    assert 'v-model="disc.form.ssh_private_key"' in source
+    assert "ssh_auth_method: 'password'" in source
+    assert "p.ssh_private_key = p.ssh_private_key?.trim()" in source
+    assert "delete p.ssh_password" in source
+    assert "delete p.ssh_auth_method" in source
+    assert "serversApi.discover(payload)" in source
+    assert "ns.value.ssh_private_key = ''" in source
+    assert "disc.form.ssh_private_key = ''" in source
+
+
 def test_paid_panels_hide_donation_automatically():
     app = _read("src/web/frontend/src/App.vue")
     shell = _read("src/web/frontend/src/design2/shell/D2Shell.vue")

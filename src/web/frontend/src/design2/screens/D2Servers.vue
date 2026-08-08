@@ -125,9 +125,28 @@
           <D2Field v-else v-model="ns.proxy_domain" :label="tr('servers.proxyDomainVless') || 'Camouflage domain (SNI)'" placeholder="www.microsoft.com"><template #help><D2HelpTip :text="tr('servers.proxyDomainVlessHint') || 'Real TLS site to impersonate. Default www.microsoft.com.'" /></template></D2Field>
         </template>
         <!-- connection -->
-        <div class="d2-field"><label class="d2-flabel">{{ tr('servers.connectionMode') || 'Connection' }}<D2HelpTip :text="tr('help.agentMode') || 'Agent manages WG over SSH without storing creds.'" /></label><div style="display:flex;gap:8px"><button class="d2-pick sm" :class="{ on: ns.agent_mode !== 'mikrotik' }" @click="ns.agent_mode = 'ssh'">SSH + agent</button><button v-if="ns.server_category === 'vpn'" class="d2-pick sm" :class="{ on: ns.agent_mode === 'mikrotik' }" @click="ns.agent_mode = 'mikrotik'">MikroTik</button></div></div>
+        <div class="d2-field"><label class="d2-flabel">{{ tr('servers.connectionMode') || 'Connection' }}<D2HelpTip :text="tr('help.agentMode') || 'SSH is used for installation; the local agent then handles ongoing management. Saved credentials are encrypted.'" /></label><div style="display:flex;gap:8px"><button class="d2-pick sm" :class="{ on: ns.agent_mode !== 'mikrotik' }" @click="ns.agent_mode = 'ssh'">SSH + agent</button><button v-if="ns.server_category === 'vpn'" class="d2-pick sm" :class="{ on: ns.agent_mode === 'mikrotik' }" @click="ns.agent_mode = 'mikrotik'">MikroTik</button></div></div>
         <template v-if="ns.agent_mode === 'mikrotik'"><D2Field v-model="ns.mikrotik_url" :label="tr('servers.mikrotikUrl') || 'RouterOS URL'" placeholder="https://router.local/rest" /><div class="d2-2col"><D2Field v-model="ns.mikrotik_username" :label="tr('servers.mikrotikUser') || 'User'" /><D2Field v-model="ns.mikrotik_password" type="password" :label="tr('servers.mikrotikPass') || 'Password'" /></div></template>
-        <template v-else><D2Field v-model="ns.ssh_host" :label="tr('servers.sshHost') || 'SSH host'" :placeholder="tr('servers.sshHostPlaceholder') || 'IP of the target server'"><template #help><D2HelpTip :text="ns.server_category === 'proxy' ? (tr('servers.sshHostProxyHelp') || 'IP of a SEPARATE server to install the proxy on. Blank installs on the panel host itself. Not recommended for a proxy: its port will clash with the panel.') : (tr('servers.sshHostHelp') || 'IP of the target server. Blank = install on the panel host.')" /></template></D2Field><div v-if="ns.server_category === 'proxy' && !ns.ssh_host" style="font-size:11px;color:var(--d2-warn,#d0a03a);margin:-2px 0 8px;line-height:1.4">{{ tr('servers.proxyNeedsHost') || '⚠ Installing a proxy on the panel host will clash with the panel (e.g. port 443). Enter a separate VPS above.' }}</div><div v-if="ns.ssh_host" class="d2-2col"><D2Field v-model="ns.ssh_user" :label="tr('servers.sshUser') || 'SSH user'" /><D2Field v-model="ns.ssh_port" type="number" :label="tr('servers.sshPort') || 'SSH port'" /></div><D2Field v-if="ns.ssh_host" v-model="ns.ssh_password" type="password" :label="tr('servers.sshPassword') || 'SSH password'" /></template>
+        <template v-else>
+          <D2Field v-model="ns.ssh_host" :label="tr('servers.sshHost') || 'SSH host'" :placeholder="tr('servers.sshHostPlaceholder') || 'IP of the target server'"><template #help><D2HelpTip :text="ns.server_category === 'proxy' ? (tr('servers.sshHostProxyHelp') || 'IP of a SEPARATE server to install the proxy on. Blank installs on the panel host itself. Not recommended for a proxy: its port will clash with the panel.') : (tr('servers.sshHostHelp') || 'IP of the target server. Blank = install on the panel host.')" /></template></D2Field>
+          <div v-if="ns.server_category === 'proxy' && !ns.ssh_host" style="font-size:11px;color:var(--d2-warn,#d0a03a);margin:-2px 0 8px;line-height:1.4">{{ tr('servers.proxyNeedsHost') || '⚠ Installing a proxy on the panel host will clash with the panel (e.g. port 443). Enter a separate VPS above.' }}</div>
+          <template v-if="ns.ssh_host">
+            <div class="d2-2col"><D2Field v-model="ns.ssh_user" :label="tr('servers.sshUser') || 'SSH user'" /><D2Field v-model="ns.ssh_port" type="number" :label="tr('servers.sshPort') || 'SSH port'" /></div>
+            <div class="d2-field">
+              <label class="d2-flabel">{{ tr('servers.sshAuthentication') || 'SSH authentication' }}</label>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="d2-pick sm" :class="{ on: ns.ssh_auth_method === 'password' }" @click="ns.ssh_auth_method = 'password'">{{ tr('servers.sshPasswordOption') || 'Password' }}</button>
+                <button type="button" class="d2-pick sm" :class="{ on: ns.ssh_auth_method === 'private_key' }" @click="ns.ssh_auth_method = 'private_key'">{{ tr('servers.sshPrivateKeyOption') || 'Private key' }}</button>
+              </div>
+            </div>
+            <D2Field v-if="ns.ssh_auth_method === 'password'" v-model="ns.ssh_password" type="password" autocomplete="new-password" :label="tr('servers.sshPassword') || 'SSH password'" />
+            <div v-else class="d2-field">
+              <label class="d2-flabel">{{ tr('servers.sshPrivateKey') || 'SSH private key' }}</label>
+              <textarea v-model="ns.ssh_private_key" class="d2f-input mono d2-keyarea" rows="7" autocomplete="off" autocapitalize="off" spellcheck="false" :placeholder="tr('servers.sshPrivateKeyPlaceholder') || 'Paste the complete private key here'"></textarea>
+              <div style="font-size:12px;color:var(--text-3)">{{ tr('servers.sshPrivateKeyHint') || 'Paste the complete unencrypted OpenSSH, RSA, or ECDSA private key. It is encrypted when stored.' }}</div>
+            </div>
+          </template>
+        </template>
         <!-- advanced -->
         <button @click="advOpen = !advOpen" style="display:flex;align-items:center;gap:7px;border:none;background:transparent;color:var(--text-2);font:inherit;font-size:12.5px;font-weight:550;cursor:pointer;padding:2px 0" class="hov-text"><span :style="{ display:'flex', transform: advOpen ? 'rotate(90deg)' : 'none', transition:'transform .15s' }"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"></path></svg></span>{{ tr('servers.advanced') || 'Advanced' }}</button>
         <template v-if="advOpen">
@@ -145,7 +164,19 @@
       <div style="display:flex;flex-direction:column;gap:14px">
         <D2Field v-model="disc.form.ssh_host" :label="tr('servers.sshHost') || 'SSH host'" />
         <div class="d2-2col"><D2Field v-model="disc.form.ssh_user" :label="tr('servers.sshUser') || 'SSH user'" /><D2Field v-model="disc.form.ssh_port" type="number" :label="tr('servers.sshPort') || 'SSH port'" /></div>
-        <D2Field v-model="disc.form.ssh_password" type="password" :label="tr('servers.sshPassword') || 'SSH password'" />
+        <div class="d2-field">
+          <label class="d2-flabel">{{ tr('servers.sshAuthentication') || 'SSH authentication' }}</label>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="d2-pick sm" :class="{ on: disc.form.ssh_auth_method === 'password' }" @click="disc.form.ssh_auth_method = 'password'">{{ tr('servers.sshPasswordOption') || 'Password' }}</button>
+            <button type="button" class="d2-pick sm" :class="{ on: disc.form.ssh_auth_method === 'private_key' }" @click="disc.form.ssh_auth_method = 'private_key'">{{ tr('servers.sshPrivateKeyOption') || 'Private key' }}</button>
+          </div>
+        </div>
+        <D2Field v-if="disc.form.ssh_auth_method === 'password'" v-model="disc.form.ssh_password" type="password" autocomplete="new-password" :label="tr('servers.sshPassword') || 'SSH password'" />
+        <div v-else class="d2-field">
+          <label class="d2-flabel">{{ tr('servers.sshPrivateKey') || 'SSH private key' }}</label>
+          <textarea v-model="disc.form.ssh_private_key" class="d2f-input mono d2-keyarea" rows="7" autocomplete="off" autocapitalize="off" spellcheck="false" :placeholder="tr('servers.sshPrivateKeyPlaceholder') || 'Paste the complete private key here'"></textarea>
+          <div style="font-size:12px;color:var(--text-3)">{{ tr('servers.sshPrivateKeyHint') || 'Paste the complete unencrypted OpenSSH, RSA, or ECDSA private key. It is encrypted when stored.' }}</div>
+        </div>
         <div class="d2-2col"><D2Field v-model="disc.form.interface" :label="tr('servers.interface') || 'Interface'" /><D2Field v-model="disc.form.server_name" :label="tr('servers.name') || 'Name'" /></div>
         <div v-if="disc.result" class="d2-progress">{{ disc.result }}</div><div v-if="disc.error" style="color:var(--red);font-size:13px">{{ disc.error }}</div>
       </div>
@@ -154,7 +185,7 @@
 
     <D2Modal :open="showAgent" :title="tr('servers.installAgent') || 'Install agent'" size="sm" @close="agentBusy ? null : (showAgent = false)">
       <div style="display:flex;flex-direction:column;gap:12px">
-        <p style="color:var(--text-3);display:inline-flex;align-items:center">{{ agentServer?.name }}<D2HelpTip :text="tr('help.agentMode') || 'Agent manages WG over SSH without storing creds.'" /></p>
+        <p style="color:var(--text-3);display:inline-flex;align-items:center">{{ agentServer?.name }}<D2HelpTip :text="tr('help.agentMode') || 'SSH is used for installation; the local agent then handles ongoing management. Saved credentials are encrypted.'" /></p>
         <!-- current agent state: version + reachability -->
         <div style="display:flex;align-items:center;gap:8px;font-size:12.5px">
           <span style="color:var(--text-3)">{{ tr('servers.agentCurrent') || 'Current agent' }}:</span>
@@ -434,7 +465,7 @@ async function copyText(value) { try { await navigator.clipboard.writeText(Strin
 
 // add
 const showAdd = ref(false), adding = ref(false), addError = ref(''), installProgress = ref(''), detectingIp = ref(false), advOpen = ref(false), reuseKp = ref(false)
-function blank() { return { name: '', endpoint: '', interface: 'wg1', listen_port: 51821, address_pool_ipv4: '10.0.1.0/24', dns: '1.1.1.1,8.8.8.8', max_clients: 250, mtu: null, ssh_host: '', ssh_port: 22, ssh_user: 'root', ssh_password: '', server_type: 'wireguard', server_category: 'vpn', split_tunnel_support: false, ipv4_only: false, agent_mode: 'ssh', mikrotik_url: '', mikrotik_username: 'admin', mikrotik_password: '', proxy_domain: '', proxy_tls_mode: 'self_signed', proxy_obfs_password: '', private_key: '', awg_jc: null, awg_jmin: null, awg_jmax: null, awg_s1: null, awg_s2: null, awg_h1: null, awg_h2: null, awg_h3: null, awg_h4: null } }
+function blank() { return { name: '', endpoint: '', interface: 'wg1', listen_port: 51821, address_pool_ipv4: '10.0.1.0/24', dns: '1.1.1.1,8.8.8.8', max_clients: 250, mtu: null, ssh_host: '', ssh_port: 22, ssh_user: 'root', ssh_auth_method: 'password', ssh_password: '', ssh_private_key: '', server_type: 'wireguard', server_category: 'vpn', split_tunnel_support: false, ipv4_only: false, agent_mode: 'ssh', mikrotik_url: '', mikrotik_username: 'admin', mikrotik_password: '', proxy_domain: '', proxy_tls_mode: 'self_signed', proxy_obfs_password: '', private_key: '', awg_jc: null, awg_jmin: null, awg_jmax: null, awg_s1: null, awg_s2: null, awg_h1: null, awg_h2: null, awg_h3: null, awg_h4: null } }
 const ns = ref(blank())
 function openAdd() { addError.value = ''; installProgress.value = ''; advOpen.value = false; reuseKp.value = false; ns.value = blank(); showAdd.value = true }
 // His card-selector style (category/protocol) — 2px accent border when active.
@@ -453,6 +484,14 @@ async function autodetectIp() {
 async function addServer() {
   addError.value = ''; adding.value = true; installProgress.value = ''
   const p = { ...ns.value }; const isMik = p.agent_mode === 'mikrotik'; const isProxy = p.server_category === 'proxy'; const isRemote = isMik || !!p.ssh_host
+  const sshAuthMethod = p.ssh_auth_method || 'password'; delete p.ssh_auth_method
+  if (p.ssh_host && !isMik && sshAuthMethod === 'private_key') {
+    p.ssh_private_key = p.ssh_private_key?.trim()
+    delete p.ssh_password
+    if (!p.ssh_private_key) { addError.value = tr('servers.sshPrivateKeyRequired') || 'Paste an SSH private key'; adding.value = false; return }
+  } else {
+    delete p.ssh_private_key
+  }
   if (isMik) { delete p.public_key; delete p.private_key; delete p.listen_port }
   if (isProxy) delete p.interface
   if (isProxy && p.server_type !== 'vless-reality' && p.proxy_tls_mode === 'acme' && !p.proxy_domain?.trim()) { addError.value = tr('servers.acmeDomainRequired') || 'ACME requires a domain'; adding.value = false; return }
@@ -461,9 +500,9 @@ async function addServer() {
   if (p.mtu === null || p.mtu === '') delete p.mtu
   if (!reuseKp.value || !p.private_key?.trim()) delete p.private_key
   for (const k of awgKeys) { const v = p[k]; if (v === null || v === '' || (typeof v === 'number' && !Number.isFinite(v))) delete p[k] }
-  if (!p.ssh_host) { delete p.ssh_host; delete p.ssh_port; delete p.ssh_user; delete p.ssh_password }
-  if (isMik) { delete p.ssh_host; delete p.ssh_port; delete p.ssh_user; delete p.ssh_password } else { delete p.mikrotik_url; delete p.mikrotik_username; delete p.mikrotik_password }
-  try { if (isMik) installProgress.value = 'Probing RouterOS…'; else if (isRemote) installProgress.value = 'Connecting via SSH…'; await store.createServer(p); showAdd.value = false } catch (e) { addError.value = e.response?.data?.detail || e.message } finally { adding.value = false; installProgress.value = '' }
+  if (!p.ssh_host) { delete p.ssh_host; delete p.ssh_port; delete p.ssh_user; delete p.ssh_password; delete p.ssh_private_key }
+  if (isMik) { delete p.ssh_host; delete p.ssh_port; delete p.ssh_user; delete p.ssh_password; delete p.ssh_private_key } else { delete p.mikrotik_url; delete p.mikrotik_username; delete p.mikrotik_password }
+  try { if (isMik) installProgress.value = 'Probing RouterOS…'; else if (isRemote) installProgress.value = 'Connecting via SSH…'; await store.createServer(p); ns.value.ssh_password = ''; ns.value.ssh_private_key = ''; showAdd.value = false } catch (e) { addError.value = e.response?.data?.detail || e.message } finally { adding.value = false; installProgress.value = '' }
 }
 
 // rename / default / visibility / delete / reconcile
@@ -696,9 +735,17 @@ async function startReinstallAll() {
 }
 
 // discover
-const disc = reactive({ show: false, busy: false, result: '', error: '', form: { ssh_host: '', ssh_port: 22, ssh_user: 'root', ssh_password: '', interface: 'wg0', server_name: '' } })
-function openDiscover() { disc.result = ''; disc.error = ''; disc.form = { ssh_host: '', ssh_port: 22, ssh_user: 'root', ssh_password: '', interface: 'wg0', server_name: '' }; disc.show = true }
-async function doDiscover() { disc.busy = true; disc.error = ''; disc.result = ''; try { const { data } = await serversApi.discover(disc.form); disc.result = `${data.message || 'Imported'} · ${data.clients_imported ?? 0}`; await store.fetchServers() } catch (e) { disc.error = e.response?.data?.detail || e.message } finally { disc.busy = false } }
+const disc = reactive({ show: false, busy: false, result: '', error: '', form: { ssh_host: '', ssh_port: 22, ssh_user: 'root', ssh_auth_method: 'password', ssh_password: '', ssh_private_key: '', interface: 'wg0', server_name: '' } })
+function openDiscover() { disc.result = ''; disc.error = ''; disc.form = { ssh_host: '', ssh_port: 22, ssh_user: 'root', ssh_auth_method: 'password', ssh_password: '', ssh_private_key: '', interface: 'wg0', server_name: '' }; disc.show = true }
+async function doDiscover() {
+  disc.busy = true; disc.error = ''; disc.result = ''
+  const payload = { ...disc.form }; const sshAuthMethod = payload.ssh_auth_method; delete payload.ssh_auth_method
+  if (sshAuthMethod === 'private_key') {
+    payload.ssh_private_key = payload.ssh_private_key?.trim(); delete payload.ssh_password
+    if (!payload.ssh_private_key) { disc.error = tr('servers.sshPrivateKeyRequired') || 'Paste an SSH private key'; disc.busy = false; return }
+  } else delete payload.ssh_private_key
+  try { const { data } = await serversApi.discover(payload); disc.form.ssh_password = ''; disc.form.ssh_private_key = ''; disc.result = `${data.message || 'Imported'} · ${data.clients_imported ?? 0}`; await store.fetchServers() } catch (e) { disc.error = e.response?.data?.detail || e.message } finally { disc.busy = false }
+}
 
 // keypair
 const kp = reactive({ show: false, loading: false, name: '', data: {} })
@@ -839,6 +886,7 @@ onUnmounted(() => document.removeEventListener('click', onDoc))
 .d2f-input { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text); font-family: inherit; font-size: 14px; }
 .d2f-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .d2f-input.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.d2-keyarea { min-height: 138px; resize: vertical; line-height: 1.45; white-space: pre; }
 .d2-copyrow { display:flex; gap:8px; }
 .d2-copyrow .d2f-input { min-width:0; }
 .d2-copybtn,.d2-mini { display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;padding:0 11px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap; }

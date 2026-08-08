@@ -1382,7 +1382,7 @@ export default {
     trafficLimit: 'Monatliches Datenlimit in GB. 0 = unbegrenzt. Traffic wird am Anfang jedes Abrechnungszeitraums zurückgesetzt.',
     bandwidthLimit: 'Maximale Download-/Upload-Geschwindigkeit in Mbps. 0 = unbegrenzt.',
     maxDevices: 'Maximale Anzahl von WireGuard-Geräten für diesen Client. Jedes Gerät erhält eine eigene VPN-Konfiguration.',
-    agentMode: 'Remote-Agent ermöglicht der API, WireGuard auf diesem Server zu verwalten ohne SSH-Zugangsdaten zu speichern.',
+    agentMode: 'SSH wird zur Installation oder Wiederherstellung des Remote-Agenten verwendet. Danach übernimmt der lokale Agent die Verwaltung; gespeicherte SSH-Zugangsdaten werden verschlüsselt.',
     agentPort: 'Der Port auf dem der Remote-Agent lauscht. Standard: 8765.',
     awgType: 'AmneziaWG ist ein erweitertes Protokoll für stabilere Verbindungen in eingeschränkten Netzwerken. Empfohlen wenn WireGuard unzuverlässig arbeitet.',
     splitTunnel: 'Wenn aktiviert, geht nur Traffic zu konfigurierten Subnetzen durch VPN. Deaktiviert = gesamter Traffic (Full Tunnel).',

@@ -334,7 +334,7 @@ export default {
     "warning": "Предупреждение"
   },
   "help": {
-    "agentMode": "Агент управляет WG по SSH, не храня учётные данные.",
+    "agentMode": "SSH используется для установки или восстановления агента. Затем управление выполняет локальный агент, а сохранённые SSH-данные шифруются.",
     "awgType": "AmneziaWG — обфусцированный протокол для сетей с ограничениями.",
     "bandwidthLimit": "Скорость Mbps, 0 = без ограничений.",
     "corpNetworks": "Корпоративные VPN-сети (site-to-site).",
@@ -672,6 +672,13 @@ export default {
     "sshHost": "SSH хост (пусто = локально)",
     "sshMode": "Режим SSH",
     "sshPassword": "SSH пароль",
+    "sshAuthentication": "Аутентификация SSH",
+    "sshPasswordOption": "Пароль",
+    "sshPrivateKeyOption": "Приватный ключ",
+    "sshPrivateKey": "Приватный ключ SSH",
+    "sshPrivateKeyPlaceholder": "Вставьте сюда полный приватный ключ",
+    "sshPrivateKeyHint": "Вставьте полный незашифрованный приватный ключ OpenSSH, RSA или ECDSA. При хранении он шифруется.",
+    "sshPrivateKeyRequired": "Вставьте приватный ключ SSH",
     "sshPort": "SSH порт",
     "sshUser": "SSH пользователь",
     "startInstall": "Начать установку",
