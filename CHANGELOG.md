@@ -4,6 +4,15 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.91 — 2026-08-08
+
+### Security
+
+- Updated pinned Python runtime and frontend build dependencies to patched
+  versions after newly published security advisories.
+
+---
+
 ## v2.2.90 — 2026-08-08
 
 ### Fixed

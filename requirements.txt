@@ -15,7 +15,7 @@ psycopg2-binary>=2.9.9
 python-telegram-bot>=20.7
 
 # Security
-cryptography>=41.0.0
+cryptography>=50.0.0
 
 # SSH Remote Management
 paramiko>=3.0.0
