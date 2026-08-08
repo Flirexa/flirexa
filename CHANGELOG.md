@@ -4,6 +4,26 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.93 — 2026-08-08
+
+### Security
+
+- Restricted every remote node agent port to the validated control-panel
+  source address, with a fail-closed firewall rule that is restored before the
+  agent starts after reboot.
+
+### Fixed
+
+- Made fresh WireGuard node provisioning authoritative and reboot-safe by
+  replacing stale interface state, enabling the corresponding `wg-quick`
+  service, and verifying the live interface before reporting success.
+- Persisted and verified IPv4 and IPv6 forwarding together with the required
+  WireGuard UDP, NAT, and forwarding rules.
+- Improved clean Debian 13 node bootstrap by installing missing standard
+  WireGuard host prerequisites while keeping DNS resolvers operator-managed.
+
+---
+
 ## v2.2.91 — 2026-08-08
 
 ### Security
