@@ -4,6 +4,19 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.95 — 2026-08-10
+
+### Changed
+
+- Removed the unused legacy authenticated admin interface so the current
+  design2 interface is the single supported admin runtime.
+- Separated server validation and client-portal authentication internals into
+  dedicated modules while preserving existing API routes, mobile Bearer
+  authentication, and browser cookie/refresh sessions.
+- Updated continuous-integration actions to their current runtimes.
+
+---
+
 ## v2.2.94 — 2026-08-08
 
 ### Added

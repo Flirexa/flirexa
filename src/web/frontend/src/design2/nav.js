@@ -4,7 +4,7 @@ const ICON = {
   dashboard: 'grid', online: 'activity', clients: 'users', slots: 'layers', servers: 'server',
   monitoring: 'pulse', health: 'heart', subscriptions: 'card', payments: 'receipt', portal: 'user',
   promo: 'tag', support: 'chat', notifications: 'bell', bots: 'bot', traffic: 'gauge', apps: 'lock',
-  plugins: 'box', backup: 'database', updates: 'download', design: 'tag', settings: 'gear',
+  plugins: 'box', backup: 'database', updates: 'download', settings: 'gear',
   logs: 'list', applogs: 'terminal',
 }
 // his key → { path, label (en fallback) }
@@ -28,7 +28,6 @@ const MAP = {
   plugins: { path: '/plugins', label: 'Plugins' },
   backup: { path: '/backup', label: 'Backup' },
   updates: { path: '/updates', label: 'Updates' },
-  design: { path: '/design', label: 'Design' },
   settings: { path: '/settings', label: 'Settings' },
   logs: { path: '/logs', label: 'Audit Log' },
   applogs: { path: '/app-logs', label: 'App Logs' },
@@ -40,7 +39,7 @@ const GROUPS = [
   { key: 'infrastructure', label: 'Infrastructure', items: ['servers', 'monitoring', 'health'] },
   { key: 'billing', label: 'Billing', items: ['subscriptions', 'payments', 'portal', 'promo'] },
   { key: 'engagement', label: 'Engagement', items: ['support', 'notifications', 'bots', 'traffic'] },
-  { key: 'system', label: 'System', items: ['apps', 'plugins', 'backup', 'updates', 'design', 'settings'] },
+  { key: 'system', label: 'System', items: ['apps', 'plugins', 'backup', 'updates', 'settings'] },
   { key: 'logs', label: 'Logs', items: ['logs', 'applogs'] },
 ]
 

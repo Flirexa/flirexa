@@ -12,10 +12,8 @@ def _read(path: str) -> str:
 
 def test_admin_shell_update_badges_are_explicitly_silent():
     design2 = _read("src/web/frontend/src/design2/shell/D2Shell.vue")
-    legacy = _read("src/web/frontend/src/components/Navbar.vue")
 
     assert "api.get('/updates/status', { timeout: 10000, silent: true })" in design2
-    assert "api.get('/updates/status', { timeout: 10000, silent: true })" in legacy
 
 
 def test_expected_restart_probe_is_silent():

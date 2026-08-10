@@ -1,6 +1,5 @@
-// Registry of NEW-design screens, keyed by vue-router route NAME. D2Shell's
-// content area renders the mapped screen for the current route, else falls back
-// to the Legacy view. These are the FULL screens built 1:1 from the designer's
+// Registry of active screens, keyed by vue-router route name. The router uses
+// these components directly. These are the full screens built from the designer's
 // pixel reference `VPN Admin Panel.dc.html` (all charts / gauges / map / widgets),
 // audited per-section for fidelity. NOTE: the designer's later `vue-handoff/`
 // SFCs (in ./handoff/) are a stripped-down simplification — deliberately NOT
@@ -28,7 +27,6 @@ import D2AppLogs from './D2AppLogs.vue'
 import D2Support from './D2Support.vue'
 import D2TrafficRules from './D2TrafficRules.vue'
 import D2Settings from './D2Settings.vue'
-import D2Design from './D2Design.vue'
 
 export const D2_SCREENS = {
   Dashboard: D2Dashboard,
@@ -54,5 +52,4 @@ export const D2_SCREENS = {
   SupportMessages: D2Support,
   TrafficRules: D2TrafficRules,
   Settings: D2Settings,
-  Design: D2Design,
 }

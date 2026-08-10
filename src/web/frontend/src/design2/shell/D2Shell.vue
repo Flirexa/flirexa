@@ -1,8 +1,7 @@
 <!-- App shell — reproduced 1:1 from the designer's markup (sidebar brand +
      nav groups + user footer; topbar title/subtitle + search + live + theme +
      donate + account + contextual primary action). Nav/theme/logout/branding
-     reuse the existing stores. Content swaps to a registered D2 screen for the
-     current route, else the Legacy view (fallback). -->
+     reuse the existing stores. Router routes point directly to D2 screens. -->
 <template>
   <div style="display:flex;height:100vh;overflow:hidden;background:var(--bg)">
     <!-- mobile backdrop -->
@@ -85,8 +84,8 @@
       </header>
 
       <div style="flex:1;min-width:0;padding:22px">
-        <router-view v-slot="{ Component, route: r }">
-          <component :is="screenFor(r) || Component" />
+        <router-view v-slot="{ Component }">
+          <component :is="Component" />
         </router-view>
       </div>
     </main>
@@ -104,7 +103,6 @@ import { useBrandingStore } from '../../stores/branding'
 import { useLicenseStore } from '../../stores/license'
 import { useD2Ui } from '../../stores/d2ui'
 import { NAV_SECTIONS } from '../nav.js'
-import { D2_SCREENS } from '../screens/registry.js'
 import Icon from '../ui/Icon.vue'
 import DonateModal from './D2DonateModal.vue'
 import api from '../../api'
@@ -142,7 +140,6 @@ const pageTitle = computed(() => {
 const userName = computed(() => branding.appName ? (localStorage.getItem('sb_username') || 'Admin') : (localStorage.getItem('sb_username') || 'Admin'))
 const initials = computed(() => (userName.value || 'A').trim().slice(0, 2).toUpperCase())
 const showProjectAttribution = computed(() => branding.poweredBy !== false)
-function screenFor(r) { return (r && r.name && D2_SCREENS[r.name]) || null }
 function toggleTheme() { system.setTheme(system.theme === 'dark' ? 'light' : 'dark') }
 function donate() { donateOpen.value = true }
 const curLangCode = computed(() => i18n.locale.value || 'en')

@@ -56,18 +56,13 @@ def test_design2_add_and_discover_server_support_explicit_ssh_private_keys():
 def test_paid_panels_hide_donation_automatically():
     app = _read("src/web/frontend/src/App.vue")
     shell = _read("src/web/frontend/src/design2/shell/D2Shell.vue")
-    navbar = _read("src/web/frontend/src/components/Navbar.vue")
 
-    new_branch = app[app.index('v-else-if="design.isNew"'):app.index("<!-- Legacy variant")]
-    assert "DonateModal" not in new_branch
-    assert ':show-donate="showLegacyDonate"' in app
-    assert 'v-if="showLegacyDonate" v-model="donateOpen"' in app
-    assert "setTimeout(() => { donateOpen.value = true }" not in app
-    assert "license.loaded && !license.isPaid" in app
-
+    assert "useDesignMode" not in app
+    assert "showLegacyDonate" not in app
+    assert "components/DonateModal" not in app
     assert "license.loaded && !license.isPaid" in shell
     assert 'v-if="showDonate" @click="donate"' in shell
-    assert 'v-if="showDonate" class="topbar-donate-pill"' in navbar
+    assert "setTimeout(() => { donateOpen.value = true }" not in shell
 
 
 def test_enterprise_attribution_toggle_also_controls_admin_github_link():

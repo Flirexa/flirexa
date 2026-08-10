@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { D2_SCREENS } from '../design2/screens/registry.js'
 
 const routes = [
   {
@@ -10,135 +11,127 @@ const routes = [
   {
     path: '/activation',
     name: 'Activation',
-    component: () => import('../views/Activation.vue'),
+    component: D2_SCREENS.Activation,
     meta: { public: true },
   },
   {
     path: '/',
     name: 'Dashboard',
-    component: () => import('../views/Dashboard.vue'),
+    component: D2_SCREENS.Dashboard,
   },
   {
     path: '/online-users',
     name: 'OnlineUsers',
-    component: () => import('../views/OnlineUsers.vue'),
+    component: D2_SCREENS.OnlineUsers,
   },
   {
     path: '/clients',
     name: 'Clients',
-    component: () => import('../views/Clients.vue'),
+    component: D2_SCREENS.Clients,
   },
   {
     path: '/slots',
     name: 'Slots',
-    component: () => import('../views/Slots.vue'),
+    component: D2_SCREENS.Slots,
   },
   {
     path: '/servers',
     name: 'Servers',
-    component: () => import('../views/Servers.vue'),
+    component: D2_SCREENS.Servers,
   },
   {
     path: '/subscriptions',
     name: 'Subscriptions',
-    component: () => import('../views/Subscriptions.vue'),
+    component: D2_SCREENS.Subscriptions,
   },
   {
     path: '/payments',
     name: 'Payments',
-    component: () => import('../views/Payments.vue'),
+    component: D2_SCREENS.Payments,
   },
   {
     path: '/bots',
     name: 'Bots',
-    component: () => import('../views/Bots.vue'),
+    component: D2_SCREENS.Bots,
   },
   {
     path: '/settings',
     name: 'Settings',
-    component: () => import('../views/Settings.vue').catch(err => {
-      console.error('SETTINGS LOAD ERROR:', err)
-      return { template: '<div class="alert alert-danger m-4"><h5>Settings failed to load</h5><p>Please refresh the page.</p></div>' }
-    }),
+    component: D2_SCREENS.Settings,
   },
   {
-    // Design section — a standalone nav item in the new design. The new-design
-    // shell renders D2Design (registry, route name 'Design'); Legacy has no
-    // Design page (it lives under Settings there), so this component is just a
-    // harmless placeholder for the rare Legacy visit to /design.
     path: '/design',
-    name: 'Design',
-    component: { template: '<div></div>' },
+    redirect: '/settings',
   },
   {
     path: '/portal-users',
     name: 'PortalUsers',
-    component: () => import('../views/PortalUsers.vue'),
+    component: D2_SCREENS.PortalUsers,
   },
   {
     path: '/traffic',
     name: 'TrafficRules',
-    component: () => import('../views/TrafficRules.vue'),
+    component: D2_SCREENS.TrafficRules,
   },
   {
     path: '/logs',
     name: 'Logs',
-    component: () => import('../views/Logs.vue'),
+    component: D2_SCREENS.Logs,
   },
   {
     path: '/app-logs',
     name: 'AppLogs',
-    component: () => import('../views/AppLogs.vue'),
+    component: D2_SCREENS.AppLogs,
   },
   {
     path: '/health',
     name: 'SystemHealth',
-    component: () => import('../views/SystemHealth.vue'),
+    component: D2_SCREENS.SystemHealth,
   },
   {
     path: '/server-monitoring',
     name: 'ServerMonitoring',
-    component: () => import('../views/ServerMonitoring.vue'),
+    component: D2_SCREENS.ServerMonitoring,
   },
   {
     path: '/backup',
     name: 'Backup',
-    component: () => import('../views/Backup.vue'),
+    component: D2_SCREENS.Backup,
   },
   {
     path: '/updates',
     name: 'Updates',
-    component: () => import('../views/Updates.vue'),
+    component: D2_SCREENS.Updates,
   },
   {
     path: '/plugins',
     name: 'Plugins',
-    component: () => import('../views/Plugins.vue'),
+    component: D2_SCREENS.Plugins,
   },
   {
     path: '/promo-codes',
     name: 'PromoCodes',
-    component: () => import('../views/PromoCodes.vue'),
+    component: D2_SCREENS.PromoCodes,
   },
   {
     path: '/support-messages',
     name: 'SupportMessages',
-    component: () => import('../views/SupportMessages.vue'),
+    component: D2_SCREENS.SupportMessages,
   },
   {
     path: '/applications',
     name: 'Applications',
-    component: () => import('../views/Applications.vue'),
+    component: D2_SCREENS.Applications,
   },
   {
     path: '/notifications',
     name: 'Notifications',
-    component: () => import('../views/Notifications.vue'),
+    component: D2_SCREENS.Notifications,
   },
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
-    component: () => import('../views/Dashboard.vue'),
+    component: D2_SCREENS.Dashboard,
     meta: { public: false },
   },
 ]

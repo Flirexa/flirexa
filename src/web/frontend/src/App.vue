@@ -2,56 +2,29 @@
   <div v-if="isLoginPage">
     <router-view />
   </div>
-  <!-- NEW design variant (default) — full shell + router content -->
-  <template v-else-if="design.isNew">
+  <template v-else>
     <D2App />
     <UpgradeBanner />
     <UpgradeModal />
   </template>
-  <!-- Legacy variant — unchanged -->
-  <div v-else class="app-wrapper" :class="{ 'sidebar-collapsed': system.sidebarCollapsed }">
-    <Sidebar />
-    <div class="sidebar-overlay" :class="{ active: system.sidebarOpen }" @click="system.closeSidebar()"></div>
-    <div class="main-content">
-      <Navbar :show-donate="showLegacyDonate" @open-donate="donateOpen = true" />
-      <div class="content-area">
-        <router-view />
-      </div>
-    </div>
-    <DonateModal v-if="showLegacyDonate" v-model="donateOpen" />
-    <UpgradeBanner />
-    <UpgradeModal />
-  </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import Sidebar from './components/Sidebar.vue'
-import Navbar from './components/Navbar.vue'
-import DonateModal from './components/DonateModal.vue'
 import UpgradeBanner from './components/UpgradeBanner.vue'
 import UpgradeModal from './components/UpgradeModal.vue'
 import D2App from './design2/D2App.vue'
-import { useDesignMode } from './stores/designMode'
 import { useSystemStore } from './stores/system'
 import { useBrandingStore } from './stores/branding'
 import { useLicenseStore } from './stores/license'
 
 const route = useRoute()
-const design = useDesignMode()
 const system = useSystemStore()
 const branding = useBrandingStore()
 const license = useLicenseStore()
 
 const isLoginPage = computed(() => route.name === 'Login')
-
-const donateOpen = ref(false)
-// The old donation surface belongs only to the legacy FREE UI. The new shell
-// owns its own design2 modal, and paid operators must never see either one.
-const showLegacyDonate = computed(() =>
-  !design.isNew && license.loaded && !license.isPaid
-)
 
 onMounted(() => {
   system.initTheme()
@@ -70,9 +43,5 @@ onMounted(() => {
 // full-page reload.
 watch(isLoginPage, (onLogin) => {
   if (!onLogin && !license.loaded) license.load()
-})
-
-watch(showLegacyDonate, (allowed) => {
-  if (!allowed) donateOpen.value = false
 })
 </script>

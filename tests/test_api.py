@@ -35,7 +35,7 @@ from src.database.models import (
 from src.database.connection import get_db
 from src.api.main import create_app
 from src.api.middleware.auth import get_current_admin
-from src.api.routes import admin_auth, client_portal
+from src.api.routes import admin_auth, client_portal, client_portal_auth
 from src.modules.subscription.subscription_models import (
     ClientUser,
     ClientRefreshToken,
@@ -463,7 +463,7 @@ class TestAdminPortalUserPassword:
 class TestClientPortalAuthFlows:
     @staticmethod
     def _register_web(client, monkeypatch, username="cookiesession"):
-        monkeypatch.setattr(client_portal, "PORTAL_COOKIE_SECURE", False)
+        monkeypatch.setattr(client_portal_auth, "PORTAL_COOKIE_SECURE", False)
         return client.post(
             "/client-portal/auth/register",
             headers={"X-Portal-Client": "web"},
@@ -521,7 +521,7 @@ class TestClientPortalAuthFlows:
         client,
         monkeypatch,
     ):
-        monkeypatch.setattr(client_portal, "PORTAL_COOKIE_SECURE", True)
+        monkeypatch.setattr(client_portal_auth, "PORTAL_COOKIE_SECURE", True)
         response = client.post(
             "/client-portal/auth/register",
             headers={"X-Portal-Client": "web"},
@@ -615,7 +615,7 @@ class TestClientPortalAuthFlows:
         client,
         monkeypatch,
     ):
-        monkeypatch.setattr(client_portal, "PORTAL_COOKIE_SECURE", False)
+        monkeypatch.setattr(client_portal_auth, "PORTAL_COOKIE_SECURE", False)
         response = client.post("/client-portal/auth/register", json={
             "email": "mobile-bearer@example.com",
             "password": "strong-password-123",

@@ -390,62 +390,6 @@
             </div>
           </div>
 
-          <!-- design toggle (New vs Legacy) -->
-          <div style="max-width:760px">
-            <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:22px 24px;margin-bottom:16px">
-              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
-                <div>
-                  <div style="font-weight:650;font-size:15px">{{ tr('settings.designMode') || 'Design mode' }}</div>
-                  <div style="font-size:12.5px;color:var(--text-2);margin-top:4px;max-width:420px;line-height:1.5">{{ tr('settings.designModeHint') || 'Switch between the new design and the classic (legacy) one.' }}</div>
-                </div>
-                <div style="display:flex;align-items:center;gap:10px;flex:none">
-                  <span :style="{ fontSize:'12.5px', fontWeight:550, color: design.isLegacy ? 'var(--text)' : 'var(--text-3)' }">{{ tr('settings.designLegacy') || 'Legacy' }}</span>
-                  <button @click="toggleDesign" :title="tr('settings.designMode') || 'Design mode'" :style="{ position:'relative', width:'46px', height:'26px', borderRadius:'20px', border:'none', cursor:'pointer', background: design.isNew ? 'var(--accent)' : 'var(--border-strong)', transition:'background .15s', flex:'none' }"><span :style="{ position:'absolute', top:'3px', left: design.isNew ? '23px' : '3px', width:'20px', height:'20px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 3px rgba(0,0,0,.25)' }"></span></button>
-                  <span :style="{ fontSize:'12.5px', fontWeight:550, color: design.isNew ? 'var(--text)' : 'var(--text-3)' }">{{ tr('settings.designNew') || 'New' }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-              <button @click="design.set('new')" :style="{ textAlign:'left', padding:'0', border:'2px solid '+(design.isNew?'var(--accent)':'var(--border)'), background:'var(--panel)', borderRadius:'14px', cursor:'pointer', font:'inherit', overflow:'hidden', boxShadow:'var(--shadow)' }">
-                <div style="height:128px;background:linear-gradient(135deg,var(--accent) 0%,#8b5cf6 100%);position:relative;display:flex;align-items:center;justify-content:center">
-                  <div style="position:absolute;left:14px;top:14px;width:42px;height:calc(100% - 28px);background:rgba(255,255,255,.16);border-radius:8px"></div>
-                  <div style="position:absolute;left:66px;right:14px;top:14px;height:18px;background:rgba(255,255,255,.22);border-radius:5px"></div>
-                  <div style="position:absolute;left:66px;right:14px;top:42px;bottom:14px;background:rgba(255,255,255,.10);border-radius:7px"></div>
-                </div>
-                <div style="padding:14px 16px">
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <span style="font-weight:650;font-size:14px">{{ tr('settings.designNew') || 'New' }}</span>
-                    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:6px;color:#fff;background:var(--accent)">beta</span>
-                    <span v-if="design.isNew" style="margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--green)"><span style="width:7px;height:7px;border-radius:50%;background:var(--green)"></span>{{ tr('settings.designCurrent') || 'Current' }}</span>
-                  </div>
-                  <div style="font-size:12.5px;color:var(--text-3);margin-top:6px;line-height:1.5">{{ tr('settings.designNewDesc') || 'The redesigned flat interface.' }}</div>
-                </div>
-              </button>
-
-              <button @click="design.set('legacy')" :style="{ textAlign:'left', padding:'0', border:'2px solid '+(design.isLegacy?'var(--accent)':'var(--border)'), background:'var(--panel)', borderRadius:'14px', cursor:'pointer', font:'inherit', overflow:'hidden', boxShadow:'var(--shadow)' }">
-                <div style="height:128px;background:#e9ecef;position:relative">
-                  <div style="position:absolute;left:0;top:0;bottom:0;width:54px;background:#343a40"></div>
-                  <div style="position:absolute;left:0;right:0;top:0;height:26px;background:#0d6efd"></div>
-                  <div style="position:absolute;left:68px;right:14px;top:38px;height:30px;background:#fff;border:1px solid #ced4da;border-radius:4px"></div>
-                  <div style="position:absolute;left:68px;right:14px;top:78px;bottom:14px;background:#fff;border:1px solid #ced4da;border-radius:4px"></div>
-                </div>
-                <div style="padding:14px 16px">
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <span style="font-weight:650;font-size:14px">{{ tr('settings.designLegacy') || 'Legacy' }}</span>
-                    <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:6px;color:var(--text-2);background:var(--panel-3)">legacy</span>
-                    <span v-if="design.isLegacy" style="margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--green)"><span style="width:7px;height:7px;border-radius:50%;background:var(--green)"></span>{{ tr('settings.designCurrent') || 'Current' }}</span>
-                  </div>
-                  <div style="font-size:12.5px;color:var(--text-3);margin-top:6px;line-height:1.5">{{ tr('settings.designLegacyDesc') || 'The original Bootstrap interface.' }}</div>
-                </div>
-              </button>
-            </div>
-
-            <div style="margin-top:16px;display:flex;align-items:center;gap:10px;padding:13px 16px;background:var(--amber-soft);border:1px solid var(--amber-soft);border-radius:11px">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="1.8" style="flex:none"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4M12 16h.01"></path></svg>
-              <span style="font-size:12.5px;color:var(--text-2);line-height:1.5">{{ tr('settings.designNote') || 'The switch takes effect immediately and is remembered on this browser.' }}</span>
-            </div>
-          </div>
         </template>
 
       </div>
@@ -458,7 +402,6 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { d2confirm } from '../ui/confirm'
 import { useI18n } from 'vue-i18n'
 import { systemApi } from '../../api'
-import { useDesignMode } from '../../stores/designMode'
 import { useSystemStore } from '../../stores/system'
 import { useBrandingStore } from '../../stores/branding'
 import { useD2Ui } from '../../stores/d2ui'
@@ -468,7 +411,6 @@ import D2BrandingPreview from '../ui/D2BrandingPreview.vue'
 const { t } = useI18n()
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
 
-const design = useDesignMode()
 const system = useSystemStore()
 const branding = useBrandingStore()
 const ui = useD2Ui()
@@ -904,7 +846,6 @@ const themeOptions = computed(() => [
   { key: 'dark', label: tr('settings.themeDark') || 'Dark', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"></path></svg>' },
   { key: 'system', label: tr('settings.themeSystem') || 'System', icon: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>' },
 ])
-function toggleDesign() { design.set(design.isNew ? 'legacy' : 'new') }
 
 onMounted(() => {
   ui.set({ title: tr('nav.settings') || 'Settings' })
