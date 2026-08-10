@@ -124,11 +124,9 @@ class ServerCreate(BaseModel):
                 "name": "Amsterdam Server",
                 "endpoint": "1.2.3.4:51820",
                 "public_key": "example_public_key_base64_44chars==",
-                "private_key": "example_private_key_base64_44chars=",
                 "interface": "wg1",
                 "location": "Netherlands",
-                "ssh_host": "1.2.3.4",
-                "ssh_password": "secret"
+                "ssh_host": "1.2.3.4"
             }
         }
 
