@@ -24,7 +24,8 @@
   /* status */
   --green: #15a34a;  --green-soft: #e7f6ec;
   --red: #dc2626;    --red-soft: #fdecec;
-  --amber: #ea580c;  --amber-soft: #fde6d3;
+  /* Warning surfaces stay neutral. Pale orange does not belong to design2. */
+  --amber: #ea580c;  --amber-soft: var(--panel-2);
   --purple: #7c3aed; --purple-soft: #f1ecfe;
   --blue: #2563eb;   --blue-soft: #e8f0fe;
   --gray-soft: #eef0f2;
@@ -64,7 +65,7 @@
   --accent-ring: rgba(129, 140, 248, .25);
   --green: #34d399;  --green-soft: rgba(52, 211, 153, .13);
   --red: #f87171;    --red-soft: rgba(248, 113, 113, .13);
-  --amber: #fb923c;  --amber-soft: rgba(251, 146, 60, .15);
+  --amber: #fb923c;  --amber-soft: var(--panel-2);
   --purple: #a78bfa; --purple-soft: rgba(167, 139, 250, .16);
   --blue: #60a5fa;   --blue-soft: rgba(96, 165, 250, .15);
   --gray-soft: #22242b;

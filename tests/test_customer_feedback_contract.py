@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.api.routes.system_branding import BrandingUpdateRequest
+from src.api.routes.server_schemas import ServerUpdate
 from src.modules.branding import BRANDING_DEFAULTS
 
 
@@ -51,6 +52,51 @@ def test_design2_add_and_discover_server_support_explicit_ssh_private_keys():
     assert "serversApi.discover(payload)" in source
     assert "ns.value.ssh_private_key = ''" in source
     assert "disc.form.ssh_private_key = ''" in source
+
+
+def test_design2_can_edit_client_endpoint_dns_and_server_metadata_safely():
+    source = _read("src/web/frontend/src/design2/screens/D2Servers.vue")
+
+    assert "tr('servers.editServer')" in source
+    assert 'v-model="edit.form.endpoint"' in source
+    assert 'v-model="edit.form.dns"' in source
+    assert "This does not change the VPS or SSH address" in source
+    assert "Manually downloaded configuration files must be downloaded again" in source
+    assert "await serversApi.update(edit.serverId, payload)" in source
+    assert "Array.isArray(detail)" in source
+
+
+def test_design2_does_not_use_pale_orange_warning_surfaces():
+    tokens = _read("src/web/frontend/src/design2/tokens.css")
+    assert "--amber-soft: var(--panel-2)" in tokens
+    assert "#fde6d3" not in tokens.lower()
+    assert "rgba(251, 146, 60" not in tokens
+
+
+def test_server_update_validates_client_endpoint_and_dns():
+    update = ServerUpdate(
+        endpoint="vpn.example.com:51820",
+        dns=" 1.1.1.1, 2606:4700:4700::1111 ",
+    )
+    assert update.endpoint == "vpn.example.com:51820"
+    assert update.dns == "1.1.1.1,2606:4700:4700::1111"
+    assert ServerUpdate(endpoint="[2001:db8::1]:51820").endpoint == "[2001:db8::1]:51820"
+
+    for payload in (
+        {"endpoint": "not-an-endpoint"},
+        {"endpoint": "example.com:70000"},
+        {"endpoint": "2001:db8::1:51820"},
+        {"dns": "1.1.1.999"},
+        {"dns": "1.1.1.1,,8.8.8.8"},
+    ):
+        with pytest.raises(ValidationError):
+            ServerUpdate(**payload)
+
+
+def test_server_response_returns_dns_for_edit_form_round_trip():
+    source = _read("src/api/routes/server_schemas.py")
+    assert "dns: Optional[str] = None" in source
+    assert "dns=getattr(server, 'dns', None)" in source
 
 
 def test_paid_panels_hide_donation_automatically():

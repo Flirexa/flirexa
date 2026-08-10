@@ -4,6 +4,29 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.99 — 2026-08-10
+
+### Added
+
+- Added safe post-creation server editing in the current admin interface for
+  the display name, location, customer endpoint, client DNS servers, client
+  limit, description, and IPv4-only setting.
+
+### Changed
+
+- Clarified in the server editor that customer endpoint and DNS changes affect
+  newly requested application configurations, while manually downloaded
+  configuration files must be downloaded again.
+- Updated warning and informational surfaces to use the current neutral panel
+  palette consistently in light and dark themes.
+
+### Fixed
+
+- Included configured client DNS servers in server API responses so the edit
+  form always opens with the current saved value.
+
+---
+
 ## v2.2.95 — 2026-08-10
 
 ### Changed

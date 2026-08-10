@@ -228,6 +228,29 @@
       </template>
     </D2Modal>
 
+    <D2Modal :open="edit.show" :title="tr('servers.editServer') || 'Edit server'" size="md" @close="edit.busy ? null : (edit.show = false)">
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="d2-2col">
+          <D2Field v-model="edit.form.display_name" :label="tr('servers.displayName') || 'Display name'" :placeholder="edit.internalName" maxlength="100" />
+          <D2Field v-model="edit.form.location" :label="tr('servers.location') || 'Location'" :placeholder="tr('servers.locationPlaceholder') || 'e.g. Frankfurt, DE'" maxlength="100" />
+        </div>
+        <D2Field v-model="edit.form.endpoint" :label="tr('servers.clientEndpoint') || 'Client endpoint'" :placeholder="tr('servers.endpointPlaceholder') || 'e.g. 1.2.3.4:51820'" maxlength="300" :hint="tr('servers.clientEndpointHint') || 'Public host and port placed in client configurations. This does not change the VPS or SSH address.'" />
+        <D2Field v-model="edit.form.dns" :label="tr('servers.clientDns') || 'Client DNS servers'" :placeholder="tr('servers.dnsPlaceholder') || 'e.g. 1.1.1.1,8.8.8.8'" maxlength="255" :hint="tr('servers.clientDnsHint') || 'Enter up to 8 IPv4 or IPv6 addresses separated by commas.'" />
+        <D2Field v-model="edit.form.max_clients" type="number" :label="tr('servers.maxClients') || 'Max clients'" min="1" />
+        <div class="d2-field">
+          <label class="d2-flabel">{{ tr('servers.description') || 'Description' }}</label>
+          <textarea v-model="edit.form.description" class="d2f-input d2-edit-description" rows="3" maxlength="2000" :placeholder="tr('servers.descriptionPlaceholder') || 'Internal note about this server'"></textarea>
+        </div>
+        <D2Toggle v-if="edit.isVpn" v-model="edit.form.ipv4_only">{{ tr('servers.ipv4OnlyLabel') || 'IPv4 only (no IPv6 in client configs)' }}</D2Toggle>
+        <div class="d2-edit-note">
+          <span class="d2-edit-note-icon"><Icon name="info" :size="16" /></span>
+          <span>{{ tr('servers.editConfigWarning') || 'Official apps receive the new endpoint and DNS on their next configuration request. Manually downloaded configuration files must be downloaded again.' }}</span>
+        </div>
+        <div v-if="edit.error" style="color:var(--red);font-size:13px">{{ edit.error }}</div>
+      </div>
+      <template #footer><D2Button variant="secondary" :disabled="edit.busy" @click="edit.show = false">{{ tr('common.cancel') || 'Cancel' }}</D2Button><D2Button :loading="edit.busy" @click="saveEdit">{{ tr('common.save') || 'Save' }}</D2Button></template>
+    </D2Modal>
+
     <D2Modal :open="showRename" :title="tr('servers.renameDisplay') || 'Rename (display)'" size="sm" @close="showRename = false">
       <D2Field v-model="renameVal" :label="tr('servers.displayName') || 'Display name'" :placeholder="renameInternal" />
       <template #footer><D2Button variant="secondary" @click="showRename = false">{{ tr('common.cancel') || 'Cancel' }}</D2Button><D2Button :loading="savingName" @click="saveRename">{{ tr('common.save') || 'Save' }}</D2Button></template>
@@ -421,6 +444,7 @@ function menuItems(s) {
   if (!proxy) items.push({ icon: 'server', label: tr('servers.installProxy') || 'Install proxy', onClick: () => openInstallProxy(s) })
   items.push({ icon: 'gauge', label: tr('servers.bandwidthLimit') || 'Bandwidth limit', onClick: () => openBw(s) })
   items.push({ divider: true })
+  items.push({ icon: 'pencil', label: tr('servers.editServer') || 'Edit server', onClick: () => openEdit(s) })
   items.push({ icon: 'pencil', label: tr('servers.renameDisplay') || 'Rename', onClick: () => openRename(s) })
   if (!proxy) items.push({ icon: 'layers', label: (tr('servers.splitTunnel') || 'Split tunnel') + (s.split_tunnel_support ? ' · ON' : ' · OFF'), onClick: () => toggleSplit(s) })
   items.push({ icon: vis ? 'eye' : 'eyeoff', label: vis ? (tr('servers.hidePortal') || 'Hide in portal') : (tr('servers.showPortal') || 'Show in portal'), onClick: () => togglePortal(s) })
@@ -505,7 +529,67 @@ async function addServer() {
   try { if (isMik) installProgress.value = 'Probing RouterOS…'; else if (isRemote) installProgress.value = 'Connecting via SSH…'; await store.createServer(p); ns.value.ssh_password = ''; ns.value.ssh_private_key = ''; showAdd.value = false } catch (e) { addError.value = e.response?.data?.detail || e.message } finally { adding.value = false; installProgress.value = '' }
 }
 
-// rename / default / visibility / delete / reconcile
+// edit / rename / default / visibility / delete / reconcile
+const edit = reactive({
+  show: false,
+  busy: false,
+  error: '',
+  serverId: null,
+  internalName: '',
+  isVpn: true,
+  form: { display_name: '', endpoint: '', dns: '', location: '', max_clients: 1, description: '', ipv4_only: false },
+})
+function openEdit(s) {
+  edit.serverId = s.id
+  edit.internalName = s.name || ''
+  edit.isVpn = s.server_category !== 'proxy'
+  edit.error = ''
+  edit.form = {
+    display_name: s.display_name || '',
+    endpoint: s.endpoint || '',
+    dns: s.dns || '',
+    location: s.location || '',
+    max_clients: Number(s.max_clients) || 1,
+    description: s.description || '',
+    ipv4_only: !!s.ipv4_only,
+  }
+  edit.show = true
+}
+function apiErrorMessage(e) {
+  const detail = e?.response?.data?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) return detail.map(item => item?.msg || String(item)).join('; ')
+  if (detail && typeof detail.message === 'string') return detail.message
+  return e?.message || (tr('common.error') || 'Error')
+}
+async function saveEdit() {
+  edit.error = ''
+  const endpoint = edit.form.endpoint.trim()
+  const dns = edit.form.dns.trim()
+  if (!endpoint) { edit.error = tr('servers.endpointRequired') || 'Client endpoint is required'; return }
+  if (!dns) { edit.error = tr('servers.dnsRequired') || 'At least one DNS server is required'; return }
+  if (!Number.isInteger(Number(edit.form.max_clients)) || Number(edit.form.max_clients) < 1) { edit.error = tr('servers.maxClientsInvalid') || 'Max clients must be a positive whole number'; return }
+  edit.busy = true
+  const payload = {
+    display_name: edit.form.display_name.trim() || null,
+    endpoint,
+    dns,
+    location: edit.form.location.trim() || null,
+    max_clients: Number(edit.form.max_clients),
+    description: edit.form.description.trim() || null,
+  }
+  if (edit.isVpn) payload.ipv4_only = !!edit.form.ipv4_only
+  try {
+    await serversApi.update(edit.serverId, payload)
+    await store.fetchServers()
+    edit.show = false
+  } catch (e) {
+    edit.error = apiErrorMessage(e)
+  } finally {
+    edit.busy = false
+  }
+}
+
 const showRename = ref(false), renameId = ref(null), renameVal = ref(''), renameInternal = ref(''), savingName = ref(false)
 function openRename(s) { renameId.value = s.id; renameInternal.value = s.name; renameVal.value = s.display_name || ''; showRename.value = true }
 async function saveRename() { if (!renameId.value) return; savingName.value = true; try { await serversApi.update(renameId.value, { display_name: renameVal.value.trim() || null }); await store.fetchServers(); showRename.value = false } catch (e) { alert(e.response?.data?.detail || 'Error') } finally { savingName.value = false } }
@@ -887,6 +971,9 @@ onUnmounted(() => document.removeEventListener('click', onDoc))
 .d2f-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .d2f-input.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 .d2-keyarea { min-height: 138px; resize: vertical; line-height: 1.45; white-space: pre; }
+.d2-edit-description { min-height: 82px; resize: vertical; line-height: 1.45; }
+.d2-edit-note { display:flex;align-items:flex-start;gap:10px;padding:12px 13px;border:1px solid var(--border-strong);background:var(--panel-2);border-radius:10px;color:var(--text);font-size:12px;font-weight:500;line-height:1.55; }
+.d2-edit-note-icon { width:27px;height:27px;display:grid;place-items:center;flex:none;margin-top:-1px;border-radius:8px;background:var(--accent-soft);color:var(--accent); }
 .d2-copyrow { display:flex; gap:8px; }
 .d2-copyrow .d2f-input { min-width:0; }
 .d2-copybtn,.d2-mini { display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;padding:0 11px;font:inherit;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap; }

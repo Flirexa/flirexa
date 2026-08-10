@@ -2,6 +2,7 @@
 
 from datetime import datetime
 import ipaddress
+import re
 from typing import Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -25,6 +26,62 @@ def _validate_ipv4_pool(v):
     except (ValueError, TypeError) as e:
         raise ValueError(f"Invalid IPv4 network for address_pool_ipv4: {v!r}") from e
     return v
+
+
+def _validate_client_endpoint(v):
+    """Validate the public host:port written into generated client configs."""
+    if v is None:
+        return v
+    value = v.strip()
+    if not value:
+        raise ValueError("Client endpoint cannot be empty")
+
+    if value.startswith("["):
+        closing = value.find("]")
+        if closing < 0 or closing + 1 >= len(value) or value[closing + 1] != ":":
+            raise ValueError("IPv6 endpoints must use [address]:port")
+        host = value[1:closing]
+        port_text = value[closing + 2:]
+        try:
+            parsed = ipaddress.ip_address(host)
+        except ValueError as exc:
+            raise ValueError("Invalid IPv6 endpoint address") from exc
+        if parsed.version != 6:
+            raise ValueError("Bracketed endpoint must contain an IPv6 address")
+    else:
+        if value.count(":") != 1:
+            raise ValueError("Client endpoint must use host:port")
+        host, port_text = value.rsplit(":", 1)
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            if not re.fullmatch(_HOSTNAME_PATTERN, host):
+                raise ValueError("Invalid endpoint host")
+
+    try:
+        port = int(port_text)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Endpoint port must be a number") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("Endpoint port must be between 1 and 65535")
+    return value
+
+
+def _validate_dns_servers(v):
+    """Validate the comma-separated DNS IPs written into client configs."""
+    if v is None:
+        return v
+    value = v.strip()
+    if not value:
+        raise ValueError("At least one DNS server is required")
+    items = [item.strip() for item in value.split(",")]
+    if not 1 <= len(items) <= 8 or any(not item for item in items):
+        raise ValueError("DNS must contain 1 to 8 comma-separated IP addresses")
+    try:
+        canonical = [str(ipaddress.ip_address(item)) for item in items]
+    except ValueError as exc:
+        raise ValueError("DNS entries must be IPv4 or IPv6 addresses") from exc
+    return ",".join(canonical)
 
 
 # ============================================================================
@@ -135,12 +192,12 @@ class ServerUpdate(BaseModel):
     """Schema for updating a server"""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     display_name: Optional[str] = Field(None, max_length=100)
-    endpoint: Optional[str] = None
-    dns: Optional[str] = None
+    endpoint: Optional[str] = Field(None, max_length=300)
+    dns: Optional[str] = Field(None, max_length=255)
     max_clients: Optional[int] = Field(None, ge=1)
     max_bandwidth_mbps: Optional[int] = Field(None, ge=0)
-    description: Optional[str] = None
-    location: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=2000)
+    location: Optional[str] = Field(None, max_length=100)
     supports_peer_visibility: Optional[bool] = None
     split_tunnel_support: Optional[bool] = None
     ipv4_only: Optional[bool] = None
@@ -171,6 +228,16 @@ class ServerUpdate(BaseModel):
     awg_h3: Optional[int] = Field(None, ge=1)
     awg_h4: Optional[int] = Field(None, ge=1)
     awg_mtu: Optional[int] = Field(None, ge=576, le=9000)
+
+    @field_validator("endpoint")
+    @classmethod
+    def _validate_endpoint(cls, v):
+        return _validate_client_endpoint(v)
+
+    @field_validator("dns")
+    @classmethod
+    def _validate_dns(cls, v):
+        return _validate_dns_servers(v)
 
 
 class ProxyInstallRequest(BaseModel):
@@ -213,6 +280,7 @@ class ServerResponse(BaseModel):
     display_name: Optional[str] = None
     interface: str
     endpoint: str
+    dns: Optional[str] = None
     listen_port: int
     # Network identity is intentionally part of the list response: the active
     # admin UI renders it in each server card's Details disclosure.  Keeping
@@ -338,6 +406,7 @@ class ServerResponse(BaseModel):
             display_name=getattr(server, 'display_name', None),
             interface=server.interface,
             endpoint=server.endpoint,
+            dns=getattr(server, 'dns', None),
             listen_port=server.listen_port,
             public_key=getattr(server, 'public_key', None),
             address_pool_ipv4=getattr(server, 'address_pool_ipv4', None),
