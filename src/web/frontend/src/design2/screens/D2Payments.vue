@@ -2,7 +2,7 @@
      (ID·user·amount·method·status·date·actions). Wired to portalUsersApi. -->
 <template>
   <div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px">
+    <div class="d2-pay-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px">
       <div v-for="s in payStats" :key="s.label" style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:15px 18px">
         <div style="font-size:12.5px;color:var(--text-2)">{{ s.label }}</div>
         <div :style="{ fontSize:'24px', fontWeight:680, letterSpacing:'-.02em', marginTop:'7px', color:s.color }">{{ s.value }}</div>
@@ -17,7 +17,7 @@
     <div v-if="loading && !payments.length" style="color:var(--text-3);padding:24px;text-align:center">{{ tr('common.loading') || 'Loading…' }}</div>
     <div v-else-if="!filtered.length" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:56px 24px;text-align:center"><div style="width:54px;height:54px;border-radius:14px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 14px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path></svg></div><div style="font-size:15px;font-weight:600">{{ tr('payments.emptyTitle') || 'No payments' }}</div><div style="font-size:13px;color:var(--text-3);margin-top:4px">{{ tr('payments.emptySub') || 'Payments will appear here' }}</div></div>
 
-    <div v-else style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div style="overflow-x:auto">
+    <div v-else class="d2-desktop-only" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="text-align:left">
           <th class="d2-th" style="padding-left:20px">ID</th><th class="d2-th">{{ tr('payments.user') || 'User' }}</th><th class="d2-th">{{ tr('payments.amount') || 'Amount' }}</th><th class="d2-th">{{ tr('payments.method') || 'Method' }}</th><th class="d2-th">{{ tr('payments.status') || 'Status' }}</th><th class="d2-th">{{ tr('payments.date') || 'Date' }}</th><th class="d2-th" style="text-align:right;padding-right:20px">{{ tr('common.actions') || 'Actions' }}</th>
@@ -41,6 +41,36 @@
         </tbody>
       </table>
     </div></div>
+
+    <div v-if="filtered.length" class="d2-mobile-only d2-mobile-list">
+      <article v-for="p in filtered" :key="'mobile-'+p.id" class="d2-mobile-item">
+        <div class="d2-mobile-summary">
+          <div class="d2-mobile-main">
+            <div class="d2-mobile-title">{{ p.user }}</div>
+            <div class="d2-mobile-sub">{{ p.email || ('#' + p.id) }}</div>
+          </div>
+          <div style="text-align:right;flex:none">
+            <div class="mono" style="font-size:14px;font-weight:650">{{ p.amountLabel }}</div>
+            <div :style="{fontSize:'11.5px',fontWeight:600,color:p.statusColor,marginTop:'2px'}">{{ p.statusLabel }}</div>
+          </div>
+        </div>
+        <div class="d2-mobile-details">
+          <div class="d2-mobile-kv">
+            <span>{{ tr('payments.method') || 'Method' }}</span><span>{{ p.method }}</span>
+            <span>{{ tr('payments.date') || 'Date' }}</span><span class="mono">{{ p.date }}</span>
+            <span>{{ tr('promo.tier') || 'Tier' }}</span><span>{{ p.tier || '—' }}</span>
+            <span>ID</span><span class="mono">#{{ p.id }}</span>
+          </div>
+          <div class="d2-mobile-actions">
+            <template v-if="p.isPending">
+              <button @click="confirm(p)" class="d2-mobile-action positive">{{ tr('payments.confirm') || 'Confirm' }}</button>
+              <button @click="reject(p)" class="d2-mobile-action danger">{{ tr('payments.reject') || 'Reject' }}</button>
+            </template>
+            <button v-else @click="askDelete(p)" class="d2-mobile-action danger">{{ tr('common.delete') || 'Delete' }}</button>
+          </div>
+        </div>
+      </article>
+    </div>
 
     <!-- Confirm modal — his CONFIRM MODAL (warning icon / title+message /
          optional reason textarea for reject / cancel + busy confirm). -->
@@ -145,5 +175,13 @@ onMounted(() => { ui.set({ title: tr('nav.payments') || 'Payments', search: true
 .d2-del:hover { background: var(--red-soft); color: var(--red); }
 .d2-search:focus, .d2-reason:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); background: var(--panel); }
 .d2-btn-cancel:hover { background: var(--panel-2); }
+.d2-mobile-action { min-height:34px;padding:0 12px;border:1px solid var(--border-strong);border-radius:9px;background:var(--panel);color:var(--text-2);font:inherit;font-size:12px;font-weight:600; }
+.d2-mobile-action.positive { color:var(--green);border-color:var(--green-soft);background:var(--green-soft); }
+.d2-mobile-action.danger { color:var(--red);border-color:var(--red-soft);background:var(--red-soft); }
+@media (max-width: 900px) {
+  .d2-pay-stats { grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:9px !important; }
+  .d2-pay-stats > div { padding:12px 13px !important; }
+  .d2-pay-stats > div > div:nth-child(2) { font-size:20px !important;margin-top:4px !important; }
+}
 @keyframes d2spin { to { transform: rotate(360deg); } }
 </style>

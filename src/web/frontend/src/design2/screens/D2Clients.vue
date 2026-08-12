@@ -18,12 +18,19 @@
     </div>
 
     <!-- filters -->
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+    <div class="d2-clients-filters" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
       <div style="font-size:12.5px;color:var(--text-3)">{{ orderedClients.length }} {{ tr('nav.clients') || 'clients' }}</div>
       <select v-model="filterStatus" class="d2-sel"><option value="">{{ tr('clients.allStatuses') || 'All statuses' }}</option><option value="enabled">{{ tr('common.enabled') || 'Enabled' }}</option><option value="disabled">{{ tr('common.disabled') || 'Disabled' }}</option><option value="online">{{ tr('common.online') || 'Online' }}</option><option value="offline">{{ tr('common.offline') || 'Offline' }}</option><option value="expiring">{{ tr('clients.expiringSoon') || 'Expiring soon' }}</option></select>
       <select v-model="filterServer" class="d2-sel"><option value="">{{ tr('clients.allServers') || 'All servers' }}</option><option v-for="s in servers" :key="s.id" :value="s.id">{{ s.name }}</option></select>
       <select v-if="segments.length" v-model="filterSegment" class="d2-sel"><option value="">{{ tr('clients.allSegments') || 'All segments' }}</option><option v-for="s in segments" :key="s.id" :value="s.id">{{ s.name }}</option></select>
       <button @click="openSegments" style="margin-left:auto;display:flex;align-items:center;gap:7px;height:34px;padding:0 13px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer" class="d2-hoverpanel2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6h18M3 12h18M3 18h18"></path></svg>{{ tr('clients.segments.title') || 'Segments' }}</button>
+      <details class="d2-client-card-options">
+        <summary><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5"></path><circle cx="16" cy="6" r="2"></circle><circle cx="8" cy="12" r="2"></circle><circle cx="13" cy="18" r="2"></circle></svg>{{ tr('clients.mobileFields') || 'Card fields' }}</summary>
+        <div class="d2-client-card-options-menu">
+          <div class="d2-client-card-options-title">{{ tr('clients.mobileFieldsHint') || 'Show before opening the card' }}</div>
+          <label v-for="option in mobileFieldOptions" :key="option.key"><input type="checkbox" :checked="isMobilePrimary(option.key)" @change="toggleMobileField(option.key)"><span>{{ option.label }}</span></label>
+        </div>
+      </details>
     </div>
 
     <!-- empty -->
@@ -34,8 +41,8 @@
     </div>
 
     <!-- table -->
-    <div v-else style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden">
-      <div style="overflow-x:auto">
+    <div v-else class="d2-clients-list" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden">
+      <div class="d2-clients-desktop" style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr style="text-align:left">
             <th style="padding:11px 12px 11px 20px;width:36px"><input type="checkbox" :checked="allPageSelected" @change="toggleSelectAll" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent)"></th>
@@ -51,16 +58,16 @@
           </tr></thead>
           <tbody>
             <tr v-for="c in rows" :key="c.id" :class="{ hot: c.id === highlightedClientId }" style="border-top:1px solid var(--border)">
-              <td style="padding:12px 12px 12px 20px"><input type="checkbox" :checked="selectedIds.has(c.id)" @change="toggleSelect(c.id)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent)"></td>
-              <td style="padding:12px 12px"><div style="display:flex;align-items:center;gap:8px"><span :title="c.statusTitle" :style="{ width:'7px', height:'7px', borderRadius:'50%', background:c.dotColor, flex:'none' }"></span><div><div style="font-weight:550">{{ c.name }}</div><div class="mono" style="font-size:11.5px;color:var(--text-3)">{{ c.ip }}</div></div></div></td>
-              <td style="padding:12px 12px;color:var(--text-2)">{{ c.server }}</td>
-              <td style="padding:12px 12px"><span :style="{ display:'inline-flex', alignItems:'center', fontSize:'11.5px', fontWeight:600, padding:'3px 8px', borderRadius:'7px', color:c.protoColor, background:c.protoBg }">{{ c.protoLabel }}</span></td>
-              <td style="padding:12px 12px"><div class="mono" style="font-size:11.5px;color:var(--text-2)">{{ c.trafficLabel }}</div><div v-if="c.hasLimit" style="height:4px;border-radius:3px;background:var(--panel-3);overflow:hidden;margin-top:4px;width:96px"><div :style="{ height:'100%', borderRadius:'3px', background:c.trafficBarColor, width:c.trafficPct }"></div></div></td>
-              <td class="mono" style="padding:12px 12px;font-size:12px;color:var(--text-2)">{{ c.bwLabel }}</td>
-              <td style="padding:12px 12px"><span v-if="c.segment" :style="{ display:'inline-flex', alignItems:'center', gap:'5px', fontSize:'11px', fontWeight:600, padding:'2px 8px', borderRadius:'6px', color:'#fff', background:c.segColor }">{{ c.segment }}</span><span v-else style="font-size:12px;color:var(--text-3)">—</span></td>
-              <td style="padding:12px 12px;font-size:12px" :style="{ color: c.expiresColor }">{{ c.expiresLabel }}</td>
-              <td style="padding:12px 12px"><button @click="toggleClient(c._raw)" :title="c.toggleTitle" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background: c.enabled ? 'var(--accent)' : 'var(--border-strong)' }"><span :style="{ position:'absolute', top:'2px', left: c.enabled ? '18px' : '2px', width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button></td>
-              <td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end">
+              <td data-mhide style="padding:12px 12px 12px 20px"><input type="checkbox" :checked="selectedIds.has(c.id)" @change="toggleSelect(c.id)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent)"></td>
+              <td data-mhead style="padding:12px 12px"><div style="display:flex;align-items:center;gap:8px"><span :title="c.statusTitle" :style="{ width:'7px', height:'7px', borderRadius:'50%', background:c.dotColor, flex:'none' }"></span><div><div style="font-weight:550">{{ c.name }}</div><div class="mono d2-client-head-ip" :class="{ keep: isMobilePrimary('ip') }" style="font-size:11.5px;color:var(--text-3)">{{ c.ip }}</div></div></div></td>
+              <td :data-label="tr('clients.server') || 'Server'" :data-mprimary="isMobilePrimary('server') ? '' : null" style="padding:12px 12px;color:var(--text-2)">{{ c.server }}</td>
+              <td :data-label="tr('clients.protocol') || 'Protocol'" :data-mprimary="isMobilePrimary('protocol') ? '' : null" style="padding:12px 12px"><span :style="{ display:'inline-flex', alignItems:'center', fontSize:'11.5px', fontWeight:600, padding:'3px 8px', borderRadius:'7px', color:c.protoColor, background:c.protoBg }">{{ c.protoLabel }}</span></td>
+              <td :data-label="tr('clients.traffic') || 'Traffic'" :data-mprimary="isMobilePrimary('traffic') ? '' : null" style="padding:12px 12px"><div class="mono" style="font-size:11.5px;color:var(--text-2)">{{ c.trafficLabel }}</div><div v-if="c.hasLimit" style="height:4px;border-radius:3px;background:var(--panel-3);overflow:hidden;margin-top:4px;width:96px"><div :style="{ height:'100%', borderRadius:'3px', background:c.trafficBarColor, width:c.trafficPct }"></div></div></td>
+              <td :data-label="tr('clients.bandwidth') || 'Bandwidth'" :data-mprimary="isMobilePrimary('bandwidth') ? '' : null" class="mono" style="padding:12px 12px;font-size:12px;color:var(--text-2)">{{ c.bwLabel }}</td>
+              <td :data-label="tr('clients.segment') || 'Segment'" :data-mprimary="isMobilePrimary('segment') ? '' : null" style="padding:12px 12px"><span v-if="c.segment" :style="{ display:'inline-flex', alignItems:'center', gap:'5px', fontSize:'11px', fontWeight:600, padding:'2px 8px', borderRadius:'6px', color:'#fff', background:c.segColor }">{{ c.segment }}</span><span v-else style="font-size:12px;color:var(--text-3)">—</span></td>
+              <td :data-label="tr('clients.expiry') || 'Expires'" :data-mprimary="isMobilePrimary('expiry') ? '' : null" style="padding:12px 12px;font-size:12px" :style="{ color: c.expiresColor }">{{ c.expiresLabel }}</td>
+              <td :data-label="tr('clients.status') || 'Status'" :data-mprimary="isMobilePrimary('status') ? '' : null" style="padding:12px 12px"><button @click="toggleClient(c._raw)" :title="c.toggleTitle" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background: c.enabled ? 'var(--accent)' : 'var(--border-strong)' }"><span :style="{ position:'absolute', top:'2px', left: c.enabled ? '18px' : '2px', width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button></td>
+              <td data-mfull style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end">
                 <button @click="showConfig(c._raw)" :title="tr('clients.tipConfig') || 'Config'" class="d2-rowbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg></button>
                 <button @click="generateShareLink(c._raw)" :title="tr('clients.shareLinkTitle') || 'Share link'" class="d2-rowbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007 0l2-2a5 5 0 00-7-7l-1 1"></path><path d="M14 11a5 5 0 00-7 0l-2 2a5 5 0 007 7l1-1"></path></svg></button>
                 <button @click="editClient(c._raw)" :title="tr('clients.tipEdit') || 'Edit'" class="d2-rowbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"></path></svg></button>
@@ -70,11 +77,54 @@
           </tbody>
         </table>
       </div>
+      <div class="d2-clients-mobile">
+        <div v-for="c in rows" :key="c.id" class="d2-client-mobile-row" :class="{ hot: c.id === highlightedClientId }">
+          <input type="checkbox" :checked="selectedIds.has(c.id)" :aria-label="c.name" @change="toggleSelect(c.id)">
+          <button type="button" class="d2-client-mobile-main" @click="openMobileClient(c)">
+            <span class="d2-client-mobile-title"><i :style="{ background:c.dotColor }"></i><b>{{ c.name }}</b></span>
+            <span class="d2-client-mobile-primary">
+              <span v-if="isMobilePrimary('server')">{{ c.server }}</span>
+              <span v-if="isMobilePrimary('protocol')" :style="{ color:c.protoColor, background:c.protoBg }">{{ c.protoLabel }}</span>
+              <span v-if="isMobilePrimary('ip')" class="mono">{{ c.ip }}</span>
+              <span v-if="isMobilePrimary('traffic')">{{ c.trafficLabel }}</span>
+              <span v-if="isMobilePrimary('bandwidth')">{{ c.bwLabel }}</span>
+              <span v-if="isMobilePrimary('segment') && c.segment">{{ c.segment }}</span>
+              <span v-if="isMobilePrimary('expiry')">{{ c.expiresLabel }}</span>
+              <span v-if="isMobilePrimary('status')">{{ c.statusTitle }}</span>
+            </span>
+          </button>
+          <button type="button" class="d2-client-mobile-more" :aria-label="tr('clients.tipMore') || 'More'" @click="openMobileClient(c)">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+          </button>
+        </div>
+      </div>
       <div v-if="totalPages > 1" style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-top:1px solid var(--border)">
         <div style="font-size:12px;color:var(--text-3)">{{ currentPage }} / {{ totalPages }}</div>
         <div style="margin-left:auto;display:flex;gap:6px"><button @click="currentPage > 1 && currentPage--" class="d2-btn-sm">{{ tr('common.prev') || 'Prev' }}</button><button @click="currentPage < totalPages && currentPage++" class="d2-btn-sm">{{ tr('common.next') || 'Next' }}</button></div>
       </div>
     </div>
+
+    <D2MobileSheet :open="!!mobileClient" :title="mobileClient?.name || ''" :close-label="tr('common.close') || 'Close'" @close="mobileClient = null">
+      <template v-if="mobileClient">
+        <div class="d2-client-sheet-status"><span :style="{ background:mobileClient.dotColor }"></span>{{ mobileClient.statusTitle }}</div>
+        <dl class="d2-client-sheet-details">
+          <div><dt>{{ tr('clients.server') || 'Server' }}</dt><dd>{{ mobileClient.server }}</dd></div>
+          <div><dt>{{ tr('clients.protocol') || 'Protocol' }}</dt><dd>{{ mobileClient.protoLabel }}</dd></div>
+          <div><dt>IP</dt><dd class="mono">{{ mobileClient.ip }}</dd></div>
+          <div><dt>{{ tr('clients.traffic') || 'Traffic' }}</dt><dd>{{ mobileClient.trafficLabel }}</dd></div>
+          <div><dt>{{ tr('clients.bandwidth') || 'Bandwidth' }}</dt><dd>{{ mobileClient.bwLabel }}</dd></div>
+          <div><dt>{{ tr('clients.segment') || 'Segment' }}</dt><dd>{{ mobileClient.segment || '—' }}</dd></div>
+          <div><dt>{{ tr('clients.expiry') || 'Expires' }}</dt><dd :style="{ color:mobileClient.expiresColor }">{{ mobileClient.expiresLabel }}</dd></div>
+        </dl>
+        <div class="d2-client-sheet-actions">
+          <button type="button" @click="mobileClientAction('toggle')">{{ mobileClient.enabled ? (tr('common.disable') || 'Disable') : (tr('common.enable') || 'Enable') }}</button>
+          <button type="button" @click="mobileClientAction('config')">{{ tr('clients.tipConfig') || 'Config' }}</button>
+          <button type="button" @click="mobileClientAction('share')">{{ tr('clients.shareLinkTitle') || 'Share link' }}</button>
+          <button type="button" @click="mobileClientAction('edit')">{{ tr('clients.tipEdit') || 'Edit' }}</button>
+          <button type="button" class="danger" @click="mobileClientAction('delete')">{{ tr('common.delete') || 'Delete' }}</button>
+        </div>
+      </template>
+    </D2MobileSheet>
 
     <!-- modals (functional; his modal markup is a later pass) -->
     <D2Modal :open="showCreateModal" :title="tr('clients.createTitle') || 'Create client'" @close="showCreateModal = false">
@@ -213,7 +263,7 @@
         <!-- list -->
         <div v-if="!segments.length" style="padding:32px;text-align:center;font-size:13px;color:var(--text-3)">{{ tr('clients.segments.empty') || 'No segments yet.' }}</div>
         <div v-else style="border:1px solid var(--border);border-radius:13px;overflow:hidden"><div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <table data-rtab style="width:100%;border-collapse:collapse;font-size:12.5px">
             <thead><tr style="text-align:left">
               <th class="d2-segth" style="padding:10px 16px">{{ tr('clients.segments.name') || 'Name' }}</th>
               <th class="d2-segth">{{ tr('clients.segments.members') || 'Members' }}</th>
@@ -224,12 +274,12 @@
             </tr></thead>
             <tbody>
               <tr v-for="sg in segments" :key="sg.id" style="border-top:1px solid var(--border)" class="d2-hoverpanel2">
-                <td style="padding:11px 16px"><div style="display:flex;align-items:center;gap:9px"><span :style="{ width:'10px', height:'10px', borderRadius:'50%', background: sg.color || '#6B7280', flex:'none' }"></span><div><div style="font-weight:600">{{ sg.name }}</div><div style="font-size:11px;color:var(--text-3)">{{ sg.notes || '—' }}</div></div></div></td>
-                <td class="mono" style="padding:11px 10px;color:var(--text-2)">{{ sg.member_count ?? '—' }}</td>
-                <td class="mono" style="padding:11px 10px;color:var(--text-2)">{{ sg.bandwidth_limit ? sg.bandwidth_limit + ' Mbps' : '∞' }}</td>
-                <td class="mono" style="padding:11px 10px;color:var(--text-2)">{{ sg.traffic_limit_mb ? formatMB(sg.traffic_limit_mb) : '∞' }}</td>
-                <td style="padding:11px 10px;color:var(--text-3)">{{ sg.expiry_date ? fmtDate(sg.expiry_date) : '∞' }}</td>
-                <td style="padding:11px 16px"><div style="display:flex;gap:3px;justify-content:flex-end">
+                <td data-mhead style="padding:11px 16px"><div style="display:flex;align-items:center;gap:9px"><span :style="{ width:'10px', height:'10px', borderRadius:'50%', background: sg.color || '#6B7280', flex:'none' }"></span><div><div style="font-weight:600">{{ sg.name }}</div><div style="font-size:11px;color:var(--text-3)">{{ sg.notes || '—' }}</div></div></div></td>
+                <td :data-label="tr('clients.segments.members') || 'Members'" class="mono" style="padding:11px 10px;color:var(--text-2)">{{ sg.member_count ?? '—' }}</td>
+                <td :data-label="tr('dashboard.bandwidth') || 'Bandwidth'" class="mono" style="padding:11px 10px;color:var(--text-2)">{{ sg.bandwidth_limit ? sg.bandwidth_limit + ' Mbps' : '∞' }}</td>
+                <td :data-label="tr('clients.segments.trafficLimit') || 'Traffic'" class="mono" style="padding:11px 10px;color:var(--text-2)">{{ sg.traffic_limit_mb ? formatMB(sg.traffic_limit_mb) : '∞' }}</td>
+                <td :data-label="tr('clients.expiry') || 'Expiry'" style="padding:11px 10px;color:var(--text-3)">{{ sg.expiry_date ? fmtDate(sg.expiry_date) : '∞' }}</td>
+                <td data-mfull style="padding:11px 16px"><div style="display:flex;gap:3px;justify-content:flex-end">
                   <button type="button" @click="applySegment(sg)" :title="tr('clients.segments.apply') || 'Apply'" style="height:28px;padding:0 9px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:7px;font:inherit;font-size:11.5px;font-weight:550;cursor:pointer" class="d2-hoverpanel2">{{ tr('clients.segments.apply') || 'Apply' }}</button>
                   <button type="button" @click="enableSegment(sg)" :title="tr('clients.segments.enableAll') || 'Enable all'" style="width:28px;height:28px;border-radius:7px;border:none;background:transparent;color:var(--green);cursor:pointer;display:flex;align-items:center;justify-content:center" class="d2-hoverpanel3"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg></button>
                   <button type="button" @click="disableSegment(sg)" :title="tr('clients.segments.disableAll') || 'Disable all'" style="width:28px;height:28px;border-radius:7px;border:none;background:transparent;color:var(--text-3);cursor:pointer;display:flex;align-items:center;justify-content:center" class="d2-hoverpanel3"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
@@ -260,6 +310,7 @@ import D2Toggle from '../ui/D2Toggle.vue'
 import D2Button from '../ui/D2Button.vue'
 import D2HelpTip from '../ui/D2HelpTip.vue'
 import D2Countdown from '../ui/D2Countdown.vue'
+import D2MobileSheet from '../ui/D2MobileSheet.vue'
 
 const { t } = useI18n()
 function tr(k, p) { try { const v = t(k, p || {}); return v === k ? '' : v } catch (_) { return '' } }
@@ -278,6 +329,44 @@ const servers = ref([]); const segments = ref([])
 const bulkSegmentId = ref(''); const selectedIds = ref(new Set())
 const currentPage = ref(1); const pageSize = 50
 const sortKey = ref(''); const sortDir = ref('asc')
+const MOBILE_FIELDS_KEY = 'flirexa:d2:clients-mobile-fields'
+const MOBILE_FIELDS_DEFAULT = ['server', 'protocol']
+function loadMobileFields() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MOBILE_FIELDS_KEY) || 'null')
+    return Array.isArray(saved) ? saved.filter(Boolean) : [...MOBILE_FIELDS_DEFAULT]
+  } catch (_) { return [...MOBILE_FIELDS_DEFAULT] }
+}
+const mobileFields = ref(loadMobileFields())
+const mobileClient = ref(null)
+const mobileFieldOptions = computed(() => [
+  { key: 'ip', label: 'IP' },
+  { key: 'server', label: tr('clients.server') || 'Server' },
+  { key: 'protocol', label: tr('clients.protocol') || 'Protocol' },
+  { key: 'traffic', label: tr('clients.traffic') || 'Traffic' },
+  { key: 'bandwidth', label: tr('clients.bandwidth') || 'Bandwidth' },
+  { key: 'segment', label: tr('clients.segment') || 'Segment' },
+  { key: 'expiry', label: tr('clients.expiry') || 'Expires' },
+  { key: 'status', label: tr('clients.status') || 'Status' },
+])
+function isMobilePrimary(key) { return mobileFields.value.includes(key) }
+function toggleMobileField(key) {
+  const next = new Set(mobileFields.value)
+  if (next.has(key)) next.delete(key); else next.add(key)
+  mobileFields.value = [...next]
+  try { localStorage.setItem(MOBILE_FIELDS_KEY, JSON.stringify(mobileFields.value)) } catch (_) {}
+}
+function openMobileClient(client) { mobileClient.value = client }
+function mobileClientAction(action) {
+  const row = mobileClient.value
+  if (!row) return
+  mobileClient.value = null
+  if (action === 'toggle') toggleClient(row._raw)
+  else if (action === 'config') showConfig(row._raw)
+  else if (action === 'share') generateShareLink(row._raw)
+  else if (action === 'edit') editClient(row._raw)
+  else if (action === 'delete') removeClient(row._raw)
+}
 
 // ── create/share/edit/config: reuse verified logic ──
 const showCreateModal = ref(false); const creating = ref(false); const createError = ref('')
@@ -510,6 +599,51 @@ tr.hot td { background: var(--green-soft); animation: d2hot 60s ease-out forward
 .d2-chip { height: 30px; padding: 0 11px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text-2); border-radius: 8px; font: inherit; font-size: 11.5px; font-family: 'JetBrains Mono', monospace; cursor: pointer; }
 .d2-chip:hover { background: var(--panel-2); }
 .d2-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+.d2-client-card-options { display:none; position:relative; }
+.d2-client-card-options summary { list-style:none; display:flex;align-items:center;gap:7px;height:34px;padding:0 12px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font-size:12.5px;font-weight:550;cursor:pointer; }
+.d2-client-card-options summary::-webkit-details-marker { display:none; }
+.d2-client-card-options-menu { position:absolute;right:0;top:40px;z-index:25;width:min(260px, calc(100vw - 48px));padding:10px;background:var(--panel);border:1px solid var(--border);border-radius:11px;box-shadow:var(--shadow-lg); }
+.d2-client-card-options-title { padding:3px 4px 8px;font-size:11px;color:var(--text-3); }
+.d2-client-card-options-menu label { display:flex;align-items:center;gap:9px;padding:8px 6px;font-size:13px;color:var(--text-2);cursor:pointer; }
+.d2-client-card-options-menu input { accent-color:var(--accent);width:16px;height:16px; }
+.d2-clients-mobile { display:none; }
+.d2-client-sheet-status { display:flex;align-items:center;gap:7px;margin-bottom:12px;color:var(--text-2);font-size:12px;font-weight:600; }
+.d2-client-sheet-status span { width:8px;height:8px;border-radius:50%; }
+.d2-client-sheet-details { margin:0;border:1px solid var(--border);border-radius:12px;overflow:hidden; }
+.d2-client-sheet-details > div { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 12px;border-top:1px solid var(--border); }
+.d2-client-sheet-details > div:first-child { border-top:0; }
+.d2-client-sheet-details dt { color:var(--text-3);font-size:11.5px; }
+.d2-client-sheet-details dd { margin:0;min-width:0;text-align:right;overflow-wrap:anywhere;color:var(--text-2);font-size:12.5px;font-weight:550; }
+.d2-client-sheet-actions { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px; }
+.d2-client-sheet-actions button { min-height:40px;padding:8px 11px;border:1px solid var(--border-strong);border-radius:10px;background:var(--panel-2);color:var(--text-2);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer; }
+.d2-client-sheet-actions button.danger { color:var(--red);background:var(--red-soft);border-color:transparent; }
+
+@media (max-width:900px) {
+  .d2-clients-filters { display:grid !important;grid-template-columns:1fr 1fr;align-items:center !important; }
+  .d2-clients-filters > div:first-child { grid-column:1 / -1; }
+  .d2-clients-filters .d2-sel { width:100%;min-width:0; }
+  .d2-clients-filters > .d2-hoverpanel2 { margin-left:0 !important;justify-content:center; }
+  .d2-client-card-options { display:block; }
+  .d2-clients-list { background:transparent !important;border:0 !important;box-shadow:none !important;overflow:visible !important; }
+  .d2-clients-desktop { display:none; }
+  .d2-clients-mobile { display:block;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden; }
+  .d2-client-mobile-row { display:flex;align-items:center;gap:9px;min-height:64px;padding:8px 9px 8px 12px;border-top:1px solid var(--border);background:var(--panel); }
+  .d2-client-mobile-row:first-child { border-top:0; }
+  .d2-client-mobile-row.hot { background:var(--green-soft); }
+  .d2-client-mobile-row > input { width:16px;height:16px;flex:none;accent-color:var(--accent); }
+  .d2-client-mobile-main { display:block;flex:1;min-width:0;padding:3px 0;border:0;background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer; }
+  .d2-client-mobile-title { display:flex;align-items:center;gap:7px;min-width:0; }
+  .d2-client-mobile-title i { width:7px;height:7px;border-radius:50%;flex:none; }
+  .d2-client-mobile-title b { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:650; }
+  .d2-client-mobile-primary { display:flex;align-items:center;gap:5px;min-width:0;margin-top:5px;overflow:hidden;color:var(--text-3);font-size:10.5px; }
+  .d2-client-mobile-primary > span { flex:none;max-width:42%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .d2-client-mobile-primary > span + span::before { content:'·';margin-right:5px;color:var(--text-3); }
+  .d2-client-mobile-primary > span[style] { padding:2px 5px;border-radius:5px;font-weight:600; }
+  .d2-client-mobile-primary > span[style]::before { content:none; }
+  .d2-client-mobile-more { width:38px;height:38px;display:grid;place-items:center;flex:none;border:0;border-radius:10px;background:transparent;color:var(--text-3);cursor:pointer; }
+  .d2-client-mobile-more:active { background:var(--panel-2);color:var(--text); }
+}
 
 /* segments manager table headers */
 .d2-segth { padding: 10px 10px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); text-align: left; }

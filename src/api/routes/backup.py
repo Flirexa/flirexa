@@ -39,7 +39,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 from src.database.connection import get_db
-from src.modules.backup_manager import BackupManager
+from src.modules.backup_manager import BackupAlreadyRunningError, BackupManager
 from ..middleware.license_gate import require_license_feature
 
 router = APIRouter()
@@ -151,6 +151,8 @@ def create_backup(db: Session = Depends(get_db)):
         # Strip internal-only fields before returning to the UI
         safe = {k: v for k, v in metadata.items() if k not in ("archive_path", "checksums")}
         return {"success": True, "backup": safe}
+    except BackupAlreadyRunningError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         logger.error(f"Backup creation failed: {exc}")
         raise HTTPException(status_code=500, detail=f"Backup failed: {exc}")

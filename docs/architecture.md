@@ -1,6 +1,6 @@
 # Architecture
 
-_Last verified: 2026-07-30._
+_Last verified: 2026-08-13._
 
 ---
 
@@ -53,6 +53,19 @@ The main FastAPI application. Handles:
 **Port:** 10086 (configurable via `API_PORT`)
 **Process:** Uvicorn, 1 worker
 **Tech:** Python 3.10+, FastAPI, SQLAlchemy, Alembic
+
+---
+
+### Admin Frontend
+
+The authenticated Vue 3 application is served by the API process. Desktop and
+mobile use the same routes and API contracts, but phone/tablet breakpoints use
+compact summaries, expandable detail, bottom sheets, and touch-sized actions
+instead of squeezing desktop tables into the viewport.
+
+The System Health page is `/system-health`. The separate unauthenticated
+`GET /health` endpoint remains reserved for service liveness and update smoke
+checks; UI routes must not reuse it.
 
 ---
 

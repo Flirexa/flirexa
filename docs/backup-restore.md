@@ -1,6 +1,6 @@
 # Backup and Restore
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-08-13._
 
 ---
 
@@ -48,6 +48,17 @@ A current full archive is named `vpnmanager-backup-<backup_id>.tar.gz` and uses
 the `tar.gz/v2` format. It includes a compressed PostgreSQL dump, `.env`, local
 WireGuard/AmneziaWG configuration, per-server exports, product version, metadata,
 and checksums. Store a copy off the application host.
+
+Archive creation is serialized across the admin API, scheduler, CLI, and
+worker. If one backup is already running, another request receives a clear busy
+response instead of starting a second dump or racing retention. The mobile
+admin view also keeps the create action disabled with visible progress while
+the request is running.
+
+On phones and tablets, Archives, Schedule, and Storage are separate compact
+views. Archive rows keep date, size, type, and verification state readable;
+verify, restore, database-only restore, and delete actions open in a focused
+bottom sheet rather than a horizontally compressed desktop table.
 
 ## Restore
 

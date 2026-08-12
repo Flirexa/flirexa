@@ -3,26 +3,33 @@
      Wired to clientsApi.getAll + serversApi.getAll + serversApi.getBandwidth (per-peer live rates). -->
 <template>
   <div class="d2-ou-root">
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px">
-      <div v-for="s in onlineStats" :key="s.label" style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:16px 18px">
+    <div class="d2-ou-stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px">
+      <div v-for="(s, index) in onlineStats" :key="s.label" :class="['d2-ou-stat', { 'd2-ou-stat-total': index === 0 }]" style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:16px 18px">
         <div style="font-size:12.5px;color:var(--text-2)">{{ s.label }}</div>
         <div :style="{ fontSize:'26px', fontWeight:680, letterSpacing:'-.02em', marginTop:'8px', color:s.color }">{{ s.value }}</div>
       </div>
     </div>
 
-    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
-      <button v-for="ch in serverChips" :key="ch.key" @click="ch.on" :style="{ height:'32px', padding:'0 13px', border:'1px solid '+ch.border, background:ch.bg, color:ch.color, borderRadius:'8px', font:'inherit', fontSize:'12.5px', fontWeight:ch.weight, cursor:'pointer' }">{{ ch.label }}</button>
-      <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <div class="d2-ou-filterbar" style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+      <div class="d2-ou-chips"><button v-for="ch in serverChips" :key="ch.key" @click="ch.on" :style="{ height:'32px', padding:'0 13px', border:'1px solid '+ch.border, background:ch.bg, color:ch.color, borderRadius:'8px', font:'inherit', fontSize:'12.5px', fontWeight:ch.weight, cursor:'pointer' }">{{ ch.label }}</button></div>
+      <label class="d2-ou-server-select">
+        <span>{{ tr('onlineUsers.server') || 'Server' }}</span>
+        <select :value="filterServer ?? ''" @change="onServerSelect">
+          <option value="">{{ tr('onlineUsers.showAll') || 'All servers' }} ({{ onlineAll.length }})</option>
+          <option v-for="s in serversWithOnline" :key="s.id" :value="s.id">{{ s.name }} ({{ countFor(s.id) }})</option>
+        </select>
+      </label>
+      <div class="d2-ou-live" style="margin-left:auto;display:flex;align-items:center;gap:8px">
         <span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-3)"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s ease-in-out infinite"></span>{{ tr('onlineUsers.live') || 'Live' }}</span>
         <select :value="onlineInterval" @change="onOnlineInterval" style="height:32px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:8px;padding:0 8px;font:inherit;font-size:12.5px;outline:none;cursor:pointer"><option value="5">5 {{ tr('onlineUsers.sec') || 'sec' }}</option><option value="10">10 {{ tr('onlineUsers.sec') || 'sec' }}</option><option value="30">30 {{ tr('onlineUsers.sec') || 'sec' }}</option><option value="60">60 {{ tr('onlineUsers.sec') || 'sec' }}</option></select>
       </div>
     </div>
 
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden">
+    <div class="d2-ou-list" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden">
       <div v-if="!onlineUsers.length" style="padding:56px 24px;text-align:center"><div style="width:54px;height:54px;border-radius:14px;background:var(--gray-soft);color:var(--text-3);display:flex;align-items:center;justify-content:center;margin:0 auto 14px"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h4l2-5 4 10 2-5h6"></path></svg></div><div style="font-size:15px;font-weight:600">{{ loading ? (tr('common.loading') || 'Loading…') : (tr('onlineUsers.emptyTitle') || 'No one online') }}</div><div style="font-size:13px;color:var(--text-3);margin-top:4px">{{ tr('onlineUsers.emptySub') || 'Active clients will appear here in real time' }}</div></div>
 
-      <div v-else style="overflow-x:auto">
-        <table data-rtab data-rcollapse style="width:100%;border-collapse:collapse;font-size:13px">
+      <div v-else class="d2-ou-desktop" style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr style="text-align:left">
             <th style="padding:11px 20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)">{{ tr('onlineUsers.client') || 'Client' }}</th>
             <th style="padding:11px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)">{{ tr('onlineUsers.server') || 'Server' }}</th>
@@ -42,6 +49,23 @@
             </tr>
           </tbody>
         </table>
+      </div>
+      <div v-if="onlineUsers.length" class="d2-ou-mobile">
+        <article v-for="u in onlineUsers" :key="u.id" class="d2-ou-mobile-card">
+          <div class="d2-ou-mobile-top">
+            <div class="d2-ou-mobile-avatar"><span>{{ u.initials }}</span><i></i></div>
+            <div class="d2-ou-mobile-main">
+              <div class="d2-ou-mobile-name">{{ u.name }}</div>
+              <div class="d2-ou-mobile-meta"><span>{{ u.server }}</span><b>·</b><span class="mono">{{ u.ip }}</span></div>
+            </div>
+            <time>{{ u.since }}</time>
+          </div>
+          <div class="d2-ou-mobile-metrics">
+            <span class="down">↓ {{ u.rx }} Mbps</span>
+            <span class="up">↑ {{ u.tx }} Mbps</span>
+            <span class="total">{{ tr('onlineUsers.total') || 'Total' }} {{ u.total }}</span>
+          </div>
+        </article>
       </div>
     </div>
   </div>
@@ -100,6 +124,7 @@ async function refresh() {
 function stopTimer() { if (timer) { clearInterval(timer); timer = null } }
 function startTimer() { stopTimer(); if (!document.hidden) timer = setInterval(() => silentPoll(refresh), onlineInterval.value * 1000) }
 function onOnlineInterval(e) { onlineInterval.value = Number(e.target.value) || 5; startTimer() }
+function onServerSelect(e) { filterServer.value = e.target.value === '' ? null : Number(e.target.value) }
 function onVisibilityChange() {
   if (document.hidden) stopTimer()
   else { silentPoll(refresh); startTimer() }
@@ -166,6 +191,38 @@ onUnmounted(() => { stopTimer(); document.removeEventListener('visibilitychange'
 <style scoped>
 .mono { font-family: 'JetBrains Mono', monospace; }
 .d2-ou-row:hover { background: var(--panel-2); }
+.d2-ou-chips { display:flex;gap:7px;flex-wrap:wrap; }
+.d2-ou-server-select { display:none; }
+.d2-ou-mobile { display:none; }
+@media (max-width: 900px) {
+  .d2-ou-stats { grid-template-columns:1fr 1fr !important; gap:10px !important; }
+  .d2-ou-stat { padding:14px !important; min-width:0; }
+  .d2-ou-stat-total { grid-column:1 / -1; }
+  .d2-ou-stat :deep(div:last-child) { font-size:22px !important; }
+  .d2-ou-chips { display:none; }
+  .d2-ou-filterbar { display:grid !important; grid-template-columns:minmax(0, 1fr) auto; gap:10px !important; }
+  .d2-ou-server-select { display:flex; flex-direction:column; gap:5px; min-width:0; }
+  .d2-ou-server-select span { font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-3); }
+  .d2-ou-server-select select { width:100%; height:42px; border:1px solid var(--border-strong); background:var(--panel); color:var(--text); border-radius:10px; padding:0 34px 0 12px; font:inherit; font-size:13px; outline:none; }
+  .d2-ou-live { align-self:end; margin-left:0 !important; height:42px; }
+  .d2-ou-list { background:transparent !important;border:0 !important;box-shadow:none !important;overflow:visible !important; }
+  .d2-ou-desktop { display:none; }
+  .d2-ou-mobile { display:flex;flex-direction:column;gap:9px; }
+  .d2-ou-mobile-card { padding:13px 14px;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow); }
+  .d2-ou-mobile-top { display:flex;align-items:center;gap:10px;min-width:0; }
+  .d2-ou-mobile-avatar { position:relative;flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:700; }
+  .d2-ou-mobile-avatar i { position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border:2px solid var(--panel);border-radius:50%;background:var(--green); }
+  .d2-ou-mobile-main { flex:1;min-width:0; }
+  .d2-ou-mobile-name { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:650; }
+  .d2-ou-mobile-meta { display:flex;align-items:center;gap:5px;min-width:0;margin-top:2px;color:var(--text-3);font-size:11px; }
+  .d2-ou-mobile-meta span { overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+  .d2-ou-mobile-meta b { font-weight:400;flex:none; }
+  .d2-ou-mobile-top time { align-self:flex-start;flex:none;color:var(--text-3);font-size:10.5px;white-space:nowrap; }
+  .d2-ou-mobile-metrics { display:flex;align-items:center;gap:8px;margin:10px 0 0 44px;padding-top:9px;border-top:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:10.5px; }
+  .d2-ou-mobile-metrics .down { color:var(--green); }
+  .d2-ou-mobile-metrics .up { color:var(--blue); }
+  .d2-ou-mobile-metrics .total { margin-left:auto;color:var(--text-3); }
+}
 </style>
 
 <!-- His live dots use `animation:pulse` inline (not scope-rewritten), so the

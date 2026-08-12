@@ -6,7 +6,7 @@
   <div class="d2-root">
     <div :style="{ display:'grid', gridTemplateColumns: gDashMain, gap:'14px', alignItems:'start', marginBottom:'14px' }">
       <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+        <div class="d2-update-current-head" style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
           <div>
             <div style="font-size:11px;color:var(--text-3)">{{ tr('updates.currentVersion') || 'Current version' }}</div>
             <div style="font-size:22px;font-weight:680;font-family:'JetBrains Mono',monospace">{{ updCurrent }}</div>
@@ -19,7 +19,7 @@
           </div>
         </div>
         <div v-if="updateAvailable" style="padding:14px 16px;border:1px solid var(--accent-soft);background:var(--accent-soft);border-radius:12px">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <div class="d2-update-available-head" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
             <span style="font-weight:650;font-size:14px;color:var(--accent)">{{ tr('updates.newVersionAvailable') || 'New version available' }} · {{ availVersion }}</span>
             <button @click="apply" :disabled="applying" style="margin-left:auto;height:34px;padding:0 14px;border:none;background:var(--accent);color:#fff;border-radius:8px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer" class="d2u-accent">{{ applying ? (tr('updates.installing') || 'Installing…') : (tr('updates.applyNow') || 'Update now') }}</button>
           </div>
@@ -86,7 +86,7 @@
 
     <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden">
       <div style="font-weight:600;font-size:14px;padding:16px 20px 12px">{{ tr('updates.history') || 'Update history' }}</div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <table class="d2-desktop-only" style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="text-align:left;border-top:1px solid var(--border)">
           <th style="padding:9px 20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)">{{ tr('updates.version') || 'Version' }}</th>
           <th style="padding:9px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)">{{ tr('updates.date') || 'Date' }}</th>
@@ -106,6 +106,22 @@
           <tr v-if="!rows.length"><td colspan="4" style="text-align:center;color:var(--text-3);padding:24px">{{ tr('updates.noHistory') || 'No update history' }}</td></tr>
         </tbody>
       </table>
+      <div class="d2-mobile-only d2-mobile-list" style="padding:0 12px 12px">
+        <article v-for="(h, i) in rows" :key="'mobile-'+(h.id ?? i)" class="d2-mobile-item" style="box-shadow:none">
+          <div class="d2-mobile-summary">
+            <div class="d2-mobile-main">
+              <div class="d2-mobile-title mono">{{ h.version }}</div>
+              <div class="d2-mobile-sub">{{ h.date }}</div>
+            </div>
+            <span :style="{fontSize:'10.5px',fontWeight:600,padding:'3px 7px',borderRadius:'6px',color:h.statusColor,background:h.statusBg}">{{ h.statusLabel }}</span>
+          </div>
+          <div class="d2-mobile-actions" style="margin-top:9px">
+            <button @click="openLog(h)" class="d2-update-mobile-btn">{{ tr('updates.log') || 'Log' }}</button>
+            <button v-if="h.canRollback" @click="rollback(h)" class="d2-update-mobile-btn">{{ tr('updates.rollbackNow') || 'Roll back' }}</button>
+          </div>
+        </article>
+        <div v-if="!rows.length" style="padding:18px;text-align:center;color:var(--text-3)">{{ tr('updates.noHistory') || 'No update history' }}</div>
+      </div>
     </div>
 
     <D2Modal :open="logModal.show" size="md" @close="logModal.show = false">
@@ -279,5 +295,13 @@ onBeforeUnmount(() => { window.removeEventListener('resize', onResize); stopInst
   max-height: 190px; overflow-y: auto; background: var(--panel-2); border: 1px solid var(--border);
   border-radius: 10px; padding: 11px 13px; font-family: 'JetBrains Mono', monospace;
   font-size: 11.5px; color: var(--text-2); line-height: 1.55;
+}
+.d2-update-mobile-btn { min-height:32px;padding:0 11px;border:1px solid var(--border-strong);border-radius:8px;background:var(--panel);color:var(--text-2);font:inherit;font-size:11.5px;font-weight:600; }
+@media (max-width:900px) {
+  .d2-update-current-head { display:grid !important;grid-template-columns:1fr auto !important;gap:8px 10px !important; }
+  .d2-update-current-head > div:last-child { grid-column:1 / -1;margin-left:0 !important; }
+  .d2-update-current-head > div:last-child button { width:100%;justify-content:center; }
+  .d2-update-available-head { align-items:flex-start !important;flex-direction:column !important; }
+  .d2-update-available-head button { width:100%;margin-left:0 !important; }
 }
 </style>

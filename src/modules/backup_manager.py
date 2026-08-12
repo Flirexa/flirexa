@@ -20,6 +20,7 @@ Legacy format v1: backup_YYYYMMDD_HHMMSS/ directories (read-only, listed alongsi
 """
 
 import os
+import fcntl
 import re
 import json
 import shutil
@@ -28,6 +29,7 @@ import socket
 import subprocess
 import tarfile
 import tempfile
+from functools import wraps
 from urllib.parse import urlparse, unquote
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -45,6 +47,31 @@ from src.utils.runtime_paths import get_app_version, get_backup_root
 BACKUP_DIR = str(get_backup_root())
 CURRENT_VERSION = get_app_version()
 _LEGACY_BACKUP_VERSION_MARKERS = {"5.2"}
+_BACKUP_CREATE_LOCK = "/tmp/flirexa-backup-create.lock"
+
+
+class BackupAlreadyRunningError(RuntimeError):
+    """Raised when another manual or scheduled backup already owns the lock."""
+
+
+def _single_backup_creation(fn):
+    """Serialize archive creation across API, scheduler, CLI, and workers."""
+
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        with open(_BACKUP_CREATE_LOCK, "a+", encoding="utf-8") as lock_file:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise BackupAlreadyRunningError(
+                    "Another backup is already being created"
+                ) from exc
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    return wrapped
 
 
 def _get_pg_params() -> dict:
@@ -393,6 +420,7 @@ class BackupManager:
         archive_name = f"vpnmanager-backup-{backup_id}.tar.gz"
         return backup_id, archive_name
 
+    @_single_backup_creation
     def create_full_backup(
         self,
         *,
@@ -606,6 +634,7 @@ class BackupManager:
         logger.info(f"EVENT:BACKUP_SUCCESS {archive_name} {metadata['archive_size_mb']}MB clients={total_clients}")
         return metadata
 
+    @_single_backup_creation
     def create_database_backup(
         self,
         *,

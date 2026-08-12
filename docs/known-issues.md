@@ -1,6 +1,6 @@
 # Known Issues
 
-_Last verified: 2026-07-30._
+_Last verified: 2026-08-13._
 
 This page contains current, actionable product behavior only. Historical
 incidents and release notes live in Git and the changelog.
@@ -36,6 +36,24 @@ The client portal currently uses manual checkout/renewal. Existing signed
 fail-closed until every extension can be tied to one newly verified provider
 settlement. This does not change Flirexa monthly, annual, or Lifetime licence
 purchases.
+
+## 5. AmneziaWG availability depends on the operating-system release
+
+The supported Ubuntu 22.04 LTS and 24.04 LTS profiles normally receive
+WireGuard and AmneziaWG. A newer or otherwise unsupported OS may not have a
+compatible AmneziaWG package repository yet. The installer reports this before
+changing the host and requires explicit consent before continuing with
+WireGuard only; it must not claim that AmneziaWG was installed.
+
+For unattended installation, reduced protocol availability must be accepted
+explicitly:
+
+```bash
+SB_ALLOW_WIREGUARD_ONLY=1 sudo bash install.sh --non-interactive
+```
+
+This flag does not make the detected OS part of the supported production
+matrix.
 
 ## Support rule
 

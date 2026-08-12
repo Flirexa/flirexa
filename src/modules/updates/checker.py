@@ -30,11 +30,14 @@ import httpx
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
+_DEFAULT_UPDATE_SERVER_URL = "https://flirexa.biz"
+_DEFAULT_UPDATE_SERVER_BACKUP_URL = "https://" + "global-" + "connection.site"
+
 _UPDATE_SERVER_URL = os.getenv(
     "UPDATE_SERVER_URL",
     # Public Flirexa update server. Operators running their own license
     # server set UPDATE_SERVER_URL in .env to override this default.
-    "https://flirexa.biz",
+    _DEFAULT_UPDATE_SERVER_URL,
 )
 
 # Separate connect and read timeouts for better diagnostics
@@ -186,11 +189,37 @@ def _canonical_manifest_payload(manifest: dict) -> dict:
     return payload
 
 
+def _backup_update_server_url() -> str:
+    """Return the configured failover origin without hijacking custom setups.
+
+    Flirexa-managed panels get the independently hosted backup by default.
+    Operators that point UPDATE_SERVER_URL at their own infrastructure must
+    explicitly opt into a backup with UPDATE_SERVER_BACKUP_URL.
+    """
+    configured = os.getenv("UPDATE_SERVER_BACKUP_URL")
+    if configured is not None:
+        return configured.strip().rstrip("/")
+    primary_host = urlparse(_UPDATE_SERVER_URL).hostname
+    if primary_host == urlparse(_DEFAULT_UPDATE_SERVER_URL).hostname:
+        return _DEFAULT_UPDATE_SERVER_BACKUP_URL
+    return ""
+
+
+def _update_server_origins() -> list[str]:
+    origins = []
+    for value in (_UPDATE_SERVER_URL, _backup_update_server_url()):
+        value = value.strip().rstrip("/")
+        if value and value not in origins:
+            origins.append(value)
+    return origins
+
+
 def _allowed_update_hosts() -> set[str]:
     hosts = set()
-    primary = urlparse(_UPDATE_SERVER_URL).hostname
-    if primary:
-        hosts.add(primary)
+    for origin in _update_server_origins():
+        host = urlparse(origin).hostname
+        if host:
+            hosts.add(host)
     extra = os.getenv("UPDATE_SERVER_ALLOWED_HOSTS", "")
     for host in extra.split(","):
         host = host.strip()
@@ -222,9 +251,56 @@ def is_compatible(manifest: dict, current: str) -> bool:
 
 # ── Fetch manifest ─────────────────────────────────────────────────────────────
 
-def _manifest_url(channel: str) -> str:
-    base = _UPDATE_SERVER_URL.rstrip("/")
+def _manifest_url(channel: str, base_url: Optional[str] = None) -> str:
+    base = (base_url or _UPDATE_SERVER_URL).rstrip("/")
     return f"{base}/updates/{channel}/manifest.json"
+
+
+async def _fetch_raw_manifest(url: str) -> Tuple[Optional[dict], Optional[str], bool]:
+    """Fetch one manifest origin.
+
+    The final boolean marks transport/server failures that may safely fail over
+    to another origin. Schema, signature, and trust validation remains outside
+    this helper and is never bypassed by failover.
+    """
+    try:
+        timeout = httpx.Timeout(
+            connect=_CONNECT_TIMEOUT,
+            read=_READ_TIMEOUT,
+            write=5.0,
+            pool=5.0,
+        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url)
+
+            if resp.status_code == 404:
+                return None, "No manifest found for requested channel", False
+            if resp.status_code == 403:
+                return None, "Update server rejected request (403 Forbidden) — check admin token", False
+            if resp.status_code >= 500:
+                return None, f"Update server error (HTTP {resp.status_code}) — try again later", True
+            if resp.status_code != 200:
+                return None, f"Update server returned HTTP {resp.status_code}", False
+
+            content = resp.content
+            if len(content) > _MAX_MANIFEST_BYTES:
+                return None, f"Manifest response too large ({len(content)} bytes) — rejected for security", False
+            return resp.json(), None, False
+    except httpx.ConnectTimeout:
+        return None, "Update server connection timeout — check network connectivity", True
+    except httpx.ReadTimeout:
+        return None, "Update server read timeout — server may be slow", True
+    except httpx.ConnectError as exc:
+        err_str = str(exc).lower()
+        if any(x in err_str for x in ("name", "dns", "resolve", "nodename", "no address", "getaddrinfo")):
+            return None, "Cannot reach update server: DNS resolution failed", True
+        return None, "Cannot reach update server: connection refused", True
+    except httpx.TLSError as exc:
+        return None, f"TLS error connecting to update server: {type(exc).__name__}", True
+    except httpx.TimeoutException:
+        return None, "Update server timeout", True
+    except Exception as exc:
+        return None, f"Failed to reach update server: {type(exc).__name__}", True
 
 
 async def fetch_manifest(channel: str = "stable", force: bool = False) -> Tuple[Optional[dict], Optional[str]]:
@@ -242,48 +318,24 @@ async def fetch_manifest(channel: str = "stable", force: bool = False) -> Tuple[
             logger.debug("Using cached manifest for channel={}", channel)
             return manifest, None
 
-    url = _manifest_url(channel)
-    try:
-        timeout = httpx.Timeout(
-            connect=_CONNECT_TIMEOUT,
-            read=_READ_TIMEOUT,
-            write=5.0,
-            pool=5.0,
-        )
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(url)
+    raw_manifest = None
+    origin_errors = []
+    for index, origin in enumerate(_update_server_origins()):
+        url = _manifest_url(channel, origin)
+        raw_manifest, error, retryable = await _fetch_raw_manifest(url)
+        if raw_manifest is not None:
+            if index:
+                logger.warning("Using backup update origin after primary failure: {}", origin)
+            break
+        origin_errors.append(error or "Unknown update server error")
+        if not retryable:
+            return None, error
+        logger.warning("Update manifest origin unavailable: {} ({})", origin, error)
 
-            if resp.status_code == 404:
-                return None, f"No manifest found for channel '{channel}'"
-            if resp.status_code == 403:
-                return None, "Update server rejected request (403 Forbidden) — check admin token"
-            if resp.status_code >= 500:
-                return None, f"Update server error (HTTP {resp.status_code}) — try again later"
-            if resp.status_code != 200:
-                return None, f"Update server returned HTTP {resp.status_code}"
-
-            # Guard against unexpectedly large responses
-            content = resp.content
-            if len(content) > _MAX_MANIFEST_BYTES:
-                return None, f"Manifest response too large ({len(content)} bytes) — rejected for security"
-
-            raw_manifest = resp.json()
-
-    except httpx.ConnectTimeout:
-        return None, "Update server connection timeout — check network connectivity"
-    except httpx.ReadTimeout:
-        return None, "Update server read timeout — server may be slow"
-    except httpx.ConnectError as e:
-        err_str = str(e).lower()
-        if any(x in err_str for x in ("name", "dns", "resolve", "nodename", "no address", "getaddrinfo")):
-            return None, "Cannot reach update server: DNS resolution failed"
-        return None, "Cannot reach update server: connection refused"
-    except httpx.TLSError as e:
-        return None, f"TLS error connecting to update server: {type(e).__name__}"
-    except httpx.TimeoutException:
-        return None, "Update server timeout"
-    except Exception as e:
-        return None, f"Failed to reach update server: {type(e).__name__}"
+    if raw_manifest is None:
+        if len(origin_errors) > 1:
+            return None, f"{origin_errors[0]}; backup origin also failed: {origin_errors[-1]}"
+        return None, origin_errors[0] if origin_errors else "No update server is configured"
 
     if not _verify_manifest_signature(raw_manifest):
         logger.warning(

@@ -15,7 +15,7 @@ const MAP = {
   slots: { path: '/slots', label: 'Slots' },
   servers: { path: '/servers', label: 'Servers' },
   monitoring: { path: '/server-monitoring', label: 'Monitoring' },
-  health: { path: '/health', label: 'Health' },
+  health: { path: '/system-health', label: 'Health' },
   subscriptions: { path: '/subscriptions', label: 'Tariffs' },
   payments: { path: '/payments', label: 'Payments' },
   portal: { path: '/portal-users', label: 'Portal Users' },

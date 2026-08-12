@@ -4,7 +4,7 @@
      Wired to systemApi.getLogs; a computed adapter maps our payload → his fields. -->
 <template>
   <div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="d2-log-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <input v-model="actionFilter" @input="onFilter" :placeholder="tr('logs.filterAction') || 'Filter by action…'" class="d2-loginput" style="width:200px" />
       <input v-model="userFilter" @input="onFilter" :placeholder="tr('logs.filterUser') || 'Filter by user…'" class="d2-loginput" style="width:180px" />
       <button @click="load" class="d2-logbtn">{{ tr('common.refresh') || 'Refresh' }}</button>
@@ -14,7 +14,7 @@
       </div>
     </div>
 
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div style="overflow-x:auto">
+    <div class="d2-desktop-only" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="text-align:left">
           <th style="padding:11px 20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3)">{{ tr('logs.admin') || 'Admin' }}</th>
@@ -35,6 +35,22 @@
         </tbody>
       </table>
     </div></div>
+    <div class="d2-mobile-only d2-mobile-list">
+      <article v-for="l in logs" :key="'mobile-'+l.id" class="d2-mobile-item">
+        <div class="d2-mobile-summary">
+          <span style="width:30px;height:30px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:650;flex:none">{{ l.who }}</span>
+          <div class="d2-mobile-main">
+            <div class="d2-mobile-title">{{ l.action }}</div>
+            <div class="d2-mobile-sub">{{ l.admin }} · {{ l.time }}</div>
+          </div>
+        </div>
+        <div class="d2-mobile-details d2-mobile-kv">
+          <span>{{ tr('logs.target') || 'Target' }}</span><span class="mono">{{ l.target }}</span>
+          <span>{{ tr('logs.ip') || 'IP' }}</span><span class="mono">{{ l.ip }}</span>
+        </div>
+      </article>
+      <div v-if="!logs.length" class="d2-mobile-item" style="text-align:center;color:var(--text-3)">{{ loading ? (tr('common.loading') || 'Loading…') : (tr('logs.empty') || 'No audit entries') }}</div>
+    </div>
   </div>
 </template>
 
@@ -128,4 +144,11 @@ onMounted(() => {
 .d2-logbtn { height: 34px; padding: 0 14px; border: 1px solid var(--border-strong); background: var(--panel); color: var(--text-2); border-radius: 9px; font: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer; }
 .d2-logbtn:hover { background: var(--panel-2); }
 .d2-logrow:hover { background: var(--panel-2); }
+.mono { font-family:'JetBrains Mono',monospace; }
+@media (max-width: 900px) {
+  .d2-log-toolbar { display:grid !important;grid-template-columns:1fr 1fr;gap:8px !important; }
+  .d2-log-toolbar .d2-loginput { width:100% !important;grid-column:span 2; }
+  .d2-log-toolbar > button { width:100%; }
+  .d2-log-toolbar > div { margin-left:0 !important;display:grid !important;grid-template-columns:1fr 1fr;grid-column:span 2; }
+}
 </style>

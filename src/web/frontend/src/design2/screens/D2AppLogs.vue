@@ -3,7 +3,7 @@
      Wired to systemApi.getAppLogs / getAppLogsErrors (existing logic verbatim). -->
 <template>
   <div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="d2-app-log-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <div style="display:flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px">
         <button v-for="c in appLogTabs" :key="c.key" @click="c.on" :style="{ padding:'5px 13px', border:'none', borderRadius:'6px', font:'inherit', fontSize:'12px', fontWeight:c.weight, cursor:'pointer', background:c.bg, color:c.color }">{{ c.label }}</button>
       </div>
@@ -69,4 +69,13 @@ onMounted(() => { ui.set({ title: tr('nav.applogs') || 'App logs' }); load() })
 <style scoped>
 .d2-alog-row:hover { background: var(--panel-2); }
 .d2-alog-refresh:hover { background: var(--panel-2); }
+@media (max-width:900px) {
+  .d2-app-log-toolbar { display:grid !important;grid-template-columns:1fr 1fr; }
+  .d2-app-log-toolbar > div { grid-column:1 / -1;display:grid !important;grid-template-columns:repeat(3,1fr); }
+  .d2-app-log-toolbar > button { width:100%;margin-left:0 !important;justify-content:center; }
+  .d2-alog-row { display:grid !important;grid-template-columns:auto 1fr;gap:6px 8px !important;padding:10px 13px !important; }
+  .d2-alog-row > span:first-child { min-width:0;font-size:10px;overflow-wrap:anywhere; }
+  .d2-alog-row > span:nth-child(2) { justify-self:end; }
+  .d2-alog-row > span:last-child { grid-column:1 / -1;min-width:0;line-height:1.45;overflow-wrap:anywhere; }
+}
 </style>

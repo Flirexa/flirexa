@@ -3,7 +3,7 @@
 **Self-hosted VPN management for WireGuard, AmneziaWG, Hysteria2, TUIC, and VLESS-Reality.**
 Open core under MIT. Paid plugins for the parts that turn it into a real business.
 
-_Repository and product claims last verified: 2026-07-30. Current checkout
+_Repository and product claims last verified: 2026-08-13. Current checkout
 pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
 
 [![Tests](https://github.com/Flirexa/flirexa/actions/workflows/test.yml/badge.svg)](https://github.com/Flirexa/flirexa/actions/workflows/test.yml)
@@ -38,7 +38,7 @@ The FREE runtime has no licence heartbeat and no remote kill switch. The install
 |---|---|
 | **Protocols** | WireGuard + AmneziaWG (DPI-resistant — works in censorship-heavy networks) |
 | **Capacity** | Up to 80 clients on one physical host, with one local WireGuard and one local AmneziaWG endpoint |
-| **Admin panel** | Vue 3 SPA on port 10086 — real-time stats, traffic graphs, QR codes |
+| **Admin panel** | Responsive Vue 3 SPA — real-time stats, traffic graphs, QR codes, and phone/tablet workflows |
 | **Client portal** | Separate FastAPI process on port 10090 — self-service signup, plans, config download |
 | **Telegram** | Admin bot for managing the service from your phone |
 | **Payments** | NOWPayments (BTC, ETH, USDT, XMR, +50 cryptocurrencies) out of the box |
@@ -97,6 +97,11 @@ If you can run a VPS, you can run a VPN service.
 </td>
 </tr>
 </table>
+
+The admin interface uses purpose-built compact views on phones and tablets:
+operational tables become readable summary rows with expandable details,
+settings use focused sheets, and support uses a list-to-conversation flow.
+Desktop layouts remain full-width and information-dense.
 
 ---
 

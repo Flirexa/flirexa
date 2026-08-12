@@ -16,7 +16,7 @@
             <span :style="{ display:'inline-flex', alignItems:'center', gap:'6px', fontSize:'12px', fontWeight:550, color:b.statusColor, marginTop:'2px' }"><span :style="{ width:'7px', height:'7px', borderRadius:'50%', background:b.statusColor }"></span>{{ b.statusLabel }}</span>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:14px;padding:11px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+        <div class="bot-metrics" style="display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:14px;padding:11px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
           <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em">{{ tr('bots.service') || 'Service' }}</div><div style="font-size:11.5px;font-family:'JetBrains Mono',monospace;color:var(--text-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ b.service }}</div></div>
           <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em">{{ tr('bots.uptime') || 'Uptime' }}</div><div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-2);margin-top:2px">{{ b.uptime }}</div></div>
           <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em">{{ tr('bots.pid') || 'PID' }}</div><div style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-2);margin-top:2px">{{ b.pid }}</div></div>
@@ -71,7 +71,7 @@
           <button @click="refreshBotLogs" style="height:30px;padding:0 11px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:8px;font:inherit;font-size:11.5px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('bots.refresh') || 'Refresh' }}</button>
         </div>
         <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;max-height:300px;overflow-y:auto">
-          <div v-for="(l, i) in filteredLogs" :key="i" style="display:flex;gap:10px;align-items:baseline;padding:8px 20px;border-top:1px solid var(--border)">
+          <div v-for="(l, i) in filteredLogs" :key="i" class="d2-bot-log-row" style="display:flex;gap:10px;align-items:baseline;padding:8px 20px;border-top:1px solid var(--border)">
             <span style="color:var(--text-3);flex:none">{{ l.ts }}</span>
             <span :style="{ flex:'none', fontWeight:600, textTransform:'uppercase', fontSize:'9.5px', letterSpacing:'.04em', color:l.levelColor, background:l.levelBg, padding:'1px 5px', borderRadius:'4px', minWidth:'42px', textAlign:'center' }">{{ l.level }}</span>
             <span style="color:var(--text-2);word-break:break-word">{{ l.msg }}</span>
@@ -241,5 +241,9 @@ onMounted(() => {
 .d2-btn-ghost:disabled { opacity: .6; cursor: default; }
 @media (max-width: 820px) {
   .bot-grid { grid-template-columns:minmax(0,1fr); }
+  .bot-metrics { grid-template-columns:repeat(3,minmax(0,1fr)) !important; }
+  .d2-bot-log-row { display:grid !important;grid-template-columns:auto auto 1fr;gap:6px 8px !important;padding:9px 13px !important; }
+  .d2-bot-log-row > span:first-child { font-size:10px;white-space:normal;overflow-wrap:anywhere; }
+  .d2-bot-log-row > span:last-child { grid-column:1 / -1;min-width:0;overflow-wrap:anywhere; }
 }
 </style>

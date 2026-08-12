@@ -9,6 +9,10 @@ __pycache__/
 *.pyo
 *.egg-info/
 .pytest_cache/
+.coverage
+coverage.json
+license-server-coverage.json
+htmlcov/
 venv/
 .venv/
 build/

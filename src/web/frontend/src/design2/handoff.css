@@ -97,3 +97,229 @@
 
 /* page heading ---------------------------------------------- */
 .d2-root .page-title { font-size: 20px; font-weight: 680; letter-spacing: -.02em; }
+
+/* Explicit adaptive surfaces. Dense operational tables stay available on
+   desktop; mobile receives a purpose-built summary row with optional details
+   instead of a squeezed or horizontally scrolling table. */
+.d2-root .d2-mobile-only { display: none !important; }
+.d2-root .d2-mobile-list { display: flex; flex-direction: column; gap: 9px; }
+.d2-root .d2-mobile-item {
+  min-width: 0; padding: 13px 14px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+}
+.d2-root .d2-mobile-summary { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.d2-root .d2-mobile-main { flex: 1; min-width: 0; }
+.d2-root .d2-mobile-title {
+  min-width: 0; font-size: 14px; font-weight: 620; line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.d2-root .d2-mobile-sub {
+  min-width: 0; margin-top: 2px; color: var(--text-3); font-size: 11.5px;
+  line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.d2-root .d2-mobile-meta { display: flex; align-items: center; gap: 7px; flex: none; }
+.d2-root .d2-mobile-details { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--border); }
+.d2-root .d2-mobile-kv { display: grid; grid-template-columns: minmax(84px, .8fr) 1.2fr; gap: 7px 12px; }
+.d2-root .d2-mobile-kv > span:nth-child(odd) { color: var(--text-3); font-size: 11.5px; }
+.d2-root .d2-mobile-kv > span:nth-child(even) { min-width: 0; color: var(--text-2); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
+.d2-root .d2-mobile-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 11px; flex-wrap: wrap; }
+.d2-root .d2-mobile-more {
+  width: 34px; height: 34px; display: inline-flex; align-items: center;
+  justify-content: center; flex: none; border: 1px solid var(--border-strong);
+  border-radius: 9px; background: var(--panel); color: var(--text-2); cursor: pointer;
+}
+
+/* mobile ----------------------------------------------------- */
+@media (max-width: 900px) {
+  .d2-root,
+  .d2-root * { max-width: 100%; }
+
+  .d2-root { overflow-x: hidden; }
+  .d2-root .d2-desktop-only { display: none !important; }
+  .d2-root .d2-mobile-only { display: block !important; }
+  .d2-root .screen { gap: 12px; }
+  .d2-root .toolbar {
+    align-items: stretch;
+    gap: 8px;
+  }
+  .d2-root .toolbar > * {
+    min-width: 0;
+  }
+  .d2-root .toolbar .spacer {
+    display: none;
+  }
+  .d2-root .toolbar .input,
+  .d2-root .toolbar .select,
+  .d2-root .toolbar .btn {
+    width: 100%;
+  }
+  .d2-root .toolbar .btn-icon {
+    width: 42px;
+    flex: 0 0 42px;
+  }
+
+  .d2-root .grid,
+  .d2-root .stats {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+  .d2-root [style*="grid-template-columns:1fr 320px"],
+  .d2-root [style*="grid-template-columns:320px 1fr"],
+  .d2-root [style*="grid-template-columns:220px 1fr"],
+  .d2-root [style*="grid-template-columns:1fr 300px"],
+  .d2-root [style*="grid-template-columns:1fr 1fr"],
+  .d2-root [style*="grid-template-columns:repeat(2,1fr)"],
+  .d2-root [style*="grid-template-columns:repeat(3,1fr)"],
+  .d2-root [style*="grid-template-columns:repeat(4,1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+  .d2-root .card {
+    border-radius: 12px;
+  }
+  .d2-root .card-pad,
+  .d2-root .stat {
+    padding: 14px;
+  }
+  .d2-root .stat .val {
+    font-size: 22px;
+  }
+  .d2-root .row {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .d2-root .input,
+  .d2-root .select,
+  .d2-root .btn {
+    min-height: 40px;
+    font-size: 14px;
+  }
+  .d2-root .btn {
+    white-space: normal;
+  }
+
+  /* Only tables with an explicit mobile contract become cards. Untagged
+     tables keep their horizontal scroll wrapper, which is safer than hiding
+     their header while rendering unlabeled values. */
+  .d2-root table[data-rtab],
+  .d2-root table[data-mobile-cards] {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    border-collapse: separate !important;
+    font-size: 13px !important;
+  }
+  .d2-root table[data-rtab] thead,
+  .d2-root table[data-mobile-cards] thead {
+    display: none !important;
+  }
+  .d2-root table[data-rtab] tbody,
+  .d2-root table[data-mobile-cards] tbody {
+    display: block !important;
+  }
+  .d2-root table[data-rtab] tr,
+  .d2-root table[data-mobile-cards] tr {
+    display: block !important;
+    position: relative;
+    margin: 0 0 10px !important;
+    padding: 6px 0;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .d2-root table[data-rtab] td,
+  .d2-root table[data-mobile-cards] td {
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    width: 100% !important;
+    padding: 8px 12px !important;
+    border: none !important;
+    text-align: right !important;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+  .d2-root table[data-rtab] td[data-label]::before,
+  .d2-root table[data-mobile-cards] td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 39%;
+    max-width: 39%;
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--text-3);
+    white-space: normal;
+  }
+  .d2-root table[data-rtab] td[data-mhide],
+  .d2-root table[data-mobile-cards] td[data-mhide] {
+    display: none !important;
+  }
+  .d2-root table[data-rtab] td[data-mhead],
+  .d2-root table[data-mobile-cards] td[data-mhead] {
+    justify-content: flex-start;
+    text-align: left !important;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .d2-root table[data-rtab] td[data-mhead] > *,
+  .d2-root table[data-mobile-cards] td[data-mhead] > * {
+    min-width: 0;
+  }
+  .d2-root table[data-rtab] td[data-mfull],
+  .d2-root table[data-mobile-cards] td[data-mfull] {
+    justify-content: flex-end;
+    border-top: 1px solid var(--border) !important;
+    padding-top: 10px !important;
+  }
+  .d2-root table[data-rcollapse] td[data-mhead] {
+    padding-right: 36px !important;
+  }
+  .d2-root table[data-rcollapse] td[data-mhead]::after {
+    content: '';
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--text-3);
+    border-bottom: 2px solid var(--text-3);
+    transform: rotate(45deg);
+    transition: transform .15s;
+    pointer-events: none;
+  }
+  .d2-root table[data-rcollapse] tr[data-mx] td[data-mhead]::after {
+    transform: rotate(-135deg);
+  }
+  .d2-root table[data-rcollapse] tr:not([data-mx]) td[data-label],
+  .d2-root table[data-rcollapse] tr:not([data-mx]) td[data-mfull] {
+    display: none !important;
+  }
+  .d2-root table[data-rcollapse] tr:not([data-mx]) td[data-mprimary] {
+    display: flex !important;
+  }
+  .d2-root table[data-rtab] td:first-child:not([data-label]):not([data-mhead]):not([data-mhide]),
+  .d2-root table[data-mobile-cards] td:first-child:not([data-label]):not([data-mhead]):not([data-mhide]) {
+    justify-content: flex-start;
+    text-align: left !important;
+    font-weight: 600;
+  }
+  .d2-root .empty,
+  .d2-root .loading {
+    padding: 32px 18px;
+  }
+  .d2-root .modal {
+    width: 100%;
+    padding: 18px;
+    border-radius: 14px;
+  }
+  .d2-root .modal-actions {
+    flex-direction: column-reverse;
+  }
+  .d2-root .modal-actions .btn {
+    width: 100%;
+  }
+}

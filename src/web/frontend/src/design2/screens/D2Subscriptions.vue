@@ -15,27 +15,58 @@
       <div style="font-size:13px;color:var(--text-3);margin-top:4px">{{ tr('subscriptions.noTariffsHint') || 'Create your first plan to start selling subscriptions.' }}</div>
     </div>
 
-    <div v-else style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div style="overflow-x:auto">
+    <div v-else class="d2-plans-list" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div class="d2-plans-desktop" style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="text-align:left">
           <th class="d2-th" style="padding-left:20px">#</th><th class="d2-th">{{ tr('subscriptions.name') || 'Name' }}</th><th class="d2-th">{{ tr('subscriptions.monthly') || 'Monthly' }}</th><th class="d2-th">{{ tr('subscriptions.quarterly') || 'Quarterly' }}</th><th class="d2-th">{{ tr('subscriptions.yearly') || 'Yearly' }}</th><th class="d2-th">{{ tr('subscriptions.devices') || 'Devices' }}</th><th class="d2-th">{{ tr('subscriptions.trafficLimitGb') || 'Traffic' }}</th><th class="d2-th">{{ tr('subscriptions.bandwidthMbps') || 'Bandwidth' }}</th><th class="d2-th">{{ tr('subscriptions.active') || 'Active' }}</th><th class="d2-th" style="text-align:right;padding-right:20px">{{ tr('common.actions') || 'Actions' }}</th>
         </tr></thead>
         <tbody>
           <tr v-for="(p, i) in tariffs" :key="p.id" style="border-top:1px solid var(--border)">
-            <td class="mono" style="padding:12px 16px 12px 20px;color:var(--text-3)">{{ i + 1 }}</td>
-            <td style="padding:12px 12px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600">{{ p.name }}</span><span :style="{ fontSize:'10.5px', fontWeight:600, padding:'2px 7px', borderRadius:'6px', color:tierColor(p.tier), background:tierBg(p.tier) }">{{ p.tier }}</span><span v-if="p.popular" style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;color:var(--accent);background:var(--accent-soft)">★ Popular</span><span v-if="!p.is_visible" style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;color:var(--text-3);background:var(--gray-soft)">Hidden</span><span v-if="p.corp_networks > 0" style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;color:var(--purple);background:var(--purple-soft)">Corp {{ p.corp_networks }}</span></div><div style="font-size:11px;color:var(--text-3);margin-top:2px">{{ p.description }}</div></td>
-            <td class="mono" style="padding:12px 12px;font-weight:600">${{ p.price_monthly_usd }}</td>
-            <td class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.price_quarterly_usd ? '$' + p.price_quarterly_usd : '—' }}</td>
-            <td class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.price_yearly_usd ? '$' + p.price_yearly_usd : '—' }}</td>
-            <td class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.max_devices }}</td>
-            <td class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.traffic_limit_gb ? p.traffic_limit_gb + ' GB' : '∞' }}</td>
-            <td class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.bandwidth_limit_mbps ? p.bandwidth_limit_mbps + ' Mbps' : '∞' }}</td>
-            <td style="padding:12px 12px"><button @click="toggleActive(p)" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background: p.is_active ? 'var(--accent)' : 'var(--border-strong)' }"><span :style="{ position:'absolute', top:'2px', left: p.is_active ? '18px' : '2px', width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button></td>
-            <td style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><button @click="openEdit(p)" class="d2-rowbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"></path></svg></button><button @click="removeTariff(p)" class="d2-rowbtn del"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M6 7l1 13a2 2 0 002 2h6a2 2 0 002-2l1-13"></path></svg></button></div></td>
+            <td data-mhide class="mono" style="padding:12px 16px 12px 20px;color:var(--text-3)">{{ i + 1 }}</td>
+            <td data-mhead style="padding:12px 12px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-weight:600">{{ p.name }}</span><span :style="{ fontSize:'10.5px', fontWeight:600, padding:'2px 7px', borderRadius:'6px', color:tierColor(p.tier), background:tierBg(p.tier) }">{{ p.tier }}</span><span v-if="p.popular" style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;color:var(--accent);background:var(--accent-soft)">★ Popular</span><span v-if="!p.is_visible" style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;color:var(--text-3);background:var(--gray-soft)">Hidden</span><span v-if="p.corp_networks > 0" style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:6px;color:var(--purple);background:var(--purple-soft)">Corp {{ p.corp_networks }}</span></div><div style="font-size:11px;color:var(--text-3);margin-top:2px">{{ p.description }}</div></td>
+            <td :data-label="tr('subscriptions.monthly') || 'Monthly'" data-mprimary class="mono" style="padding:12px 12px;font-weight:600">${{ p.price_monthly_usd }}</td>
+            <td :data-label="tr('subscriptions.quarterly') || 'Quarterly'" class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.price_quarterly_usd ? '$' + p.price_quarterly_usd : '—' }}</td>
+            <td :data-label="tr('subscriptions.yearly') || 'Yearly'" class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.price_yearly_usd ? '$' + p.price_yearly_usd : '—' }}</td>
+            <td :data-label="tr('subscriptions.devices') || 'Devices'" class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.max_devices }}</td>
+            <td :data-label="tr('subscriptions.trafficLimitGb') || 'Traffic'" class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.traffic_limit_gb ? p.traffic_limit_gb + ' GB' : '∞' }}</td>
+            <td :data-label="tr('subscriptions.bandwidthMbps') || 'Bandwidth'" class="mono" style="padding:12px 12px;color:var(--text-2)">{{ p.bandwidth_limit_mbps ? p.bandwidth_limit_mbps + ' Mbps' : '∞' }}</td>
+            <td :data-label="tr('subscriptions.active') || 'Active'" style="padding:12px 12px"><button @click="toggleActive(p)" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background: p.is_active ? 'var(--accent)' : 'var(--border-strong)' }"><span :style="{ position:'absolute', top:'2px', left: p.is_active ? '18px' : '2px', width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button></td>
+            <td data-mfull style="padding:12px 20px"><div style="display:flex;gap:4px;justify-content:flex-end"><button @click="openEdit(p)" class="d2-rowbtn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"></path></svg></button><button @click="removeTariff(p)" class="d2-rowbtn del"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M6 7l1 13a2 2 0 002 2h6a2 2 0 002-2l1-13"></path></svg></button></div></td>
           </tr>
         </tbody>
       </table>
-    </div></div>
+    </div>
+      <div class="d2-plans-mobile">
+        <button v-for="p in tariffs" :key="p.id" type="button" class="d2-plan-mobile-row" @click="mobilePlan = p">
+          <span class="d2-plan-mobile-main">
+            <span class="d2-plan-mobile-title"><b>{{ p.name }}</b><em :style="{ color:tierColor(p.tier), background:tierBg(p.tier) }">{{ p.tier }}</em><em v-if="p.popular" class="popular">★</em></span>
+            <span class="d2-plan-mobile-description">{{ p.description || (p.is_visible ? (tr('subscriptions.visible') || 'Visible') : 'Hidden') }}</span>
+          </span>
+          <span class="d2-plan-mobile-price mono">${{ p.price_monthly_usd }}<small>/mo</small></span>
+          <span class="d2-plan-mobile-dot" :class="{ on:p.is_active }"></span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <D2MobileSheet :open="!!mobilePlan" :title="mobilePlan?.name || ''" :close-label="tr('common.close') || 'Close'" @close="mobilePlan = null">
+      <template v-if="mobilePlan">
+        <div class="d2-plan-sheet-badges"><span :style="{ color:tierColor(mobilePlan.tier), background:tierBg(mobilePlan.tier) }">{{ mobilePlan.tier }}</span><span>{{ mobilePlan.is_active ? (tr('common.enabled') || 'Enabled') : (tr('common.disabled') || 'Disabled') }}</span></div>
+        <dl class="d2-plan-sheet-details">
+          <div><dt>{{ tr('subscriptions.monthly') || 'Monthly' }}</dt><dd>${{ mobilePlan.price_monthly_usd }}</dd></div>
+          <div><dt>{{ tr('subscriptions.quarterly') || 'Quarterly' }}</dt><dd>{{ mobilePlan.price_quarterly_usd ? '$' + mobilePlan.price_quarterly_usd : '—' }}</dd></div>
+          <div><dt>{{ tr('subscriptions.yearly') || 'Yearly' }}</dt><dd>{{ mobilePlan.price_yearly_usd ? '$' + mobilePlan.price_yearly_usd : '—' }}</dd></div>
+          <div><dt>{{ tr('subscriptions.devices') || 'Devices' }}</dt><dd>{{ mobilePlan.max_devices }}</dd></div>
+          <div><dt>{{ tr('subscriptions.trafficLimitGb') || 'Traffic' }}</dt><dd>{{ mobilePlan.traffic_limit_gb ? mobilePlan.traffic_limit_gb + ' GB' : '∞' }}</dd></div>
+          <div><dt>{{ tr('subscriptions.bandwidthMbps') || 'Bandwidth' }}</dt><dd>{{ mobilePlan.bandwidth_limit_mbps ? mobilePlan.bandwidth_limit_mbps + ' Mbps' : '∞' }}</dd></div>
+        </dl>
+        <div class="d2-plan-sheet-actions">
+          <button type="button" @click="mobilePlanAction('toggle')">{{ mobilePlan.is_active ? (tr('common.disable') || 'Disable') : (tr('common.enable') || 'Enable') }}</button>
+          <button type="button" @click="mobilePlanAction('edit')">{{ tr('common.edit') || 'Edit' }}</button>
+          <button type="button" class="danger" @click="mobilePlanAction('delete')">{{ tr('common.delete') || 'Delete' }}</button>
+        </div>
+      </template>
+    </D2MobileSheet>
 
     <D2Modal :open="showModal" :title="editing ? (tr('subscriptions.editTariff') || 'Edit tariff') : (tr('subscriptions.createTariff') || 'Create tariff')" size="lg" @close="showModal = false">
       <div style="display:flex;flex-direction:column;gap:14px">
@@ -92,11 +123,13 @@ import D2Field from '../ui/D2Field.vue'
 import D2Toggle from '../ui/D2Toggle.vue'
 import D2Button from '../ui/D2Button.vue'
 import D2HelpTip from '../ui/D2HelpTip.vue'
+import D2MobileSheet from '../ui/D2MobileSheet.vue'
 
 const { t } = useI18n()
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
 const ui = useD2Ui()
 const tariffs = ref([]); const loading = ref(false)
+const mobilePlan = ref(null)
 const activeCount = computed(() => tariffs.value.filter(p => p.is_active).length)
 const TC = { free: ['var(--text-3)', 'var(--gray-soft)'], starter: ['var(--blue)', 'var(--blue-soft)'], pro: ['var(--accent)', 'var(--accent-soft)'], business: ['var(--purple)', 'var(--purple-soft)'], ultimate: ['var(--amber)', 'var(--amber-soft)'], premium: ['var(--accent)', 'var(--accent-soft)'] }
 function tierColor(t) { return (TC[String(t || '').toLowerCase()] || TC.free)[0] }
@@ -111,6 +144,14 @@ async function openEdit(tf) { editing.value = tf; form.value = { tier: tf.tier, 
 async function save() { saving.value = true; formError.value = ''; try { const p = { ...form.value }; if (!p.traffic_limit_gb) p.traffic_limit_gb = null; if (!p.bandwidth_limit_mbps) p.bandwidth_limit_mbps = null; if (!p.price_quarterly_usd) p.price_quarterly_usd = null; if (!p.price_yearly_usd) p.price_yearly_usd = null; if (Array.isArray(p.pricing_tiers)) { p.pricing_tiers = p.pricing_tiers.filter(x => x && Number(x.days) > 0).map(x => ({ days: Number(x.days), price_usd: Number(x.price_usd || 0), label: (x.label || '').trim() || null })); if (!p.pricing_tiers.length) p.pricing_tiers = null } if (editing.value) { const { tier, ...upd } = p; await tariffsApi.update(editing.value.id, upd) } else await tariffsApi.create(p); showModal.value = false; await load() } catch (e) { formError.value = e.response?.data?.detail || e.message } finally { saving.value = false } }
 async function toggleActive(p) { try { await tariffsApi.update(p.id, { is_active: !p.is_active }); await load() } catch (e) { alert(e.response?.data?.detail || 'Error') } }
 async function removeTariff(p) { if (!await d2confirm(tr('subscriptions.deleteConfirm') || `Delete "${p.name}"?`)) return; try { await tariffsApi.delete(p.id); await load() } catch (e) { alert(e.response?.data?.detail || 'Error') } }
+function mobilePlanAction(action) {
+  const plan = mobilePlan.value
+  if (!plan) return
+  mobilePlan.value = null
+  if (action === 'toggle') toggleActive(plan)
+  else if (action === 'edit') openEdit(plan)
+  else if (action === 'delete') removeTariff(plan)
+}
 
 const showSimulate = ref(false); const simulateValue = ref(''); const simulateBusy = ref(false); const simulateError = ref('')
 function openSimulate() { simulateValue.value = ''; simulateError.value = ''; showSimulate.value = true }
@@ -135,5 +176,34 @@ onMounted(() => { ui.set({ title: tr('nav.subscriptions') || 'Tariffs', primary:
 .d2-simcta { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px; border: none; background: var(--green); color: #fff; border-radius: 10px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 .d2-simcta:disabled { opacity: .55; cursor: not-allowed; }
 .d2-simcta-spin { width: 15px; height: 15px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; animation: d2spin .6s linear infinite; display: inline-block; }
+.d2-plans-mobile { display:none; }
+.d2-plan-sheet-badges { display:flex;gap:7px;margin-bottom:12px; }
+.d2-plan-sheet-badges span { padding:3px 8px;border-radius:7px;background:var(--gray-soft);color:var(--text-2);font-size:11px;font-weight:650; }
+.d2-plan-sheet-details { margin:0;border:1px solid var(--border);border-radius:12px;overflow:hidden; }
+.d2-plan-sheet-details > div { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 12px;border-top:1px solid var(--border); }
+.d2-plan-sheet-details > div:first-child { border-top:0; }
+.d2-plan-sheet-details dt { color:var(--text-3);font-size:11.5px; }
+.d2-plan-sheet-details dd { margin:0;color:var(--text-2);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600; }
+.d2-plan-sheet-actions { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px; }
+.d2-plan-sheet-actions button { min-height:40px;padding:8px 11px;border:1px solid var(--border-strong);border-radius:10px;background:var(--panel-2);color:var(--text-2);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer; }
+.d2-plan-sheet-actions button.danger { grid-column:1 / -1;color:var(--red);background:var(--red-soft);border-color:transparent; }
+@media (max-width:900px) {
+  .d2-plans-list { background:transparent !important;border:0 !important;box-shadow:none !important;overflow:visible !important; }
+  .d2-plans-desktop { display:none; }
+  .d2-plans-mobile { display:block;background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden; }
+  .d2-plan-mobile-row { width:100%;min-height:66px;display:flex;align-items:center;gap:9px;padding:9px 10px 9px 13px;border:0;border-top:1px solid var(--border);background:var(--panel);color:var(--text);font:inherit;text-align:left;cursor:pointer; }
+  .d2-plan-mobile-row:first-child { border-top:0; }
+  .d2-plan-mobile-main { flex:1;min-width:0; }
+  .d2-plan-mobile-title { display:flex;align-items:center;gap:6px;min-width:0; }
+  .d2-plan-mobile-title b { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:650; }
+  .d2-plan-mobile-title em { flex:none;padding:2px 6px;border-radius:6px;font-size:9.5px;font-style:normal;font-weight:650;text-transform:uppercase; }
+  .d2-plan-mobile-title em.popular { padding:0;background:transparent;color:var(--accent); }
+  .d2-plan-mobile-description { display:block;max-width:100%;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-3);font-size:10.5px; }
+  .d2-plan-mobile-price { flex:none;text-align:right;font-size:12px;font-weight:650; }
+  .d2-plan-mobile-price small { display:block;color:var(--text-3);font-size:8.5px;font-weight:500; }
+  .d2-plan-mobile-dot { width:7px;height:7px;flex:none;border-radius:50%;background:var(--text-3); }
+  .d2-plan-mobile-dot.on { background:var(--green); }
+  .d2-plan-mobile-row > svg { flex:none;color:var(--text-3); }
+}
 @keyframes d2spin { to { transform: rotate(360deg); } }
 </style>

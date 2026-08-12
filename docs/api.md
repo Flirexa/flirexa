@@ -1,6 +1,6 @@
 # API Reference
 
-_Last verified: 2026-07-24. Example identifiers, versions, addresses, and tokens
+_Last verified: 2026-08-13. Example identifiers, versions, addresses, and tokens
 below are illustrative._
 
 The admin panel exposes a REST API at `http://YOUR_SERVER:10086/api/v1/`. All endpoints (except auth and a few public ones) require a Bearer token in the `Authorization` header.
@@ -172,6 +172,17 @@ DELETE /api/v1/clients/{id}
 ---
 
 ## Health Monitoring
+
+### Service Liveness
+
+```bash
+GET /health
+```
+
+This public endpoint is intentionally small and unauthenticated. It is used by
+service supervisors and update smoke checks. The authenticated admin page is
+served at `/system-health`; detailed health data stays under
+`/api/v1/health/*`.
 
 ### System Health
 

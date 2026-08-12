@@ -84,7 +84,9 @@ const routes = [
     component: D2_SCREENS.AppLogs,
   },
   {
-    path: '/health',
+    // `/health` is the unauthenticated API/liveness endpoint. Keeping a UI
+    // route there makes a direct refresh render raw JSON instead of the SPA.
+    path: '/system-health',
     name: 'SystemHealth',
     component: D2_SCREENS.SystemHealth,
   },

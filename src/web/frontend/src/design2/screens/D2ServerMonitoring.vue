@@ -6,7 +6,7 @@
 <template>
   <div class="d2-mon">
     <!-- KPIs -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px">
+    <div class="d2-monitor-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px">
       <div v-for="k in monKpis" :key="k.label" style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:15px 18px">
         <div style="font-size:12.5px;color:var(--text-2)">{{ k.label }}</div>
         <div :style="{ fontSize:'24px', fontWeight:680, letterSpacing:'-.02em', marginTop:'7px', color:k.color }">{{ k.value }}</div>
@@ -14,7 +14,7 @@
     </div>
 
     <!-- filter + mode toggle + refresh all -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="d2-monitor-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <select :value="monFilter" @change="onMonFilter" style="height:34px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;padding:0 9px;font:inherit;font-size:12.5px;outline:none;cursor:pointer">
         <option value="all">{{ tr('serverMonitoring.filterAll') || 'All' }}</option>
         <option value="healthy">{{ tr('serverMonitoring.filterHealthy') || 'Healthy' }}</option>
@@ -194,4 +194,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 
 <style scoped>
 .d2-mon { display: block; }
+@media (max-width:900px) {
+  .d2-monitor-kpis { grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:9px !important; }
+  .d2-monitor-kpis > div { padding:12px 13px !important; }
+  .d2-monitor-kpis > div > div:nth-child(2) { font-size:20px !important;margin-top:4px !important; }
+  .d2-monitor-toolbar { display:grid !important;grid-template-columns:1fr auto; }
+  .d2-monitor-toolbar > select { width:100%; }
+  .d2-monitor-toolbar > button { grid-column:1 / -1;margin-left:0 !important;justify-content:center; }
+}
 </style>

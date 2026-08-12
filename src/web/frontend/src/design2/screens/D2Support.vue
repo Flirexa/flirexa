@@ -3,9 +3,9 @@
      (getSupportMessages / getSupportTicket / replySupportTicket / close /
      reopen / unread). Adapter computeds map API rows to his field names. -->
 <template>
-  <div :style="{ display:'grid', gridTemplateColumns: gSupport, gap:'14px', alignItems:'start', height:'calc(100vh - 150px)' }">
+  <div class="d2-support-layout" :style="{ display:'grid', gridTemplateColumns: gSupport, gap:'14px', alignItems:'start', height:'calc(100vh - 150px)' }">
     <!-- Ticket list column -->
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;height:100%">
+    <div class="d2-support-list" :class="{'d2-support-hidden-mobile': supOpen}" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;height:100%">
       <div style="padding:12px;border-bottom:1px solid var(--border)">
         <div style="position:relative;margin-bottom:8px">
           <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text-3);display:flex"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4-4"></path></svg></span>
@@ -25,10 +25,11 @@
     </div>
 
     <!-- Conversation column -->
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;height:100%">
+    <div class="d2-support-thread" :class="{'d2-support-hidden-mobile': supEmpty}" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden;height:100%">
       <div v-if="supEmpty" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-3)"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" style="margin-bottom:12px"><path d="M4 5h16v11H9l-4 3z"></path></svg><div style="font-size:14px">{{ tr('support.selectTicket') || 'Select a ticket to view the conversation' }}</div></div>
       <template v-if="supOpen">
         <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+          <button @click="selected = null" class="d2-mobile-only d2-support-back" :aria-label="tr('common.back') || 'Back'">‹</button>
           <div style="flex:1;min-width:0"><div style="font-weight:650;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ supThread.subject }}</div><div style="font-size:12px;color:var(--text-3)">{{ supThread.user }} · #{{ supThread.id }}</div></div>
           <button v-if="supThread.isClosed" @click="supReopen" class="d2-headbtn" style="height:32px;padding:0 12px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:8px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('support.reopen') || 'Reopen' }}</button>
           <button v-if="supThread.notClosed" @click="supClose" class="d2-headbtn" style="height:32px;padding:0 12px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:8px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('support.close') || 'Close' }}</button>
@@ -205,5 +206,12 @@ onMounted(() => { ui.set({ title: tr('nav.support') || 'Support' }); load() })
 .d2-sendbtn:disabled { opacity: .55; cursor: not-allowed; }
 .d2-supsearch:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); background: var(--panel); }
 .d2-supta:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); background: var(--panel); }
+.d2-support-back { width:32px;height:32px;border:1px solid var(--border-strong);border-radius:8px;background:var(--panel);color:var(--text);font:inherit;font-size:24px;line-height:1; }
+@media (max-width:900px) {
+  .d2-support-layout { display:block !important;height:calc(100dvh - 86px) !important; }
+  .d2-support-list,.d2-support-thread { height:100% !important; }
+  .d2-support-hidden-mobile { display:none !important; }
+  .d2-support-thread textarea { min-width:0; }
+}
 @keyframes d2spin { to { transform: rotate(360deg); } }
 </style>

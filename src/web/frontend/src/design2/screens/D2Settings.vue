@@ -6,20 +6,59 @@
      reuse the same systemApi methods the Legacy Settings.vue uses. -->
 <template>
   <div class="d2-root-inner">
-    <div :style="{ display:'grid', gridTemplateColumns:'220px 1fr', gap:'18px', alignItems:'start' }">
+    <button type="button" class="d2-settings-mobile-nav" @click="settingsPickerOpen = true">
+      <span class="d2-settings-mobile-nav-icon" v-html="activeSettingsTab.icon"></span>
+      <span class="d2-settings-mobile-nav-copy">
+        <small>{{ tr('nav.settings') || 'Settings' }}</small>
+        <strong>{{ activeSettingsTab.label }}</strong>
+      </span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 9l6 6 6-6" /></svg>
+    </button>
+    <div class="d2-settings-layout" :style="{ display:'grid', gridTemplateColumns:'220px 1fr', gap:'18px', alignItems:'start' }">
       <!-- LEFT TAB RAIL -->
-      <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:7px;position:sticky;top:84px">
+      <div class="d2-settings-rail" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:7px;position:sticky;top:84px">
         <button v-for="st in settingsTabs" :key="st.key" @click="st.on"
           :style="{ display:'flex', alignItems:'center', gap:'10px', width:'100%', padding:'9px 11px', border:'none', borderRadius:'9px', background:st.bg, color:st.color, font:'inherit', fontSize:'13px', fontWeight:st.weight, cursor:'pointer', textAlign:'left' }">
           <span style="display:flex;flex:none" v-html="st.icon"></span>{{ st.label }}
         </button>
       </div>
 
-      <div style="min-width:0;display:flex;flex-direction:column;gap:16px">
+      <div class="d2-settings-content" style="min-width:0;display:flex;flex-direction:column;gap:16px">
 
         <!-- ================= LICENSE ================= -->
         <template v-if="isSetLicense">
-          <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px">
+          <div class="d2-license-mobile">
+            <button type="button" class="d2-license-tier-card" @click="licenseSheet = 'details'">
+              <span class="d2-license-tier-icon" v-html="ICON.license"></span>
+              <span class="d2-license-tier-copy">
+                <small>{{ tr('settings.licenseType') || 'License type' }}</small>
+                <strong>{{ licTier }}</strong>
+              </span>
+              <span class="d2-license-status" :class="{ active:licensed }"><i></i>{{ licensed ? (tr('settings.active') || 'Active') : (tr('settings.inactive') || 'Inactive') }}</span>
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6" /></svg>
+            </button>
+
+            <div class="d2-license-mobile-metrics">
+              <div><small>{{ tr('settings.clients') || 'Clients' }}</small><strong>{{ licClientsUsed }} / {{ licMaxClients }}</strong></div>
+              <div><small>{{ tr('settings.servers') || 'Servers' }}</small><strong>{{ licServersUsed }} / {{ licMaxServers }}</strong></div>
+              <div><small>{{ tr('settings.validity') || 'Validity' }}</small><strong>{{ licDays }}</strong></div>
+            </div>
+
+            <div class="d2-license-mobile-actions">
+              <button type="button" @click="licenseSheet = 'details'"><span>{{ tr('settings.includedFeatures') || 'Included features' }}</span><b>{{ licFeatures.length }}</b><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg></button>
+              <button type="button" @click="licenseSheet = 'activate'"><span>{{ tr('settings.activateNewKey') || 'Activate license key' }}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg></button>
+              <button type="button" @click="licenseSheet = 'recover'"><span>{{ tr('settings.refetchLicense') || 'Recover license' }}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg></button>
+              <button type="button" @click="licenseSheet = 'technical'"><span>{{ tr('settings.licenseServer') || 'License service' }}</span><em :style="{ color:licSrvColor }"><i :style="{ background:licSrvColor }"></i>{{ licSrvLabel }}</em><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg></button>
+            </div>
+
+            <div class="d2-license-mobile-footer">
+              <button type="button" :disabled="busy.refresh || !licensed" @click="refreshLicenseCheck">{{ busy.refresh ? (tr('settings.fetching') || 'Checking…') : (tr('settings.refreshNow') || 'Refresh license') }}</button>
+              <button type="button" @click="openMigration">{{ tr('settings.migrationShort') || 'Migration' }}</button>
+            </div>
+            <div v-if="msg.lic" class="d2-license-mobile-message" :class="msgLicTone">{{ msg.lic }}</div>
+          </div>
+
+          <div class="d2-license-desktop" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px">
             <div style="font-weight:650;font-size:15px;margin-bottom:16px">{{ tr('settings.license') || 'License' }}</div>
             <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:16px">
               <div style="padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)"><div style="font-size:11px;color:var(--text-3)">{{ tr('settings.licenseTier') || 'Tier' }}</div><div style="font-size:16px;font-weight:680;margin-top:3px">{{ licTier }}</div></div>
@@ -59,7 +98,7 @@
           </div>
 
           <!-- License server status -->
-          <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px">
+          <div class="d2-license-desktop" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px">
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
               <div style="font-weight:650;font-size:15px;flex:1">{{ tr('settings.licenseServer') || 'License server' }}</div>
               <span :style="{ display:'inline-flex', alignItems:'center', gap:'6px', fontSize:'12px', fontWeight:600, color:licSrvColor }"><span :style="{ width:'7px', height:'7px', borderRadius:'50%', background:licSrvColor }"></span>{{ licSrvLabel }}</span>
@@ -97,7 +136,7 @@
             </div>
             <div style="padding:11px 13px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)"><div style="font-size:11px;color:var(--text-3);margin-bottom:5px">{{ tr('settings.webhookUrl') || 'Webhook URL' }}</div><div style="display:flex;align-items:center;gap:8px"><span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-2);flex:1;word-break:break-all">{{ payWebhook }}</span><button @click="copyPayWebhook" style="border:none;background:transparent;color:var(--text-3);cursor:pointer;display:flex;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 012-2h10"></path></svg></button></div></div>
           </div>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
+          <div class="d2-settings-actionbar" :class="{ 'has-three':payConnected }" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
             <button @click="savePayProvider" style="height:38px;padding:0 15px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer">{{ tr('settings.connect') || 'Save & Connect' }}</button>
             <button @click="testPayProvider" style="height:38px;padding:0 14px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.test') || 'Test' }}</button>
             <button v-if="payConnected" @click="disconnectPayProvider" style="height:38px;padding:0 14px;border:1px solid var(--border-strong);background:var(--panel);color:var(--red);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.disconnect') || 'Disconnect' }}</button>
@@ -119,7 +158,7 @@
             <div style="display:flex;align-items:center;gap:10px"><button @click="smtp.tls = !smtp.tls" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background:tgBg(smtp.tls), transition:'background .15s', flex:'none' }"><span :style="{ position:'absolute', top:'2px', left:tgX(smtp.tls), width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button><span style="font-size:13px;color:var(--text-2)">{{ tr('settings.smtpTls') || 'Use TLS' }}</span></div>
             <div style="display:flex;align-items:center;gap:10px"><button @click="smtp.enabled = !smtp.enabled" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background:tgBg(smtp.enabled), transition:'background .15s', flex:'none' }"><span :style="{ position:'absolute', top:'2px', left:tgX(smtp.enabled), width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button><span style="font-size:13px;color:var(--text-2)">{{ tr('settings.smtpEnabled') || 'Enabled' }}</span></div>
           </div>
-          <div style="display:flex;gap:8px;margin-top:18px">
+          <div class="d2-settings-actionbar" :class="{ 'has-three':smtp.enabled }" style="display:flex;gap:8px;margin-top:18px">
             <button @click="saveSmtp" :disabled="busy.smtp" style="height:38px;padding:0 15px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer">{{ tr('settings.connect') || 'Save & Connect' }}</button>
             <button @click="testSmtp" style="height:38px;padding:0 14px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.test') || 'Test' }}</button>
             <button v-if="smtp.enabled" @click="disconnectSmtp" style="height:38px;padding:0 14px;border:1px solid var(--border-strong);background:var(--panel);color:var(--red);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.disconnect') || 'Disconnect' }}</button>
@@ -162,7 +201,7 @@
               <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.fcmKey') || 'FCM server key' }}</label><input type="password" :value="fcm.server_key" @input="fcm.server_key = $event.target.value" :placeholder="fcm.server_key_set ? '•••••••••• (configured)' : 'AAAA…'" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none" @focus="onFocus" @blur="onBlur"><div style="font-size:11.5px;color:var(--text-3);margin-top:6px">{{ tr('settings.fcmKeyHint') || 'Firebase Cloud Messaging server key — used to deliver mobile push.' }}</div></div>
             </div>
           </template>
-          <div style="display:flex;gap:8px">
+          <div class="d2-settings-actionbar" style="display:flex;gap:8px">
             <button @click="saveApps" :disabled="busy.apps" style="height:38px;padding:0 15px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer">{{ tr('common.save') || 'Save' }}</button>
             <button v-if="apps.enabled && apps.push && fcm.server_key_set" @click="clearFcm" style="height:38px;padding:0 14px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.clearFcm') || 'Clear FCM key' }}</button>
           </div>
@@ -211,7 +250,7 @@
             <div><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('common.adminPanelDomain') || 'Admin domain' }}</label><input :value="web.admin_panel_domain" @input="web.admin_panel_domain = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none" @focus="onFocus" @blur="onBlur"></div>
             <div style="grid-column:1 / -1"><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('common.certbotEmail') || 'Certbot email' }}</label><input :value="web.certbot_email" @input="web.certbot_email = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
           </div>
-          <div style="display:flex;gap:8px">
+          <div class="d2-settings-actionbar" style="display:flex;gap:8px">
             <button @click="saveWebAccess" :disabled="web.applying" style="height:38px;padding:0 15px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer">{{ tr('common.apply') || 'Apply' }}</button>
             <button @click="refreshWebAccess" style="height:38px;padding:0 14px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('settings.refreshNow') || 'Refresh' }}</button>
           </div>
@@ -329,7 +368,7 @@
               </div>
             </div>
 
-            <div style="display:flex;align-items:center;gap:8px">
+            <div class="d2-settings-actionbar" style="display:flex;align-items:center;gap:8px">
               <button @click="saveBranding" :disabled="busy.brand" style="height:40px;padding:0 16px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:13px;font-weight:600;cursor:pointer">{{ tr('settings.brandSave') || 'Apply branding' }}</button>
               <button @click="resetBranding" style="height:40px;padding:0 14px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:13px;font-weight:550;cursor:pointer">{{ tr('settings.brandReset') || 'Reset' }}</button>
               <span v-if="msg.brand" style="font-size:12.5px;color:var(--green)">{{ msg.brand }}</span>
@@ -394,6 +433,63 @@
 
       </div>
     </div>
+
+    <D2MobileSheet :open="settingsPickerOpen" :title="tr('nav.settings') || 'Settings'" @close="settingsPickerOpen = false">
+      <div class="d2-settings-picker-list">
+        <button v-for="st in settingsTabs" :key="st.key" type="button" :class="{ active:active === st.key }" @click="selectSettingsTab(st)">
+          <span v-html="st.icon"></span><strong>{{ st.label }}</strong>
+          <svg v-if="active === st.key" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l4 4L19 7" /></svg>
+          <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
+        </button>
+      </div>
+    </D2MobileSheet>
+
+    <D2MobileSheet :open="!!licenseSheet" :title="licenseSheetTitle" @close="licenseSheet = ''">
+      <div v-if="licenseSheet === 'details'" class="d2-license-sheet">
+        <div class="d2-license-sheet-hero">
+          <span v-html="ICON.license"></span>
+          <div><small>{{ tr('settings.licenseType') || 'License type' }}</small><strong>{{ licTier }}</strong></div>
+          <em :class="{ active:licensed }">{{ licensed ? (tr('settings.active') || 'Active') : (tr('settings.inactive') || 'Inactive') }}</em>
+        </div>
+        <div class="d2-license-sheet-stats">
+          <div><small>{{ tr('settings.clients') || 'Clients' }}</small><strong>{{ licClientsUsed }} / {{ licMaxClients }}</strong><span><i :style="{ width:licClientsPct }"></i></span></div>
+          <div><small>{{ tr('settings.servers') || 'Servers' }}</small><strong>{{ licServersUsed }} / {{ licMaxServers }}</strong><span><i :style="{ width:licServersPct }"></i></span></div>
+          <div><small>{{ tr('settings.validity') || 'Validity' }}</small><strong>{{ licDays }}</strong></div>
+        </div>
+        <div class="d2-license-sheet-subtitle">{{ tr('settings.includedFeatures') || 'Included features' }}</div>
+        <div v-if="licFeatures.length" class="d2-license-feature-list">
+          <div v-for="f in licFeatures" :key="f"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12l4 4L19 7" /></svg><span>{{ featureLabel(f) }}</span></div>
+        </div>
+        <div v-else class="d2-license-sheet-empty">{{ tr('settings.noAdditionalFeatures') || 'No additional features are listed for this license.' }}</div>
+      </div>
+
+      <div v-else-if="licenseSheet === 'activate'" class="d2-license-sheet-form">
+        <label>{{ tr('settings.activateNewKey') || 'Activate license key' }}</label>
+        <input v-model="license.newKey" :placeholder="tr('settings.keyPlaceholder') || 'Paste license key…'" autocomplete="off" spellcheck="false">
+        <p>{{ tr('settings.activateKeyHint') || 'Enter a new key only when activating or replacing this installation license.' }}</p>
+        <div v-if="msg.lic" class="d2-license-sheet-message" :class="msgLicTone">{{ msg.lic }}</div>
+        <button type="button" :disabled="!license.newKey || busy.lic" @click="activateLicense2">{{ busy.lic ? (tr('settings.fetching') || 'Activating…') : (tr('settings.activate') || 'Activate') }}</button>
+      </div>
+
+      <div v-else-if="licenseSheet === 'recover'" class="d2-license-sheet-form">
+        <label>{{ tr('settings.refetchLicense') || 'Recover license with activation code' }}</label>
+        <input v-model="license.replayCode" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+        <p>{{ tr('settings.refetchHint') || 'Use the activation code from the original purchase. Recovery works only on the same server.' }}</p>
+        <div v-if="msg.lic" class="d2-license-sheet-message" :class="msgLicTone">{{ msg.lic }}</div>
+        <button type="button" :disabled="busy.replay || !license.replayCode.trim()" @click="replayLicense2">{{ busy.replay ? (tr('settings.fetching') || 'Recovering…') : (tr('settings.refetch') || 'Recover') }}</button>
+      </div>
+
+      <div v-else-if="licenseSheet === 'technical'" class="d2-license-sheet d2-license-technical">
+        <div class="d2-license-technical-status"><span :style="{ background:licSrvColor }"></span><div><small>{{ tr('settings.licenseServer') || 'License service' }}</small><strong :style="{ color:licSrvColor }">{{ licSrvLabel }}</strong></div></div>
+        <dl>
+          <div><dt>{{ tr('settings.serverId') || 'Server ID' }}</dt><dd>{{ license.server_id || '—' }}<button type="button" @click="copyServerId">{{ tr('common.copy') || 'Copy' }}</button></dd></div>
+          <div><dt>{{ tr('settings.licenseOwner') || 'Owner' }}</dt><dd>{{ license.owner || '—' }}</dd></div>
+          <div><dt>{{ tr('settings.primaryServer') || 'Primary' }}</dt><dd>{{ licServer.primary_url || '—' }}</dd></div>
+          <div><dt>{{ tr('settings.backupServer') || 'Backup' }}</dt><dd>{{ licServer.backup_url || '—' }}</dd></div>
+          <div><dt>{{ tr('settings.lastCheck') || 'Last check' }}</dt><dd>{{ licLastCheck }}</dd></div>
+        </dl>
+      </div>
+    </D2MobileSheet>
   </div>
 </template>
 
@@ -407,6 +503,7 @@ import { useBrandingStore } from '../../stores/branding'
 import { useD2Ui } from '../../stores/d2ui'
 import D2HelpTip from '../ui/D2HelpTip.vue'
 import D2BrandingPreview from '../ui/D2BrandingPreview.vue'
+import D2MobileSheet from '../ui/D2MobileSheet.vue'
 
 const { t } = useI18n()
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
@@ -446,6 +543,8 @@ function requestUpgrade(feature, tier = 'enterprise') {
 
 // ── active tab ──
 const active = ref('license')
+const settingsPickerOpen = ref(false)
+const licenseSheet = ref('')
 const isSetLicense = computed(() => active.value === 'license')
 const isSetPayments = computed(() => active.value === 'payments')
 const isSetSmtp = computed(() => active.value === 'smtp')
@@ -500,6 +599,7 @@ const settingsTabs = computed(() => [
     active.value = s.key
   },
 })))
+const activeSettingsTab = computed(() => settingsTabs.value.find(item => item.key === active.value) || settingsTabs.value[0] || { label: '', icon: '' })
 
 // ═══════════════ LICENSE ═══════════════
 const license = reactive({ type: '', tier: '', max_clients: null, max_servers: null, days_remaining: null, features: [], current_clients: 0, current_servers: 0, server_id: '', owner: '', newKey: '', replayCode: '' })
@@ -513,6 +613,22 @@ const licMaxClients = computed(() => license.max_clients == null ? '—' : (lice
 const licMaxServers = computed(() => license.max_servers == null ? '—' : (license.max_servers === 999999 ? '∞' : license.max_servers))
 const licDays = computed(() => license.days_remaining != null ? license.days_remaining + 'd' : (tr('settings.permanent') || 'Permanent'))
 const licFeatures = computed(() => Array.isArray(license.features) ? license.features : [])
+const FEATURE_LABELS = {
+  app_integration: 'Client applications',
+  auto_backup: 'Automatic backups',
+  branding: 'Custom branding',
+  corporate_vpn: 'Corporate VPN',
+  custom_domain: 'Custom domains',
+  email_branding: 'Branded email',
+  manager_rbac: 'Manager roles',
+  multi_server: 'Multi-server management',
+  priority_support: 'Priority support',
+  white_label: 'Full white label',
+}
+function featureLabel(feature) {
+  const key = String(feature || '').trim()
+  return tr('settings.feature_' + key) || FEATURE_LABELS[key] || key.replace(/[_-]+/g, ' ').replace(/^./, char => char.toUpperCase())
+}
 const licClientsUsed = computed(() => license.current_clients ?? 0)
 const licServersUsed = computed(() => license.current_servers ?? 0)
 function pct(used, max) { const m = Number(max); if (!m || m === 999999) return '0%'; return Math.min(100, Math.round((Number(used || 0) / m) * 100)) + '%' }
@@ -521,9 +637,15 @@ const licServersPct = computed(() => pct(licServersUsed.value, license.max_serve
 const licSrvColor = computed(() => licServer.online_status === 'revoked' ? 'var(--red)' : (licServer.server_reachable ? 'var(--green)' : 'var(--amber)'))
 const licSrvLabel = computed(() => licServer.online_status === 'revoked' ? (tr('settings.revoked') || 'Revoked') : (licServer.server_reachable ? (tr('settings.reachable') || 'Reachable') : (tr('settings.unreachable') || 'Unreachable')))
 const licLastCheck = computed(() => { if (!licServer.last_check) return '—'; try { return new Date(licServer.last_check).toLocaleString() } catch (_) { return licServer.last_check } })
+const licenseSheetTitle = computed(() => ({
+  details: tr('settings.licenseDetails') || 'License details',
+  activate: tr('settings.activateNewKey') || 'Activate license key',
+  recover: tr('settings.refetchLicense') || 'Recover license',
+  technical: tr('settings.technicalDetails') || 'Technical details',
+}[licenseSheet.value] || (tr('settings.license') || 'License')))
 async function loadLicense() { try { const r = await systemApi.getLicense(); Object.assign(license, r.data); license.newKey = '' } catch (_) {} }
 async function loadLicenseServer() { try { const r = await systemApi.getLicenseServer(); Object.assign(licServer, r.data) } catch (_) {} }
-async function activateLicense2() { if (!license.newKey) return; busy.lic = true; msgLicTone.value = 'ok'; try { await systemApi.activateLicense({ license_key: license.newKey.trim() }); msg.lic = tr('settings.licenseActivated') || 'License activated!'; license.newKey = ''; await loadLicense() } catch (e) { msgLicTone.value = 'err'; msg.lic = e.response?.data?.detail || 'Activation failed' } finally { busy.lic = false } }
+async function activateLicense2() { if (!license.newKey) return; busy.lic = true; msgLicTone.value = 'ok'; try { await systemApi.activateLicense({ license_key: license.newKey.trim() }); msg.lic = tr('settings.licenseActivated') || 'License activated!'; license.newKey = ''; await loadLicense(); licenseSheet.value = '' } catch (e) { msgLicTone.value = 'err'; msg.lic = e.response?.data?.detail || 'Activation failed' } finally { busy.lic = false } }
 async function replayLicense2() {
   const activationCode = license.replayCode.trim()
   if (!activationCode || busy.replay) return
@@ -537,6 +659,7 @@ async function replayLicense2() {
     Object.assign(license, refreshed)
     license.replayCode = ''
     await loadLicenseServer()
+    licenseSheet.value = ''
     flash('lic', tr('settings.refetchSuccess') || 'License recovered successfully.')
   } catch (e) {
     msgLicTone.value = 'err'
@@ -637,6 +760,14 @@ const payTabs = computed(() => Object.keys(PAY_META).map(k => {
   const configured = payProviderConfigured(k)
   return { key: k, label: PAY_META[k].label, on: () => { payProvider.value = k }, border: on ? 'var(--accent)' : 'var(--border-strong)', bg: on ? 'var(--accent-soft)' : 'var(--panel)', color: on ? 'var(--accent)' : 'var(--text-2)', weight: on ? 600 : 500, dot: configured ? 'var(--green)' : PAY_META[k].dot }
 }))
+function selectSettingsTab(value) {
+  const tab = value && typeof value === 'object' && value.key
+    ? value
+    : settingsTabs.value.find(item => item.key === value?.target?.value || item.key === value)
+  if (!tab) return
+  tab.on()
+  settingsPickerOpen.value = false
+}
 const paySubtitle = computed(() => PAY_META[payProvider.value]?.sub || '')
 const payFields = computed(() => (PAY_META[payProvider.value]?.fields || []).map(f => ({
   key: f.key,
@@ -856,7 +987,113 @@ onUnmounted(() => branding.applyBranding())
 </script>
 
 <style scoped>
-@media (max-width: 820px) {
-  .d2-root-inner > div { grid-template-columns: 1fr !important; }
+.d2-settings-mobile-nav,.d2-license-mobile { display:none; }
+.d2-settings-picker-list { display:flex;flex-direction:column;gap:5px; }
+.d2-settings-picker-list button { width:100%;min-height:46px;display:grid;grid-template-columns:22px minmax(0,1fr) 18px;align-items:center;gap:10px;padding:0 12px;border:1px solid transparent;border-radius:11px;background:transparent;color:var(--text-2);font:inherit;text-align:left;cursor:pointer; }
+.d2-settings-picker-list button > span { display:flex;color:var(--text-3); }
+.d2-settings-picker-list button strong { min-width:0;font-size:13px;font-weight:580;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.d2-settings-picker-list button > svg { color:var(--text-3); }
+.d2-settings-picker-list button.active { border-color:var(--accent);background:var(--accent-soft);color:var(--accent); }
+.d2-settings-picker-list button.active > span,.d2-settings-picker-list button.active > svg { color:var(--accent); }
+.d2-license-sheet { display:flex;flex-direction:column;gap:14px; }
+.d2-license-sheet-hero { display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:11px;padding:13px;border:1px solid var(--border);border-radius:13px;background:var(--panel-2); }
+.d2-license-sheet-hero > span { width:40px;height:40px;display:grid;place-items:center;border-radius:11px;background:var(--accent-soft);color:var(--accent); }
+.d2-license-sheet-hero > div { min-width:0;display:flex;flex-direction:column;gap:2px; }
+.d2-license-sheet-hero small,.d2-license-sheet-stats small { color:var(--text-3);font-size:10.5px; }
+.d2-license-sheet-hero strong { font-size:15px;font-weight:680; }
+.d2-license-sheet-hero em { padding:4px 8px;border-radius:99px;background:var(--panel-3);color:var(--text-3);font-size:10.5px;font-style:normal;font-weight:650; }
+.d2-license-sheet-hero em.active { background:color-mix(in srgb,var(--green) 13%,transparent);color:var(--green); }
+.d2-license-sheet-stats { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px; }
+.d2-license-sheet-stats > div { min-width:0;padding:11px;border:1px solid var(--border);border-radius:11px;display:flex;flex-direction:column;gap:4px; }
+.d2-license-sheet-stats strong { font:650 12px 'JetBrains Mono',monospace;white-space:nowrap; }
+.d2-license-sheet-stats span { height:4px;border-radius:99px;background:var(--panel-3);overflow:hidden; }
+.d2-license-sheet-stats span i { display:block;height:100%;border-radius:inherit;background:var(--accent); }
+.d2-license-sheet-subtitle { font-size:11px;font-weight:650;text-transform:uppercase;letter-spacing:.045em;color:var(--text-3); }
+.d2-license-feature-list { display:grid;grid-template-columns:1fr 1fr;gap:7px; }
+.d2-license-feature-list > div { min-width:0;display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2);color:var(--text-2);font-size:12px; }
+.d2-license-feature-list svg { flex:none;color:var(--green); }
+.d2-license-sheet-empty { padding:14px;border:1px dashed var(--border-strong);border-radius:11px;color:var(--text-3);font-size:12px;line-height:1.5; }
+.d2-license-sheet-form { display:flex;flex-direction:column;gap:10px; }
+.d2-license-sheet-form label { font-size:12px;font-weight:650;color:var(--text); }
+.d2-license-sheet-form input { width:100%;height:42px;padding:0 12px;border:1px solid var(--border-strong);border-radius:10px;background:var(--panel-2);color:var(--text);font:12.5px 'JetBrains Mono',monospace;outline:none; }
+.d2-license-sheet-form input:focus { border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring);background:var(--panel); }
+.d2-license-sheet-form p { margin:0;color:var(--text-3);font-size:11.5px;line-height:1.5; }
+.d2-license-sheet-message { padding:9px 10px;border-radius:9px;background:var(--panel-2);font-size:11.5px;line-height:1.4; }
+.d2-license-sheet-message.ok { color:var(--green); }
+.d2-license-sheet-message.err { color:var(--red); }
+.d2-license-sheet-form > button { height:40px;border:0;border-radius:10px;background:var(--accent);color:#fff;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer; }
+.d2-license-sheet-form > button:disabled { opacity:.55;cursor:default; }
+.d2-license-technical-status { display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:11px;background:var(--panel-2); }
+.d2-license-technical-status > span { width:9px;height:9px;border-radius:50%;flex:none; }
+.d2-license-technical-status > div { display:flex;flex-direction:column;gap:2px; }
+.d2-license-technical-status small { color:var(--text-3);font-size:10.5px; }
+.d2-license-technical-status strong { font-size:12.5px; }
+.d2-license-technical dl { display:flex;flex-direction:column;margin:0;border:1px solid var(--border);border-radius:12px;overflow:hidden; }
+.d2-license-technical dl > div { display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-bottom:1px solid var(--border); }
+.d2-license-technical dl > div:last-child { border-bottom:0; }
+.d2-license-technical dt { color:var(--text-3);font-size:10.5px; }
+.d2-license-technical dd { margin:0;color:var(--text-2);font:11.5px 'JetBrains Mono',monospace;overflow-wrap:anywhere; }
+.d2-license-technical dd button { float:right;margin-left:8px;border:0;background:transparent;color:var(--accent);font:inherit;font-size:11px;font-weight:600;cursor:pointer; }
+@media (max-width: 900px) {
+  .d2-settings-mobile-nav { width:100%;height:48px;display:grid;grid-template-columns:34px minmax(0,1fr) 18px;align-items:center;gap:10px;margin:0 0 10px;padding:0 12px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--text);box-shadow:var(--shadow);font:inherit;text-align:left;cursor:pointer; }
+  .d2-settings-mobile-nav-icon { width:34px;height:34px;display:grid;place-items:center;border-radius:9px;background:var(--accent-soft);color:var(--accent); }
+  .d2-settings-mobile-nav-copy { min-width:0;display:flex;flex-direction:column;gap:1px; }
+  .d2-settings-mobile-nav-copy small { color:var(--text-3);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.045em; }
+  .d2-settings-mobile-nav-copy strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:650; }
+  .d2-settings-mobile-nav > svg { color:var(--text-3); }
+  .d2-settings-layout { display:block !important; }
+  .d2-settings-rail { display:none !important; }
+  .d2-settings-content { width:100%;gap:12px !important; }
+  .d2-settings-content > div:not(.d2-license-mobile) { min-width:0;padding:14px !important; }
+  .d2-license-desktop { display:none !important; }
+  .d2-license-mobile { display:flex;flex-direction:column;gap:11px;padding:13px;background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow); }
+  .d2-license-tier-card { width:100%;min-height:56px;display:grid;grid-template-columns:38px minmax(0,1fr) auto 17px;align-items:center;gap:10px;padding:8px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);color:var(--text);font:inherit;text-align:left;cursor:pointer; }
+  .d2-license-tier-icon { width:38px;height:38px;display:grid;place-items:center;border-radius:10px;background:var(--accent-soft);color:var(--accent); }
+  .d2-license-tier-copy { min-width:0;display:flex;flex-direction:column;gap:2px; }
+  .d2-license-tier-copy small { color:var(--text-3);font-size:10px; }
+  .d2-license-tier-copy strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:680;text-transform:capitalize; }
+  .d2-license-status { display:flex;align-items:center;gap:5px;padding:4px 7px;border-radius:99px;background:var(--panel-3);color:var(--text-3);font-size:9.5px;font-weight:650; }
+  .d2-license-status i { width:6px;height:6px;border-radius:50%;background:currentColor; }
+  .d2-license-status.active { color:var(--green);background:color-mix(in srgb,var(--green) 12%,transparent); }
+  .d2-license-tier-card > svg { color:var(--text-3); }
+  .d2-license-mobile-metrics { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px; }
+  .d2-license-mobile-metrics > div { min-width:0;display:flex;flex-direction:column;gap:3px;padding:9px;border:1px solid var(--border);border-radius:10px; }
+  .d2-license-mobile-metrics small { color:var(--text-3);font-size:9.5px;white-space:nowrap; }
+  .d2-license-mobile-metrics strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:650 11.5px 'JetBrains Mono',monospace; }
+  .d2-license-mobile-actions { overflow:hidden;border:1px solid var(--border);border-radius:12px; }
+  .d2-license-mobile-actions button { width:100%;min-height:43px;display:grid;grid-template-columns:minmax(0,1fr) auto 16px;align-items:center;gap:8px;padding:0 11px;border:0;border-bottom:1px solid var(--border);background:var(--panel);color:var(--text-2);font:inherit;font-size:12px;font-weight:560;text-align:left;cursor:pointer; }
+  .d2-license-mobile-actions button:last-child { border-bottom:0; }
+  .d2-license-mobile-actions button > b { min-width:23px;padding:3px 6px;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-size:9.5px;text-align:center; }
+  .d2-license-mobile-actions button > em { display:flex;align-items:center;gap:5px;font-size:9.5px;font-style:normal;font-weight:650; }
+  .d2-license-mobile-actions button > em i { width:6px;height:6px;border-radius:50%; }
+  .d2-license-mobile-actions button > svg { color:var(--text-3); }
+  .d2-license-mobile-footer { display:grid;grid-template-columns:1fr 1fr;gap:7px; }
+  .d2-license-mobile-footer button { height:37px;padding:0 8px;border:1px solid var(--border-strong);border-radius:9px;background:var(--panel);color:var(--text-2);font:inherit;font-size:11.5px;font-weight:600;cursor:pointer; }
+  .d2-license-mobile-footer button:first-child { border-color:var(--accent);background:var(--accent-soft);color:var(--accent); }
+  .d2-license-mobile-footer button:disabled { opacity:.55;cursor:default; }
+  .d2-license-mobile-message { padding:9px 10px;border-radius:9px;background:var(--panel-2);font-size:11.5px;line-height:1.4; }
+  .d2-license-mobile-message.ok { color:var(--green); }
+  .d2-license-mobile-message.err { color:var(--red); }
+  .d2-settings-content [style*="grid-template-columns:repeat(4,1fr)"],
+  .d2-settings-content [style*="grid-template-columns:1fr 320px"] { grid-template-columns:1fr !important; }
+  .d2-settings-content [style*="grid-template-columns:repeat(3,1fr)"] { grid-template-columns:repeat(3,minmax(0,1fr)) !important; }
+  .d2-settings-content [style*="display:flex"][style*="align-items:flex-end"] { align-items:stretch !important;flex-direction:column; }
+  .d2-settings-content [style*="display:flex"][style*="gap:8px"],
+  .d2-settings-content [style*="display:flex"][style*="gap:22px"] { flex-wrap:wrap; }
+  .d2-settings-content input,
+  .d2-settings-content select,
+  .d2-settings-content textarea { max-width:100%; }
+  .d2-settings-content button { max-width:100%; }
+  .d2-settings-actionbar { display:grid !important;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch !important;gap:7px !important; }
+  .d2-settings-actionbar > button { width:100%;min-width:0;height:auto !important;min-height:38px;padding:7px 9px !important;justify-content:center;text-align:center;line-height:1.2; }
+  .d2-settings-actionbar.has-three > button:first-child { grid-column:1 / -1; }
+  .d2-settings-content > div > div[style*="justify-content:flex-end"] { justify-content:flex-start !important; }
+  .d2-settings-content > div > div[style*="justify-content:flex-end"] > button { min-width:110px; }
+}
+@media (max-width: 370px) {
+  .d2-license-status { display:none; }
+  .d2-license-tier-card { grid-template-columns:38px minmax(0,1fr) 17px; }
+  .d2-license-feature-list { grid-template-columns:1fr; }
+  .d2-settings-content [style*="grid-template-columns:1fr 1fr"] { grid-template-columns:1fr !important; }
 }
 </style>

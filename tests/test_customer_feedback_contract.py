@@ -73,6 +73,123 @@ def test_design2_does_not_use_pale_orange_warning_surfaces():
     assert "rgba(251, 146, 60" not in tokens
 
 
+def test_design2_mobile_layout_keeps_table_card_conversion_opt_in():
+    css = _read("src/web/frontend/src/design2/handoff.css")
+    shell = _read("src/web/frontend/src/design2/shell/D2Shell.vue")
+    mobile_css = css.split("/* mobile", 1)[1]
+
+    assert "@media (max-width: 900px)" in mobile_css
+    assert ".d2-root table[data-rtab]" in mobile_css
+    assert ".d2-root table[data-mobile-cards]" in mobile_css
+    assert "\n  .d2-root table {" not in mobile_css
+    assert '.d2-root div[style*="overflow-x:auto"]' not in mobile_css
+    assert "if (window.innerWidth > 900) return" in shell
+    assert "document.addEventListener('click', onMobileTableClick, true)" in shell
+    assert "document.removeEventListener('click', onMobileTableClick, true)" in shell
+
+    for screen in Path("src/web/frontend/src/design2/screens").glob("*.vue"):
+        source = screen.read_text(encoding="utf-8")
+        if "data-rcollapse" in source:
+            assert "data-rtab data-rcollapse" in source, screen
+
+
+def test_design2_mobile_admin_screens_have_compact_explicit_contracts():
+    shell = _read("src/web/frontend/src/design2/shell/D2Shell.vue")
+    css = _read("src/web/frontend/src/design2/handoff.css")
+    online = _read("src/web/frontend/src/design2/screens/D2OnlineUsers.vue")
+    clients = _read("src/web/frontend/src/design2/screens/D2Clients.vue")
+    subscriptions = _read("src/web/frontend/src/design2/screens/D2Subscriptions.vue")
+    health = _read("src/web/frontend/src/design2/screens/D2SystemHealth.vue")
+    settings = _read("src/web/frontend/src/design2/screens/D2Settings.vue")
+
+    assert 'class="d2-mobile-actions"' in shell
+    assert 'class="d2-mobile-primary"' in shell
+    assert 'class="d2-mobile-menu"' in shell
+    assert 'class="d2-mobile-search"' in shell
+    assert ".d2-desktop-actions { display:none !important; }" in shell
+    assert "grid-template-columns:34px minmax(0,1fr) auto" in shell
+    assert "td[data-mprimary]" in css
+    assert 'class="d2-ou-server-select"' in online
+    assert "function onServerSelect" in online
+    assert 'class="d2-clients-mobile"' in clients
+    assert 'class="d2-client-mobile-row"' in clients
+    assert 'D2MobileSheet' in clients
+    assert "flirexa:d2:clients-mobile-fields" in clients
+    assert "isMobilePrimary('server')" in clients
+    assert 'class="d2-ou-mobile"' in online
+    assert 'class="d2-ou-mobile-card"' in online
+    assert 'class="d2-plans-mobile"' in subscriptions
+    assert 'class="d2-plan-mobile-row"' in subscriptions
+    assert 'D2MobileSheet' in subscriptions
+    assert 'class="d2-health-banner"' in health
+    assert "obj.target_name" in health
+    assert "obj.current_status" in health
+    assert "i.data.recent_recoveries" in health
+    assert 'class="d2-settings-mobile-nav"' in settings
+    assert 'class="d2-settings-rail"' in settings
+    assert "function selectSettingsTab" in settings
+    assert 'class="d2-license-mobile"' in settings
+    assert 'class="d2-license-desktop"' in settings
+    assert 'licenseSheet = \'details\'' in settings
+    assert 'class="d2-settings-picker-list"' in settings
+    assert '.d2-license-desktop { display:none !important; }' in settings
+    assert '.d2-settings-actionbar.has-three > button:first-child' in settings
+    assert '<select :value="active"' not in settings
+
+    mobile_actions = shell.split('<div class="d2-mobile-actions">', 1)[1].split('</div>\n\n        <div v-if="ui.onSearch', 1)[0]
+    overflow_menu = mobile_actions.split('<div v-if="mobileMenuOpen" class="d2-mobile-menu">', 1)[1]
+    assert 'd2-mobile-language-btn' in mobile_actions
+    assert 'd2-mobile-github' in mobile_actions
+    assert 'd2-mobile-theme' in mobile_actions
+    assert 'd2-mobile-languages' not in overflow_menu
+    assert '>GitHub<' not in overflow_menu
+
+    backup = _read("src/web/frontend/src/design2/screens/D2Backup.vue")
+    assert 'class="d2-backup-mobile-tabs"' in backup
+    assert 'class="d2-backup-mobile-row"' in backup
+    assert "mobile-archives" in backup
+    assert ':disabled="creating"' in backup
+
+
+def test_design2_remaining_operational_screens_have_mobile_first_surfaces():
+    """Desktop tables must not become squeezed phone-width spreadsheets."""
+    screens = {
+        "D2Dashboard.vue": ("d2-desktop-only", "d2-mobile-list"),
+        "D2Payments.vue": ("d2-desktop-only", "d2-mobile-list"),
+        "D2PortalUsers.vue": ("d2-desktop-only", "d2-portal-mobile-user"),
+        "D2Logs.vue": ("d2-desktop-only", "d2-mobile-list"),
+        "D2Updates.vue": ("d2-desktop-only", "d2-mobile-list"),
+        "D2PromoCodes.vue": ("d2-desktop-only", "d2-mobile-list"),
+        "D2Applications.vue": ("d2-desktop-only", "d2-mobile-list"),
+        "D2Notifications.vue": ("d2-desktop-only", "d2-mobile-list"),
+    }
+    root = Path("src/web/frontend/src/design2/screens")
+    for filename, markers in screens.items():
+        source = (root / filename).read_text(encoding="utf-8")
+        if "FLIREXA_COMMERCIAL_STUB = True" in source:
+            continue
+        for marker in markers:
+            assert marker in source, f"{filename} is missing {marker}"
+
+    support = (root / "D2Support.vue").read_text(encoding="utf-8")
+    assert "d2-support-hidden-mobile" in support
+    assert "d2-support-back" in support
+
+    shared = _read("src/web/frontend/src/design2/handoff.css")
+    assert ".d2-root .d2-mobile-only { display: none !important; }" in shared
+    assert ".d2-root .d2-desktop-only { display: none !important; }" in shared
+    assert ".d2-root .d2-mobile-kv" in shared
+
+
+def test_system_health_ui_does_not_collide_with_liveness_endpoint():
+    router = _read("src/web/frontend/src/router/index.js")
+    nav = _read("src/web/frontend/src/design2/nav.js")
+
+    assert "path: '/system-health'" in router
+    assert "health: { path: '/system-health'" in nav
+    assert "path: '/health',\n    name: 'SystemHealth'" not in router
+
+
 def test_server_update_validates_client_endpoint_and_dns():
     update = ServerUpdate(
         endpoint="vpn.example.com:51820",

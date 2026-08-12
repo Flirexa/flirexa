@@ -112,13 +112,26 @@
     <div class="d2-grid-main" style="margin-top:14px">
       <div class="d2-card2" style="padding:0;overflow:hidden">
         <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px 12px"><div style="font-weight:600;font-size:14px">{{ tr('dashboard.clientsOverview') || 'Recent clients' }}</div><button @click="$router.push('/clients')" style="border:none;background:transparent;color:var(--accent);font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('dashboard.viewAll') || 'View all' }}</button></div>
-        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+        <div class="d2-desktop-only" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr style="text-align:left;border-top:1px solid var(--border)"><th class="d2-th">{{ tr('clients.name') || 'Name' }}</th><th class="d2-th">{{ tr('clients.server') || 'Server' }}</th><th class="d2-th">{{ tr('clients.traffic') || 'Traffic' }}</th><th class="d2-th">{{ tr('c.th_bw') || 'Bandwidth' }}</th><th class="d2-th">{{ tr('clients.status') || 'Status' }}</th></tr></thead>
           <tbody>
             <tr v-for="c in recentClients" :key="c.id" style="border-top:1px solid var(--border)"><td style="padding:11px 20px"><div style="font-weight:550">{{ c.name }}</div><div class="mono" style="font-size:11.5px;color:var(--text-3)">{{ c.ip }}</div></td><td style="padding:11px 12px;color:var(--text-2)">{{ c.server }}</td><td class="mono" style="padding:11px 12px;font-size:12px;color:var(--text-2)">{{ c.traffic }}</td><td class="mono" style="padding:11px 12px;font-size:12px;color:var(--text-2)">{{ c.bw }}</td><td style="padding:11px 12px"><span :style="{ display:'inline-flex', alignItems:'center', gap:'6px', fontSize:'12px', fontWeight:550, color:c.statusColor }"><span :style="{ width:'7px', height:'7px', borderRadius:'50%', background:c.statusColor }"></span>{{ c.statusLabel }}</span></td></tr>
             <tr v-if="!recentClients.length"><td colspan="5" style="padding:20px;text-align:center;color:var(--text-3)">{{ tr('dashboard.noClients') || 'No clients' }}</td></tr>
           </tbody>
         </table></div>
+        <div class="d2-mobile-only d2-mobile-list" style="padding:0 12px 12px">
+          <article v-for="c in recentClients" :key="'mobile-'+c.id" class="d2-mobile-item" style="box-shadow:none">
+            <div class="d2-mobile-summary">
+              <span :style="{width:'8px',height:'8px',borderRadius:'50%',background:c.statusColor,flex:'none'}"></span>
+              <div class="d2-mobile-main">
+                <div class="d2-mobile-title">{{ c.name }}</div>
+                <div class="d2-mobile-sub">{{ c.server }} · {{ c.ip }}</div>
+              </div>
+              <div style="text-align:right;flex:none"><div class="mono" style="font-size:12px;font-weight:600">{{ c.traffic }}</div><div style="font-size:10.5px;color:var(--text-3)">{{ c.statusLabel }}</div></div>
+            </div>
+          </article>
+          <div v-if="!recentClients.length" style="padding:18px;text-align:center;color:var(--text-3)">{{ tr('dashboard.noClients') || 'No clients' }}</div>
+        </div>
       </div>
       <div class="d2-card2">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px"><div style="font-weight:600;font-size:14px">{{ tr('dashboard.servers') || 'Servers' }}</div><button @click="$router.push('/servers')" style="border:none;background:transparent;color:var(--accent);font:inherit;font-size:12.5px;font-weight:550;cursor:pointer">{{ tr('d.manage') || 'Manage' }}</button></div>
@@ -358,4 +371,10 @@ onUnmounted(() => { if (timer) clearInterval(timer); if (map) { map.remove(); ma
 .d2-pulse { animation: d2pulse 2s ease-in-out infinite; }
 @keyframes d2pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.85); } }
 @media (max-width: 1100px) { .d2-grid4 { grid-template-columns: repeat(2, 1fr); } .d2-grid3, .d2-grid-main { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .d2-grid4 { grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:9px !important; }
+  .d2-card { padding:13px !important; }
+  .d2-card > div:nth-child(2) { font-size:22px !important; }
+  .d2-card2 { padding:15px !important; }
+}
 </style>

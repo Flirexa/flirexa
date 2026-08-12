@@ -7,7 +7,7 @@
 <template>
   <div>
     <!-- ===== PORTAL USERS ===== -->
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <div class="d2-portal-toolbar" style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <!-- Search lives in the top app-header bar (registered via the header config
            below, onSearch → reload). The old inline duplicate here was wired to a
            no-op handler and never filtered — removed per customer report. -->
@@ -30,7 +30,7 @@
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 320px;gap:14px;align-items:start">
-      <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div style="overflow-x:auto">
+      <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div class="d2-desktop-only" style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr style="text-align:left">
             <th class="d2-th" style="padding-left:20px">{{ tr('portalUsers.user') || 'User' }}</th>
@@ -54,6 +54,21 @@
             <tr v-if="!rows.length"><td colspan="7" style="padding:30px;text-align:center;color:var(--text-3)">{{ loading ? (tr('common.loading') || 'Loading…') : (tr('portalUsers.noUsers') || 'No users') }}</td></tr>
           </tbody>
         </table>
+      </div>
+      <div class="d2-mobile-only d2-mobile-list" style="padding:10px">
+        <button v-for="u in rows" :key="'mobile-'+u.id" @click="openDetail(u.id)" class="d2-mobile-item d2-portal-mobile-user">
+          <span style="width:34px;height:34px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:650;flex:none">{{ u.initials }}</span>
+          <span class="d2-mobile-main" style="text-align:left">
+            <span class="d2-mobile-title" style="display:block">{{ u.name }}</span>
+            <span class="d2-mobile-sub" style="display:block">{{ u.email }}</span>
+          </span>
+          <span style="text-align:right;flex:none">
+            <span :style="{display:'block',fontSize:'10.5px',fontWeight:600,padding:'2px 7px',borderRadius:'6px',color:u.tierColor,background:u.tierBg}">{{ u.tier }}</span>
+            <span :style="{display:'block',fontSize:'10.5px',fontWeight:550,color:u.statusColor,marginTop:'4px'}">{{ u.statusLabel }}</span>
+          </span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2"><path d="M9 6l6 6-6 6"></path></svg>
+        </button>
+        <div v-if="!rows.length" style="padding:22px;text-align:center;color:var(--text-3)">{{ loading ? (tr('common.loading') || 'Loading…') : (tr('portalUsers.noUsers') || 'No users') }}</div>
       </div>
       <div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:12px;font-size:13px;color:var(--text-2);border-top:1px solid var(--border)">
         <button class="d2-tbbtn" :disabled="offset === 0" @click="offset -= limit; loadUsers()">‹</button>
@@ -174,18 +189,18 @@
         <!-- Payments tab -->
         <div v-if="tab === 'pay'">
           <div v-if="!(detail.payments && detail.payments.length)" style="padding:24px;text-align:center;font-size:13px;color:var(--text-3)">{{ tr('portalUsers.noPayments') || 'No payments' }}</div>
-          <div v-else style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <div v-else style="overflow-x:auto"><table data-rtab style="width:100%;border-collapse:collapse;font-size:12.5px">
             <thead><tr style="text-align:left">
               <th class="d2-th2">{{ tr('payments.date') || 'Date' }}</th><th class="d2-th2">{{ tr('payments.amount') || 'Amount' }}</th><th class="d2-th2">{{ tr('portalUsers.tier') || 'Tier' }}</th><th class="d2-th2">{{ tr('payments.method') || 'Method' }}</th><th class="d2-th2">{{ tr('payments.status') || 'Status' }}</th><th class="d2-th2" style="text-align:right"></th>
             </tr></thead>
             <tbody>
               <tr v-for="p in detailPayments" :key="p.id" style="border-top:1px solid var(--border)">
-                <td class="mono" style="padding:9px 6px;color:var(--text-3)">{{ p.date }}</td>
-                <td class="mono" style="padding:9px 6px;font-weight:600">{{ p.amountLabel }}</td>
-                <td style="padding:9px 6px;font-size:11px;color:var(--text-2)">{{ p.tier }}</td>
-                <td style="padding:9px 6px;color:var(--text-2)">{{ p.method }}</td>
-                <td style="padding:9px 6px"><span :style="{ display:'inline-flex', alignItems:'center', gap:'5px', fontSize:'11.5px', fontWeight:550, color:p.statusColor }">{{ p.statusLabel }}</span></td>
-                <td style="padding:9px 6px"><div style="display:flex;gap:3px;justify-content:flex-end">
+                <td data-mhead class="mono" style="padding:9px 6px;color:var(--text-3)">{{ p.date }}</td>
+                <td :data-label="tr('payments.amount') || 'Amount'" class="mono" style="padding:9px 6px;font-weight:600">{{ p.amountLabel }}</td>
+                <td :data-label="tr('portalUsers.tier') || 'Tier'" style="padding:9px 6px;font-size:11px;color:var(--text-2)">{{ p.tier }}</td>
+                <td :data-label="tr('payments.method') || 'Method'" style="padding:9px 6px;color:var(--text-2)">{{ p.method }}</td>
+                <td :data-label="tr('payments.status') || 'Status'" style="padding:9px 6px"><span :style="{ display:'inline-flex', alignItems:'center', gap:'5px', fontSize:'11.5px', fontWeight:550, color:p.statusColor }">{{ p.statusLabel }}</span></td>
+                <td data-mfull style="padding:9px 6px"><div style="display:flex;gap:3px;justify-content:flex-end">
                   <template v-if="p.isPending">
                     <button @click="confirmPay(p.id)" style="width:26px;height:26px;border-radius:6px;border:none;background:var(--green-soft);color:var(--green);cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7"></path></svg></button>
                     <button @click="rejectPay(p.id)" style="width:26px;height:26px;border-radius:6px;border:none;background:var(--red-soft);color:var(--red);cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
@@ -664,5 +679,12 @@ onMounted(() => {
 .d2-del2 { width: 26px; height: 26px; border-radius: 6px; border: none; background: transparent; color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .d2-del2:hover { background: var(--red-soft); color: var(--red); }
 .d2-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.d2-portal-mobile-user { width:100%;display:flex;align-items:center;gap:10px;color:var(--text);font:inherit;cursor:pointer; }
+@media (max-width:900px) {
+  .d2-portal-toolbar { display:grid !important;grid-template-columns:1fr 1fr; }
+  .d2-portal-toolbar > select { width:100%; }
+  .d2-portal-toolbar > div { grid-column:1 / -1;margin-left:0 !important;display:grid !important;grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .d2-portal-toolbar > div > button { width:100%;justify-content:center; }
+}
 @keyframes d2spin { to { transform: rotate(360deg); } }
 </style>

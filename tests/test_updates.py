@@ -277,6 +277,52 @@ class TestFetchManifest:
         assert result["version"] == "1.1.0"
 
     @pytest.mark.asyncio
+    async def test_transport_timeout_fails_over_to_signed_backup_manifest(self):
+        import httpx
+        from src.modules.updates.checker import fetch_manifest
+        import src.modules.updates.checker as checker_mod
+        checker_mod._cache = None
+
+        backup_origin = "https://" + "global-" + "connection.site"
+        manifest = _make_manifest(private_key=self.priv_key)
+        manifest["package_url"] = (
+            f"{backup_origin}/updates/packages/vpn-manager-v1.1.0.tar.gz"
+        )
+        manifest["signature"] = _sign(manifest, self.priv_key)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.content = json.dumps(manifest).encode()
+        mock_resp.json.return_value = manifest
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(
+            side_effect=[httpx.ConnectTimeout("primary timed out"), mock_resp]
+        )
+
+        with self._patch_pub_key(), patch("httpx.AsyncClient", return_value=mock_client):
+            result, err = await fetch_manifest(channel="stable", force=True)
+
+        assert err is None
+        assert result["version"] == "1.1.0"
+        assert [call.args[0] for call in mock_client.get.await_args_list] == [
+            "https://flirexa.biz/updates/stable/manifest.json",
+            f"{backup_origin}/updates/stable/manifest.json",
+        ]
+
+    def test_custom_update_origin_has_no_implicit_flirexa_backup(self, monkeypatch):
+        import src.modules.updates.checker as checker_mod
+
+        monkeypatch.setattr(
+            checker_mod, "_UPDATE_SERVER_URL", "https://updates.example.com"
+        )
+        monkeypatch.delenv("UPDATE_SERVER_BACKUP_URL", raising=False)
+
+        assert checker_mod._update_server_origins() == ["https://updates.example.com"]
+
+    @pytest.mark.asyncio
     async def test_fetch_404_returns_error(self):
         from src.modules.updates.checker import fetch_manifest
         import src.modules.updates.checker as checker_mod
@@ -319,6 +365,7 @@ class TestFetchManifest:
 
         assert result is None
         assert "signature" in err.lower() or "invalid" in err.lower()
+        mock_client.get.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_fetch_verifies_raw_manifest_before_normalization(self):

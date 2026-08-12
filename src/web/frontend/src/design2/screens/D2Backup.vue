@@ -6,21 +6,21 @@
      (create/list/verify/restoreFull/restoreDatabase/delete + settings + storage).
      Existing handlers preserved; computed adapters map to his field names. -->
 <template>
-  <div class="d2-root">
+  <div class="d2-backup-root">
     <!-- stat cards -->
-    <div :style="{ display:'grid', gridTemplateColumns:g3, gap:'14px', marginBottom:'14px' }">
-      <div style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:16px 18px">
+    <div class="d2-backup-stats" :style="{ gridTemplateColumns:g3 }">
+      <div class="d2-backup-stat">
         <div style="font-size:12.5px;color:var(--text-2)">{{ tr('backup.archive') || 'Archives' }}</div>
         <div style="font-size:24px;font-weight:680;margin-top:7px">{{ backupCount }}</div>
       </div>
-      <div style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:16px 18px">
+      <div class="d2-backup-stat">
         <div style="font-size:12.5px;color:var(--text-2)">{{ storageTypeLabel }}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
           <div style="flex:1;height:6px;border-radius:4px;background:var(--panel-3);overflow:hidden"><div :style="{ height:'100%', borderRadius:'4px', background:'var(--accent)', width:storagePct }"></div></div>
           <span class="mono" style="font-size:11.5px;color:var(--text-3)">{{ storageUsed }} / {{ storageTotal }}</span>
         </div>
       </div>
-      <div style="background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:16px 18px">
+      <div class="d2-backup-stat">
         <div style="font-size:12.5px;color:var(--text-2)">{{ tr('backup.storageStatus') || 'Storage status' }}</div>
         <div style="display:flex;align-items:center;gap:7px;margin-top:10px">
           <span :style="{ width:'9px', height:'9px', borderRadius:'50%', background:storageMountColor }"></span>
@@ -30,18 +30,51 @@
     </div>
 
     <!-- action row + tab pills -->
-    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
-      <button @click="createBackup" style="display:flex;align-items:center;gap:7px;height:36px;padding:0 14px;border:none;background:var(--accent);color:#fff;border-radius:9px;font:inherit;font-size:13px;font-weight:600;cursor:pointer" class="d2-btn-accent"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>{{ tr('backup.createNow') || 'Create now' }}</button>
-      <button @click="refreshBackups" style="height:36px;padding:0 14px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);border-radius:9px;font:inherit;font-size:13px;font-weight:550;cursor:pointer" class="d2-btn-ghost">{{ tr('backup.refresh') || 'Refresh' }}</button>
-      <div style="margin-left:auto;display:flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px">
+    <div class="d2-backup-toolbar">
+      <button @click="createBackup" :disabled="creating" class="d2-btn-accent d2-backup-create-inline">
+        <span v-if="creating" class="d2-backup-spinner" aria-hidden="true"></span>
+        <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+        {{ creating ? (tr('backup.creating') || 'Creating…') : (tr('backup.createNow') || 'Create now') }}
+      </button>
+      <button @click="refreshBackups" :disabled="loading" class="d2-btn-ghost d2-backup-refresh-inline">{{ tr('backup.refresh') || 'Refresh' }}</button>
+      <div class="d2-backup-desktop-tabs">
         <button @click="bkTab = 'sched'" :style="{ padding:'5px 12px', border:'none', borderRadius:'6px', font:'inherit', fontSize:'12px', fontWeight:(bkIsSched?600:500), cursor:'pointer', background:(bkIsSched?'var(--panel)':'transparent'), color:(bkIsSched?'var(--text)':'var(--text-3)') }">{{ tr('backup.tabSchedule') || 'Schedule' }}</button>
         <button @click="bkTab = 'storage'" :style="{ padding:'5px 12px', border:'none', borderRadius:'6px', font:'inherit', fontSize:'12px', fontWeight:(bkIsStorage?600:500), cursor:'pointer', background:(bkIsStorage?'var(--panel)':'transparent'), color:(bkIsStorage?'var(--text)':'var(--text-3)') }">{{ tr('backup.tabStorage') || 'Storage' }}</button>
       </div>
     </div>
 
+    <div v-if="creating" class="d2-backup-progress" role="status" aria-live="polite">
+      <span class="d2-backup-spinner" aria-hidden="true"></span>
+      <div><b>{{ tr('backup.creating') || 'Creating backup…' }}</b><small>{{ tr('backup.creatingHint') || 'This usually takes less than a minute. You can keep this page open.' }}</small></div>
+    </div>
+
+    <div class="d2-backup-mobile-tabs" role="tablist">
+      <button :class="{ active:mobileTab === 'archives' }" @click="selectMobileTab('archives')">{{ tr('backup.archive') || 'Archives' }}</button>
+      <button :class="{ active:mobileTab === 'sched' }" @click="selectMobileTab('sched')">{{ tr('backup.tabSchedule') || 'Schedule' }}</button>
+      <button :class="{ active:mobileTab === 'storage' }" @click="selectMobileTab('storage')">{{ tr('backup.tabStorage') || 'Storage' }}</button>
+    </div>
+
     <!-- table + side panel -->
-    <div :style="{ display:'grid', gridTemplateColumns:gDashMain, gap:'14px', alignItems:'start' }">
-      <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden"><div style="overflow-x:auto">
+    <div class="d2-backup-main" :class="'mobile-' + mobileTab" :style="{ gridTemplateColumns:gDashMain }">
+      <div class="d2-backup-archive-panel">
+        <div class="d2-backup-mobile-list-head">
+          <div><b>{{ tr('backup.archive') || 'Archives' }}</b><small>{{ backupCount }}</small></div>
+          <button type="button" :disabled="loading" :title="tr('backup.refresh') || 'Refresh'" @click="refreshBackups">
+            <svg :class="{ spin:loading }" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 10-2.34 5.66"></path><path d="M20 4v7h-7"></path></svg>
+          </button>
+        </div>
+        <div class="d2-backup-mobile-list">
+          <button v-for="b in backupRows" :key="'mobile-'+(b.id || b.filename)" type="button" class="d2-backup-mobile-row" @click="selectedBackup = b">
+            <span class="d2-backup-mobile-date"><b>{{ b.date }}</b><small class="mono">{{ b.id }}</small></span>
+            <span class="d2-backup-mobile-meta"><b class="mono">{{ b.size }}</b><small :style="{ color:b.typeColor, background:b.typeBg }">{{ b.typeLabel }}</small></span>
+            <span class="d2-backup-mobile-status" :class="{ verified:b.verified }" :title="b.verified ? (tr('backup.verified') || 'Verified') : (tr('backup.verify') || 'Verify')">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path v-if="b.verified" d="M8 12l2.5 2.5L16 9"></path><path v-else d="M12 8v4M12 16h.01"></path></svg>
+            </span>
+            <svg class="d2-backup-mobile-more" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+          </button>
+          <div v-if="!backupRows.length" class="d2-backup-mobile-empty">{{ loading ? (tr('common.loading') || 'Loading…') : (tr('backup.noBackups') || 'No backups yet') }}</div>
+        </div>
+        <div class="d2-backup-desktop-table" style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead><tr style="text-align:left">
             <th class="d2-th" style="padding:11px 20px">{{ tr('backup.date') || 'Date' }}</th>
@@ -72,7 +105,7 @@
         </table>
       </div></div>
 
-      <div style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:18px 20px">
+      <div class="d2-backup-settings-panel">
         <!-- Schedule tab -->
         <template v-if="bkIsSched">
           <div style="font-weight:600;font-size:14px;margin-bottom:14px">{{ tr('backup.tabSchedule') || 'Schedule' }}</div>
@@ -152,7 +185,23 @@
       </div>
     </div>
 
-    <div v-if="msg" :style="{ color:msgIsError ? 'var(--red)' : 'var(--green)', fontSize:'13px', marginTop:'12px' }">{{ msg }}</div>
+    <D2MobileSheet :open="!!selectedBackup" :title="selectedBackup?.date || ''" :close-label="tr('common.close') || 'Close'" @close="selectedBackup = null">
+      <template v-if="selectedBackup">
+        <div class="d2-backup-sheet-meta">
+          <div><span>{{ tr('backup.size') || 'Size' }}</span><b class="mono">{{ selectedBackup.size }}</b></div>
+          <div><span>{{ tr('backup.type') || 'Type' }}</span><b>{{ selectedBackup.typeLabel }}</b></div>
+          <div><span>ID</span><b class="mono">{{ selectedBackup.id }}</b></div>
+        </div>
+        <div class="d2-backup-sheet-actions">
+          <button type="button" @click="runSelected('verify')">{{ tr('backup.verify') || 'Verify integrity' }}</button>
+          <button type="button" @click="runSelected('full')">{{ tr('backup.restoreFull') || 'Full restore' }}</button>
+          <button type="button" @click="runSelected('db')">{{ tr('backup.restoreDb') || 'Restore database' }}</button>
+          <button type="button" class="danger" @click="runSelected('delete')">{{ tr('common.delete') || 'Delete' }}</button>
+        </div>
+      </template>
+    </D2MobileSheet>
+
+    <div v-if="msg" class="d2-backup-message" :class="{ error:msgIsError }">{{ msg }}</div>
   </div>
 </template>
 
@@ -163,6 +212,7 @@ import { useI18n } from 'vue-i18n'
 import { backupApi } from '../../api'
 import { formatBytes, formatDate } from '../../utils'
 import { useD2Ui } from '../../stores/d2ui'
+import D2MobileSheet from '../ui/D2MobileSheet.vue'
 
 const { t } = useI18n()
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
@@ -171,9 +221,26 @@ const backups = ref([])
 const loading = ref(false)
 const creating = ref(false)
 const msg = ref('')
+const selectedBackup = ref(null)
+const mobileTab = ref('archives')
 
 async function load() { loading.value = true; try { const r = await backupApi.list(); const d = r.data; backups.value = d.backups || d.items || (Array.isArray(d) ? d : []) } catch (e) { console.error(e) } finally { loading.value = false } }
-async function create() { creating.value = true; try { await backupApi.create(); await Promise.all([load(), loadStorage()]); flash(tr('backup.createdOk') || 'Backup created') } catch (e) { flash(errorDetail(e), true) } finally { creating.value = false } }
+async function create() {
+  if (creating.value) return
+  creating.value = true
+  syncHeaderAction()
+  try {
+    const { data } = await backupApi.create()
+    if (data?.success === false) throw new Error(data?.message || 'Backup creation failed')
+    await Promise.all([load(), loadStorage()])
+    flash(tr('backup.createdOk') || 'Backup created')
+  } catch (e) {
+    flash(errorDetail(e), true)
+  } finally {
+    creating.value = false
+    syncHeaderAction()
+  }
+}
 function fileId(b) { return b.backup_id }
 function isDbOnly(b) { return !!(b.database_dump && b.env_backed_up === false) || b.type === 'db' }
 function fmtBackupSize(b) { if (b.archive_size_bytes != null) return formatBytes(b.archive_size_bytes); if (b.archive_size_mb != null) return b.archive_size_mb + ' MB'; if (b.backup_size_mb != null) return b.backup_size_mb + ' MB'; return '—' }
@@ -181,6 +248,15 @@ async function verify(b) { try { const r = await backupApi.verify(fileId(b)); al
 async function restoreFull(b) { if (!await d2confirm(tr('backup.restoreFullConfirm') || 'Full restore from this backup? This overwrites current data.')) return; try { await backupApi.restoreFull(fileId(b)); flash(tr('backup.restored') || 'Restore started') } catch (e) { alert(e.response?.data?.detail || 'Error') } }
 async function restoreDb(b) { if (!await d2confirm(tr('backup.restoreDbConfirm') || 'Restore database only from this backup?')) return; try { await backupApi.restoreDatabase(fileId(b)); flash(tr('backup.restored') || 'Restore started') } catch (e) { alert(e.response?.data?.detail || 'Error') } }
 async function remove(b) { if (!await d2confirm(tr('backup.deleteConfirm') || 'Delete this backup?')) return; try { await backupApi.delete(fileId(b)); await load() } catch (e) { alert(e.response?.data?.detail || 'Error') } }
+async function runSelected(action) {
+  const row = selectedBackup.value
+  if (!row) return
+  selectedBackup.value = null
+  if (action === 'verify') return verify(row.raw)
+  if (action === 'full') return restoreFull(row.raw)
+  if (action === 'db') return restoreDb(row.raw)
+  if (action === 'delete') return remove(row.raw)
+}
 const msgIsError = ref(false)
 function flash(m, isError = false) { msg.value = m; msgIsError.value = isError; setTimeout(() => { msg.value = ''; msgIsError.value = false }, 4000) }
 function errorDetail(e) { return e?.response?.data?.detail || e?.message || 'Error' }
@@ -195,6 +271,10 @@ const refreshBackups = load
 const bkTab = ref('sched')
 const bkIsSched = computed(() => bkTab.value === 'sched')
 const bkIsStorage = computed(() => bkTab.value === 'storage')
+function selectMobileTab(tab) {
+  mobileTab.value = tab
+  if (tab === 'sched' || tab === 'storage') bkTab.value = tab
+}
 const backupSettings = reactive({
   backup_enabled: 'true',
   backup_interval_hours: '24',
@@ -334,14 +414,56 @@ const storageMountLabel = computed(() => {
   return storage.value.ready ? (tr('backup.storageReady') || 'Ready') : (tr('backup.storageUnavailable') || 'Unavailable')
 })
 
+function syncHeaderAction() {
+  ui.set({
+    title: tr('nav.backup') || 'Backup',
+    keepSearch: true,
+    primary: {
+      label: creating.value ? (tr('backup.creating') || 'Creating…') : (tr('backup.create') || 'Create backup'),
+      onClick: createBackup,
+      disabled: creating.value,
+      loading: creating.value,
+    },
+  })
+}
+
 onMounted(() => {
-  ui.set({ title: tr('nav.backup') || 'Backup', primary: { label: tr('backup.create') || 'Create backup', onClick: createBackup } })
+  syncHeaderAction()
   load(); loadSettings(); loadStorage()
 })
 </script>
 
 <style scoped>
 .mono { font-family: 'JetBrains Mono', monospace; }
+.d2-backup-root { width:100%;min-width:0; }
+.d2-backup-stats { display:grid;gap:14px;margin-bottom:14px; }
+.d2-backup-stat { min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow);padding:16px 18px; }
+.d2-backup-toolbar { display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap; }
+.d2-backup-toolbar > button { display:flex;align-items:center;justify-content:center;gap:7px;height:36px;padding:0 14px;border-radius:9px;font:inherit;font-size:13px;font-weight:600;cursor:pointer; }
+.d2-backup-toolbar .d2-btn-accent { border:0;background:var(--accent);color:#fff; }
+.d2-backup-toolbar .d2-btn-ghost { border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);font-weight:550; }
+.d2-backup-toolbar button:disabled { cursor:default;opacity:.62; }
+.d2-backup-desktop-tabs { margin-left:auto;display:flex;gap:2px;padding:3px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px; }
+.d2-backup-progress { display:flex;align-items:center;gap:11px;margin:0 0 14px;padding:11px 13px;border:1px solid var(--accent);border-radius:11px;background:var(--accent-soft);color:var(--text); }
+.d2-backup-progress > div { min-width:0;display:flex;flex-direction:column;gap:2px; }
+.d2-backup-progress b { font-size:12.5px;font-weight:650; }
+.d2-backup-progress small { color:var(--text-3);font-size:11px;line-height:1.35; }
+.d2-backup-spinner,.d2-primary-spinner { width:15px;height:15px;flex:none;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:d2-backup-spin .7s linear infinite; }
+@keyframes d2-backup-spin { to { transform:rotate(360deg); } }
+.d2-backup-mobile-tabs,.d2-backup-mobile-list,.d2-backup-mobile-list-head { display:none; }
+.d2-backup-main { display:grid;gap:14px;align-items:start; }
+.d2-backup-archive-panel { min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden; }
+.d2-backup-settings-panel { min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:18px 20px; }
+.d2-backup-message { margin-top:12px;padding:10px 12px;border-radius:9px;background:var(--green-soft);color:var(--green);font-size:13px;font-weight:550; }
+.d2-backup-message.error { background:var(--red-soft);color:var(--red); }
+.d2-backup-sheet-meta { display:grid;gap:8px;margin-bottom:12px; }
+.d2-backup-sheet-meta > div { min-width:0;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:9px 10px;border-radius:9px;background:var(--panel-2); }
+.d2-backup-sheet-meta span { color:var(--text-3);font-size:11px; }
+.d2-backup-sheet-meta b { min-width:0;max-width:70%;overflow-wrap:anywhere;text-align:right;font-size:12px; }
+.d2-backup-sheet-actions { display:grid;gap:7px; }
+.d2-backup-sheet-actions button { min-height:42px;padding:0 12px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);font:inherit;font-size:13px;font-weight:600;text-align:left;cursor:pointer; }
+.d2-backup-sheet-actions button:active { background:var(--panel-2); }
+.d2-backup-sheet-actions button.danger { color:var(--red);border-color:var(--red-soft); }
 .d2-th { padding: 11px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); text-align: left; }
 .d2-row:hover { background: var(--panel-2); }
 .d2-ico { width: 30px; height: 30px; border-radius: 7px; border: none; background: transparent; color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center; }
@@ -351,4 +473,51 @@ onMounted(() => {
 .d2-btn-ghost:hover { background: var(--panel-2); }
 .d2-in { width: 100%; border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--text); border-radius: 10px; padding: 0 12px; font: inherit; outline: none; }
 .d2-in:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); background: var(--panel); }
+@media (max-width:900px) {
+  .d2-backup-stats { grid-template-columns:repeat(3,minmax(0,1fr)) !important;gap:0;margin-bottom:10px;border:1px solid var(--border);border-radius:12px;background:var(--panel);box-shadow:var(--shadow);overflow:hidden; }
+  .d2-backup-stat { min-height:70px;padding:10px 9px;border:0;border-right:1px solid var(--border);border-radius:0;background:transparent;box-shadow:none; }
+  .d2-backup-stat:last-child { border-right:0; }
+  .d2-backup-stat > div:first-child { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9.5px !important; }
+  .d2-backup-stat > div:nth-child(2) { margin-top:6px !important; }
+  .d2-backup-stat:first-child > div:nth-child(2) { font-size:19px !important; }
+  .d2-backup-stat:nth-child(2) .mono { display:none; }
+  .d2-backup-stat:nth-child(3) span:last-child { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px !important; }
+  .d2-backup-toolbar { display:none; }
+  .d2-backup-progress { margin-bottom:10px; }
+  .d2-backup-mobile-tabs { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;margin-bottom:10px;padding:3px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2); }
+  .d2-backup-mobile-tabs button { height:34px;min-width:0;padding:0 6px;border:0;border-radius:7px;background:transparent;color:var(--text-3);font:inherit;font-size:11.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer; }
+  .d2-backup-mobile-tabs button.active { background:var(--panel);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .d2-backup-main { display:block !important; }
+  .d2-backup-main.mobile-archives .d2-backup-settings-panel { display:none; }
+  .d2-backup-main:not(.mobile-archives) .d2-backup-archive-panel { display:none; }
+  .d2-backup-archive-panel { border-radius:12px; }
+  .d2-backup-desktop-table { display:none; }
+  .d2-backup-mobile-list-head { height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px 0 13px;border-bottom:1px solid var(--border); }
+  .d2-backup-mobile-list-head > div { min-width:0;display:flex;align-items:center;gap:7px; }
+  .d2-backup-mobile-list-head b { font-size:12.5px;font-weight:650; }
+  .d2-backup-mobile-list-head small { display:grid;place-items:center;min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:var(--panel-2);color:var(--text-3);font-size:10px;font-weight:650; }
+  .d2-backup-mobile-list-head button { width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:8px;background:transparent;color:var(--text-3);cursor:pointer; }
+  .d2-backup-mobile-list-head button:active { background:var(--panel-2); }
+  .d2-backup-mobile-list-head .spin { animation:d2-backup-spin .7s linear infinite; }
+  .d2-backup-mobile-list { display:block; }
+  .d2-backup-mobile-row { width:100%;min-height:68px;display:grid;grid-template-columns:minmax(0,1fr) auto 22px;align-items:center;gap:10px;padding:10px 12px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);font:inherit;text-align:left;cursor:pointer; }
+  .d2-backup-mobile-row:last-child { border-bottom:0; }
+  .d2-backup-mobile-row:active { background:var(--panel-2); }
+  .d2-backup-mobile-date,.d2-backup-mobile-meta { min-width:0;display:flex;flex-direction:column;gap:4px; }
+  .d2-backup-mobile-date b { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:650; }
+  .d2-backup-mobile-date small { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-3);font-size:9.5px; }
+  .d2-backup-mobile-meta { align-items:flex-end; }
+  .d2-backup-mobile-meta b { font-size:11.5px;font-weight:550;color:var(--text-2); }
+  .d2-backup-mobile-meta small { padding:2px 6px;border-radius:5px;font-size:9.5px;font-weight:650; }
+  .d2-backup-mobile-status { display:none; }
+  .d2-backup-mobile-more { color:var(--text-3); }
+  .d2-backup-mobile-empty { padding:30px 16px;text-align:center;color:var(--text-3);font-size:12px; }
+  .d2-backup-settings-panel { padding:14px;border-radius:12px; }
+  .d2-backup-settings-panel input,.d2-backup-settings-panel select { min-width:0; }
+}
+@media (min-width:540px) and (max-width:900px) {
+  .d2-backup-mobile-row { grid-template-columns:minmax(0,1fr) auto 28px 22px; }
+  .d2-backup-mobile-status { display:flex;color:var(--text-3); }
+  .d2-backup-mobile-status.verified { color:var(--green); }
+}
 </style>
