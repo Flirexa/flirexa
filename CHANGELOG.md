@@ -4,6 +4,27 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.107 — 2026-08-13
+
+### Improved
+
+- Reworked the current admin interface for mobile screens with a compact
+  header, responsive action menus, readable cards, and touch-friendly detail
+  sheets across operational sections.
+- Redesigned backup management on phones so archive metadata and restore
+  actions remain visible without horizontal scrolling.
+- Improved mobile layouts for clients, online users, subscriptions, settings,
+  monitoring, logs, applications, notifications, and support.
+
+### Fixed
+
+- Added failover for signed update-manifest checks when the primary update
+  origin is temporarily unreachable.
+- Fixed backup creation and storage reporting edge cases in the current admin
+  interface.
+
+---
+
 ## v2.2.99 — 2026-08-10
 
 ### Added
