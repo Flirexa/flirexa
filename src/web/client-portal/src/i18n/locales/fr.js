@@ -1,6 +1,11 @@
 export default {
   common: {
     status: 'Statut',
+    paymentConfirming: 'Confirmation de votre paiement PayPal...',
+    paymentCompleted: 'Paiement confirmé. Votre abonnement est actif.',
+    paymentPending: 'PayPal traite encore le paiement. Le statut sera mis à jour automatiquement.',
+    paymentCancelled: "Le paiement a été annulé. Aucun montant n'a été débité.",
+    paymentConfirmationFailed: "Le paiement n'a pas encore pu être confirmé. Vérifiez le statut plus tard ou contactez le support.",
     close: 'Fermer',
     error: 'Erreur',
     cancel: 'Annuler',
@@ -279,6 +284,9 @@ export default {
     applyPromo: 'Appliquer',
     payByCard: 'Payer par carte',
     cardCheckoutHint: 'Vous serez redirigé vers une page de paiement sécurisée.',
+    redirectHint: 'Continuez une fois et finalisez le paiement en toute sécurité auprès du fournisseur sélectionné.',
+    continueToPayment: 'Continuer vers le paiement',
+    invalidPaymentLink: 'Le fournisseur a renvoyé un lien de paiement invalide.',
   },
   auth: {
     signIn: 'Connexion',

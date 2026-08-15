@@ -17,6 +17,15 @@
       <button class="fx-btn fx-btn-secondary fx-btn-sm" @click="loadData">{{ $t('common.retry') }}</button>
     </div>
 
+    <div
+      v-if="paypalReturnState"
+      class="fx-card"
+      style="padding:14px var(--pad-card); margin-bottom:var(--gap); font-size:13px"
+      :style="{ color: paypalReturnState === 'success' ? 'var(--success)' : paypalReturnState === 'error' ? 'var(--danger)' : 'var(--text-2)' }"
+    >
+      {{ paypalReturnMessage }}
+    </div>
+
     <!-- Stat row -->
     <div class="fx-stat-row fx-stat-row-3">
       <div class="fx-stat">
@@ -173,6 +182,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 import { portalSession } from '../session'
@@ -181,6 +191,8 @@ import PaymentModal from './PaymentModal.vue'
 import { apiErrorMessage } from '../utils.js'
 
 const { t, locale } = useI18n()
+const route = useRoute()
+const router = useRouter()
 
 const payments = ref([])
 const subscription = ref({})
@@ -192,6 +204,17 @@ const providers = ref([])
 const providersLoading = ref(true)
 const payModalOpen = ref(false)
 const payModalProvider = ref('')
+const paypalReturnState = ref('')
+const paypalReturnMessage = computed(() => {
+  const messages = {
+    processing: t('payments.paymentConfirming'),
+    success: t('payments.paymentCompleted'),
+    pending: t('payments.paymentPending'),
+    cancelled: t('payments.paymentCancelled'),
+    error: t('payments.paymentConfirmationFailed'),
+  }
+  return messages[paypalReturnState.value] || ''
+})
 
 const filterLabels = computed(() => ({
   all: t('payments.filterAll'),
@@ -309,7 +332,30 @@ const loadData = async () => {
   providersLoading.value = false
 }
 
-onMounted(loadData)
+const handlePayPalReturn = async () => {
+  if (route.query.paypal_cancel === '1') {
+    paypalReturnState.value = 'cancelled'
+    await router.replace({ path: '/payments' })
+    return
+  }
+  const orderId = typeof route.query.token === 'string' ? route.query.token : ''
+  if (route.query.paypal_return !== '1' || !orderId) return
+
+  paypalReturnState.value = 'processing'
+  try {
+    const { data } = await portalApi.capturePayPal(orderId)
+    paypalReturnState.value = data?.status === 'completed' ? 'success' : 'pending'
+  } catch {
+    paypalReturnState.value = 'error'
+  } finally {
+    await router.replace({ path: '/payments' })
+  }
+}
+
+onMounted(async () => {
+  await handlePayPalReturn()
+  await loadData()
+})
 </script>
 
 <style scoped>

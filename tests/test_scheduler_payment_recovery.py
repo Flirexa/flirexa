@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 from src.api import scheduler
 from src.api.routes import client_portal
@@ -115,6 +116,28 @@ def test_pending_recovery_uses_idempotent_completion_path(db_session, monkeypatc
     scheduler._try_recover_pending_payments(db_session)
 
     assert completed == [row.invoice_id]
+
+
+def test_paypal_recovery_uses_verified_settlement_helper(db_session, monkeypatch):
+    row = _payment(db_session, "paypal", updated_minutes_ago=30)
+    row.provider_name = "paypal"
+    row.updated_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+    db_session.commit()
+
+    provider = _PendingProvider()
+    settle = AsyncMock(return_value="completed")
+    monkeypatch.setattr(client_portal, "paypal_provider", provider)
+    monkeypatch.setattr(client_portal, "_settle_paypal_payment", settle)
+    monkeypatch.setattr(scheduler, "_PENDING_PAYMENT_RECOVERY_BATCH", 3)
+    monkeypatch.setattr(
+        scheduler, "_PENDING_PAYMENT_RECOVERY_RETRY_SECONDS", 600
+    )
+
+    scheduler._try_recover_pending_payments(db_session)
+
+    settle.assert_awaited_once()
+    assert settle.await_args.args[1].invoice_id == row.invoice_id
+    assert provider.calls == []
 
 
 def test_expiry_waits_for_recovery_grace_and_is_bounded(db_session, monkeypatch):

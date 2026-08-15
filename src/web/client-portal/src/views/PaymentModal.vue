@@ -98,16 +98,15 @@
             <div class="card-pay-line">
               <span class="card-pay-icon">{{ getProviderIcon(selectedProvider) }}</span>
               <div>
-                <div class="card-pay-title">{{ $t('pay.payByCard') }}</div>
+                <div class="card-pay-title">{{ selectedProviderName }}</div>
                 <div class="card-pay-sub">
-                  <span class="fw-bold">{{ selectedProviderName }}</span>
-                  · {{ $t('pay.cardCheckoutHint') }}
+                  {{ $t('pay.cardCheckoutHint') }}
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="alert alert-info mt-3 small py-2">{{ $t('pay.paymentLinkHint') }}</div>
+          <div class="alert alert-info mt-3 small py-2">{{ $t('pay.redirectHint') }}</div>
         </div>
 
         <!-- Step 3: Invoice -->
@@ -142,7 +141,7 @@
           {{ step > 1 && step < 3 ? $t('common.back') : $t('common.close') }}
         </button>
         <button type="button" class="btn btn-primary btn-sm" @click="nextStep" :disabled="!canProceed || loading" v-if="step < 3">
-          {{ step === 2 ? $t('pay.createInvoice') : $t('common.next') }}
+          {{ step === 2 ? $t('pay.continueToPayment') : $t('common.next') }}
         </button>
       </div>
     </div>
@@ -311,6 +310,14 @@ const createInvoice = async () => {
     if (promoApplied.value && promoCode.value) invoiceData.promo_code = promoCode.value.trim().toUpperCase()
     const response = await portalApi.createInvoice(invoiceData)
     invoice.value = response.data
+    if (invoice.value?.payment_url) {
+      const target = new URL(invoice.value.payment_url, window.location.origin)
+      if (target.protocol !== 'https:') throw new Error(t('pay.invalidPaymentLink'))
+      // Keep the flow in one tab: provider approval returns to /payments,
+      // where the authenticated portal safely captures and verifies PayPal.
+      window.location.assign(target.href)
+      return
+    }
     step.value = 3
     startPaymentCheck()
   } catch (err) {

@@ -157,6 +157,17 @@ In your PayPal app → **Webhooks** → **Add Webhook**:
 
 After saving, copy the webhook **ID** (looks like `8YR1A6781E6543210`) and paste it into the Webhook ID field in the admin panel.
 
+Also make sure the panel's public client portal URL is the final HTTPS address.
+PayPal sends the buyer back to `/payments` on that address after approval; an
+HTTP address or a placeholder host is rejected instead of creating a broken
+checkout.
+
+Click **Test** after saving. In addition to testing the API credentials,
+Flirexa checks that the Webhook ID exists under the same PayPal app, that its
+URL matches this portal, and that the required order-approved and
+capture-completed events are subscribed. Credentials from one app and a
+Webhook ID from another are therefore reported before a customer pays.
+
 ### Sandbox vs Production
 
 PayPal has two completely separate worlds:
@@ -343,6 +354,14 @@ Same flow for all providers:
 6. If signature is invalid → 401 returned, no credit
 
 If a webhook is dropped (rare — providers retry), the **monitoring loop** runs every 60 s and asks the provider directly via `check_payment(invoice_id)`. If the provider says "paid", we credit the subscription anyway. The customer never gets stuck in "I paid but my plan didn't activate".
+
+PayPal has one additional recovery path: after approval, the buyer returns to
+the authenticated `/payments` page, which asks the backend to capture and
+verify the order immediately. The return URL itself is never treated as proof
+of payment. Return handling, webhook handling, and status polling all fetch the
+authoritative PayPal order, use an idempotent capture request, and require the
+completed capture amount and currency to exactly match the local invoice before
+activating a subscription.
 
 See [webhook-security.md](webhook-security.md) for the full pipeline + how the recovery poller works.
 

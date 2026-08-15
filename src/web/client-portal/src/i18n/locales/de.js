@@ -1,6 +1,11 @@
 export default {
   common: {
     status: 'Status',
+    paymentConfirming: 'Ihre PayPal-Zahlung wird bestätigt...',
+    paymentCompleted: 'Zahlung bestätigt. Ihr Abonnement ist aktiv.',
+    paymentPending: 'PayPal verarbeitet die Zahlung noch. Der Status wird automatisch aktualisiert.',
+    paymentCancelled: 'Die Zahlung wurde abgebrochen. Es wurde nichts belastet.',
+    paymentConfirmationFailed: 'Die Zahlung konnte noch nicht bestätigt werden. Prüfen Sie den Status später erneut oder kontaktieren Sie den Support.',
     close: 'Schlie\u00dfen',
     error: 'Fehler',
     cancel: 'Abbrechen',
@@ -279,6 +284,9 @@ export default {
     applyPromo: 'Anwenden',
     payByCard: 'Mit Karte zahlen',
     cardCheckoutHint: 'Sie werden zu einer sicheren Zahlungsseite weitergeleitet.',
+    redirectHint: 'Fahren Sie einmal fort und schließen Sie die Zahlung sicher beim ausgewählten Anbieter ab.',
+    continueToPayment: 'Weiter zur Zahlung',
+    invalidPaymentLink: 'Der Zahlungsanbieter hat einen ungültigen Checkout-Link zurückgegeben.',
   },
   auth: {
     signIn: 'Anmelden',

@@ -138,3 +138,31 @@ async def test_nowpayments_self_test_stays_in_open_core(monkeypatch):
     assert result["provider"] == "nowpayments"
     assert result["configured"] is True
     assert result["failed"] == 1  # simplistic fake rejects only the forged signature
+
+
+@pytest.mark.asyncio
+async def test_paypal_self_test_detects_webhook_from_another_app(monkeypatch):
+    if getattr(payment_settings_commercial, "FLIREXA_COMMERCIAL_STUB", False):
+        pytest.skip("PayPal settings implementation is exercised by the private overlay")
+
+    provider = SimpleNamespace(
+        sandbox=False,
+        test_connection=AsyncMock(return_value={"connected": True, "message": "ok"}),
+        list_webhooks=AsyncMock(return_value=[{
+            "id": "WH-ACTUAL",
+            "url": "https://portal.example/client-portal/webhooks/paypal",
+            "event_types": [{"name": "*"}],
+        }]),
+    )
+    monkeypatch.setenv("PAYPAL_WEBHOOK_ID", "WH-STALE")
+    monkeypatch.setenv("CLIENT_PORTAL_URL", "https://portal.example")
+    result = await payment_settings_commercial.test_paid_provider(
+        "paypal",
+        SimpleNamespace(paypal_provider=provider),
+    )
+
+    assert result["configured"] is True
+    assert any(
+        check["name"] == "Webhook belongs to this PayPal app" and not check["ok"]
+        for check in result["checks"]
+    )

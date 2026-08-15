@@ -11,9 +11,11 @@ from fastapi.responses import Response, FileResponse
 from sqlalchemy.orm import Session, defer
 from sqlalchemy import func as sa_func, text as sa_text
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from decimal import Decimal, InvalidOperation
+from urllib.parse import urlsplit, urlunsplit
 import base64
 import hashlib
 import hmac
@@ -39,7 +41,7 @@ from src.database.connection import get_db
 from src.database.models import Server
 from src.modules.subscription.subscription_models import (
     PaymentMethod, ClientUserClients, ClientUser, ClientRefreshToken,
-    PortalRateLimit,
+    PortalRateLimit, ClientPortalPayment,
     SubscriptionStatus,
 )
 from src.modules.subscription.subscription_manager import SubscriptionManager
@@ -280,6 +282,150 @@ email_service = None
 
 # Admin API client (initialized in client_portal_main.py)
 admin_api: Optional[AdminAPIClient] = None
+
+
+def _client_portal_base_url() -> str:
+    """Return the configured public portal origin/path, never a request Host.
+
+    Payment return URLs are security-sensitive and must not be derived from an
+    attacker-controlled Host header. A missing or malformed public URL is a
+    configuration error, not a reason to fall back to an unrelated domain.
+    """
+    configured = (os.getenv("CLIENT_PORTAL_URL", "") or "").strip()
+    if not configured:
+        domain = (os.getenv("CLIENT_PORTAL_DOMAIN", "") or "").strip()
+        configured = f"https://{domain}" if domain else ""
+    if not configured:
+        raise ValueError("CLIENT_PORTAL_URL or CLIENT_PORTAL_DOMAIN is required for hosted payments")
+
+    parsed = urlsplit(configured)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("Client portal public URL must be an absolute HTTPS URL without credentials, query or fragment")
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
+
+
+def _paypal_order_id_from_event(data: dict[str, Any]) -> str:
+    """Extract the order id from either an order or capture webhook."""
+    resource = data.get("resource") or {}
+    event_type = data.get("event_type", "")
+    if event_type == "CHECKOUT.ORDER.APPROVED":
+        return str(resource.get("id") or "")
+    if event_type == "PAYMENT.CAPTURE.COMPLETED":
+        related = (resource.get("supplementary_data") or {}).get("related_ids") or {}
+        return str(related.get("order_id") or "")
+    return ""
+
+
+def _paypal_capture_total(order: dict[str, Any]) -> tuple[Decimal, str, str]:
+    """Return total, currency and first id from authoritative completed captures."""
+    total = Decimal("0")
+    currency = ""
+    first_capture_id = ""
+    found = False
+    for unit in order.get("purchase_units") or []:
+        captures = ((unit.get("payments") or {}).get("captures") or [])
+        for capture in captures:
+            if str(capture.get("status") or "").upper() != "COMPLETED":
+                continue
+            amount = capture.get("amount") or {}
+            capture_currency = str(amount.get("currency_code") or "").upper()
+            try:
+                capture_value = Decimal(str(amount.get("value"))).quantize(Decimal("0.01"))
+            except (InvalidOperation, TypeError, ValueError):
+                raise ValueError("PayPal completed capture has an invalid amount")
+            if not capture_value.is_finite() or capture_value <= 0:
+                raise ValueError("PayPal completed capture has a non-positive or non-finite amount")
+            if not capture_currency:
+                raise ValueError("PayPal completed capture has no currency")
+            if currency and capture_currency != currency:
+                raise ValueError("PayPal order contains completed captures in different currencies")
+            currency = capture_currency
+            total += capture_value
+            first_capture_id = first_capture_id or str(capture.get("id") or "")
+            found = True
+    if not found:
+        raise ValueError("PayPal reports completion without a completed capture")
+    return total.quantize(Decimal("0.01")), currency, first_capture_id
+
+
+async def _settle_paypal_payment(
+    db: Session,
+    payment: ClientPortalPayment,
+    *,
+    capture_if_approved: bool = True,
+) -> str:
+    """Capture and settle one PayPal order after authoritative verification.
+
+    Callback, webhook and polling all use this same path. PayPal capture is
+    idempotent and local completion is row-locked, so concurrent delivery is
+    safe and cannot grant multiple subscription periods.
+    """
+    if not paypal_provider or not payment.provider_invoice_id:
+        raise RuntimeError("PayPal is not configured for this payment")
+    if payment.status == "completed":
+        return "completed"
+
+    order_id = payment.provider_invoice_id
+    order = await paypal_provider.get_order(order_id)
+    provider_status = str(order.get("status") or "").upper()
+    if provider_status == "APPROVED" and capture_if_approved:
+        captured = await paypal_provider.capture_order(order_id)
+        order = captured.get("raw") or await paypal_provider.get_order(order_id)
+        provider_status = str(order.get("status") or captured.get("status") or "").upper()
+    if provider_status != "COMPLETED":
+        return provider_status.lower() or "pending"
+
+    captured_total, captured_currency, capture_id = _paypal_capture_total(order)
+    provider_data = payment.get_provider_data()
+    expected_currency = str(provider_data.get("currency") or "USD").upper()
+    expected_total = Decimal(str(payment.amount_usd)).quantize(Decimal("0.01"))
+    if not expected_total.is_finite() or expected_total <= 0:
+        raise ValueError("Local PayPal invoice has an invalid amount")
+    if captured_currency != expected_currency or captured_total != expected_total:
+        logger.error(
+            "PayPal settlement mismatch: order=%s captured=%s %s expected=%s %s",
+            order_id,
+            captured_total,
+            captured_currency,
+            expected_total,
+            expected_currency,
+        )
+        raise ValueError("PayPal captured amount or currency does not match the invoice")
+
+    manager = SubscriptionManager(db)
+    restricted = _is_user_restricted(db, payment.user_id)
+    if not manager.complete_payment(payment.invoice_id, tx_hash=capture_id or None, sync_wg=False):
+        raise RuntimeError("PayPal payment was captured but the subscription could not be activated")
+    if not restricted:
+        await _sync_wg_after_payment(
+            db,
+            payment.user_id,
+            manager,
+            invoice_id=payment.invoice_id,
+        )
+    else:
+        logger.warning(
+            "PayPal payment %s completed for restricted user %s; WG was not activated",
+            payment.invoice_id,
+            payment.user_id,
+        )
+
+    provider_data.update({
+        "paypal_status": "COMPLETED",
+        "paypal_capture_id": capture_id,
+        "captured_amount": str(captured_total),
+        "captured_currency": captured_currency,
+    })
+    payment.set_provider_data(provider_data)
+    db.commit()
+    return "completed"
 
 
 def _operator_has_feature(feature_name: str) -> bool:
@@ -541,6 +687,10 @@ class InvoiceResponse(BaseModel):
     currency: str
     payment_url: str
     expires_at: str
+
+
+class PayPalCaptureRequest(BaseModel):
+    order_id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1595,11 +1745,17 @@ async def create_invoice(
         if not paypal_provider:
             raise HTTPException(status_code=503, detail="PayPal not configured")
         try:
+            portal_base = _client_portal_base_url()
             invoice = await paypal_provider.create_invoice(
                 amount=int(amount_usd * 100),
                 currency=data.currency.upper() if data.currency.upper() in ("USD", "EUR", "GBP") else "USD",
                 description=f"VPN - {plan.name} ({data.duration_days} days)",
-                metadata={"user_id": user_id, "plan": data.plan_tier},
+                metadata={
+                    "user_id": user_id,
+                    "plan": data.plan_tier,
+                    "return_url": f"{portal_base}/payments?paypal_return=1",
+                    "cancel_url": f"{portal_base}/payments?paypal_cancel=1",
+                },
             )
             invoice_data = {
                 "invoice_id": invoice.id,
@@ -1916,14 +2072,7 @@ async def check_payment_status(
         try:
             provider = payment.provider_name or "cryptopay"
             if provider == "paypal" and paypal_provider and payment.provider_invoice_id:
-                from src.modules.payment.base import PaymentStatus as PS
-                ps = await paypal_provider.check_payment(payment.provider_invoice_id)
-                if ps == PS.COMPLETED:
-                    manager.complete_payment(invoice_id, sync_wg=False)
-                    await _sync_wg_after_payment(db, payment.user_id, manager, invoice_id=invoice_id)
-                    payment_status = "completed"
-                else:
-                    payment_status = ps.value
+                payment_status = await _settle_paypal_payment(db, payment)
             elif provider == "nowpayments" and nowpayments_provider and payment.provider_invoice_id:
                 from src.modules.payment.base import PaymentStatus as PS
                 ps = await nowpayments_provider.check_payment(payment.provider_invoice_id)
@@ -1971,6 +2120,37 @@ async def check_payment_status(
         "currency": payment.payment_method.value,
         "created_at": payment.created_at.isoformat(),
         "expires_at": payment.expires_at.isoformat() if payment.expires_at else None
+    }
+
+
+@router.post("/payments/paypal/capture")
+async def capture_paypal_return(
+    data: PayPalCaptureRequest,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Finish an approved PayPal order after the buyer returns to the portal."""
+    if not paypal_provider:
+        raise HTTPException(status_code=503, detail="PayPal not configured")
+    payment = db.query(ClientPortalPayment).filter(
+        ClientPortalPayment.provider_name == "paypal",
+        ClientPortalPayment.provider_invoice_id == data.order_id,
+        ClientPortalPayment.user_id == user_id,
+    ).first()
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    try:
+        payment_status = await _settle_paypal_payment(db, payment)
+    except ValueError as exc:
+        logger.error("PayPal return validation failed for order %s: %s", data.order_id, exc)
+        raise HTTPException(status_code=409, detail="Payment could not be verified")
+    except Exception as exc:
+        logger.error("PayPal return settlement failed for order %s: %s", data.order_id, exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="PayPal confirmation is temporarily unavailable")
+    return {
+        "order_id": data.order_id,
+        "invoice_id": payment.invoice_id,
+        "status": payment_status,
     }
 
 
@@ -2106,49 +2286,35 @@ async def paypal_webhook(
     if not sig_ok:
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
-    # Process webhook (auto-captures approved orders)
-    try:
-        result = await paypal_provider.process_webhook(data)
-    except Exception as e:
-        logger.error(f"PayPal webhook processing error: {e}")
-        raise HTTPException(status_code=400, detail="Webhook processing failed")
-
-    if not result:
-        raise HTTPException(status_code=400, detail="Webhook processing failed")
-
-    # If order was captured, complete the payment
-    resource = data.get("resource", {})
     event_type = data.get("event_type", "")
+    if event_type not in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED"):
+        return {"status": "ok", "message": "Event ignored"}
 
-    if event_type in ("CHECKOUT.ORDER.APPROVED", "PAYMENT.CAPTURE.COMPLETED"):
-        order_id = resource.get("id", "")
-        # Find payment by provider order ID stored in provider_invoice_id
-        manager = SubscriptionManager(db)
-        from src.modules.subscription.subscription_models import ClientPortalPayment
-        # FOR UPDATE serialises concurrent PayPal webhook retries for the
-        # same order_id; complete_payment is also idempotent under its own
-        # lock as backstop.
-        payment_q = db.query(ClientPortalPayment).filter(
+    order_id = _paypal_order_id_from_event(data)
+    if not order_id:
+        logger.error("PayPal %s webhook did not include a related order id", event_type)
+        raise HTTPException(status_code=400, detail="PayPal order ID missing")
+
+    payment = db.query(ClientPortalPayment).filter(
             ClientPortalPayment.provider_name == "paypal",
             ClientPortalPayment.provider_invoice_id == order_id,
-        )
-        try:
-            payment = payment_q.with_for_update().first()
-        except Exception:
-            payment = payment_q.first()
+    ).first()
+    if not payment:
+        # A valid webhook can race the local transaction commit. Returning a
+        # retryable error lets PayPal deliver it again after the row exists.
+        logger.warning("PayPal webhook order %s has no local payment yet", order_id)
+        raise HTTPException(status_code=503, detail="Payment is not ready")
 
-        if payment and payment.status != "completed":
-            restricted = _is_user_restricted(db, payment.user_id)
-            manager.complete_payment(payment.invoice_id, sync_wg=False)
-            if not restricted:
-                try:
-                    await _sync_wg_after_payment(db, payment.user_id, manager)
-                except Exception as e:
-                    logger.error(f"PayPal: WG sync failed for user {payment.user_id} after payment {payment.invoice_id}: {e}")
-            else:
-                logger.warning(f"PayPal: payment {payment.invoice_id} completed for restricted user {payment.user_id}, WG not activated")
+    try:
+        payment_status = await _settle_paypal_payment(db, payment)
+    except ValueError as exc:
+        logger.error("PayPal webhook validation failed for order %s: %s", order_id, exc)
+        raise HTTPException(status_code=409, detail="Payment validation failed")
+    except Exception as exc:
+        logger.error("PayPal webhook settlement failed for order %s: %s", order_id, exc, exc_info=True)
+        raise HTTPException(status_code=503, detail="Payment settlement failed")
 
-    return {"status": "ok"}
+    return {"status": "ok", "payment_status": payment_status}
 
 
 @router.post("/webhooks/nowpayments")

@@ -384,6 +384,11 @@ export default {
     filterPending: 'В обработке',
     filterFailed: 'Не удалось',
     noProvidersConfigured: 'Платёжные провайдеры не настроены. Попросите администратора подключить хотя бы один.',
+    paymentConfirming: 'Подтверждаем платёж PayPal...',
+    paymentCompleted: 'Платёж подтверждён. Подписка активна.',
+    paymentPending: 'PayPal ещё обрабатывает платёж. Статус обновится автоматически.',
+    paymentCancelled: 'Оплата отменена. Списание не производилось.',
+    paymentConfirmationFailed: 'Пока не удалось подтвердить платёж. Немного позже проверьте статус или обратитесь в поддержку.',
   },
   pay: {
     choosePlan: 'Выберите план',
@@ -422,6 +427,9 @@ export default {
     applyPromo: 'Применить',
     payByCard: 'Оплата картой',
     cardCheckoutHint: 'Вы будете перенаправлены на защищённую страницу оплаты.',
+    redirectHint: 'Продолжите один раз и безопасно завершите оплату у выбранного провайдера.',
+    continueToPayment: 'Перейти к оплате',
+    invalidPaymentLink: 'Платёжный провайдер вернул некорректную ссылку.',
   },
   auth: {
     signIn: 'Войти',

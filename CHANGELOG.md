@@ -4,6 +4,28 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.109 — 2026-08-16
+
+### Improved
+
+- Simplified hosted payment checkout so customers continue to the selected
+  provider in the same tab without an extra payment-page step.
+- Expanded PayPal configuration diagnostics to verify the webhook belongs to
+  the configured application, uses the correct callback URL, and subscribes
+  to the required events.
+
+### Fixed
+
+- PayPal now returns customers to the configured client portal instead of a
+  placeholder address and confirms approved orders through an authenticated
+  server-side callback.
+- Added idempotent PayPal capture, exact completed-amount validation, and
+  recovery through webhooks, status polling, and pending-payment reconciliation.
+- Correctly resolves PayPal capture webhook events back to their originating
+  orders before activating a purchase.
+
+---
+
 ## v2.2.108 — 2026-08-16
 
 ### Improved

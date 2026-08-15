@@ -54,6 +54,19 @@ def test_payment_screen_has_only_real_actions_and_configured_providers():
     assert 'rel="noreferrer"' in modal
 
 
+def test_hosted_checkout_is_one_redirect_and_paypal_return_is_confirmed_server_side():
+    payments = _read("src/web/client-portal/src/views/Payments.vue")
+    modal = _read("src/web/client-portal/src/views/PaymentModal.vue")
+    api = _read("src/web/client-portal/src/api/index.js")
+
+    assert "window.location.assign(target.href)" in modal
+    assert "target.protocol !== 'https:'" in modal
+    assert "pay.continueToPayment" in modal
+    assert "route.query.paypal_return" in payments
+    assert "portalApi.capturePayPal(orderId)" in payments
+    assert "payments/paypal/capture" in api
+
+
 def test_plan_cards_preserve_cent_precision_used_by_checkout():
     plans = _read("src/web/client-portal/src/views/Plans.vue")
     price_function = plans[plans.index("function priceFor"):plans.index("function planTagline")]

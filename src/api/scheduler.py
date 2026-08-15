@@ -117,7 +117,9 @@ def _try_recover_pending_payments(db) -> None:
     - have a known provider with a working check_payment()
 
     On a "completed" answer we call SubscriptionManager.complete_payment(),
-    which is idempotent and will activate the subscription + sync WG.
+    which is idempotent and will activate the subscription + sync WG. PayPal
+    is routed through the portal's stricter capture-and-amount-verification
+    helper instead of trusting its coarse status enum.
     """
     import asyncio as _asyncio
     from ..modules.subscription.subscription_models import ClientPortalPayment
@@ -184,6 +186,40 @@ def _try_recover_pending_payments(db) -> None:
         # bounded backoff.
         p.updated_at = now
         db.commit()
+
+        if provider_name == "paypal" and _portal is not None:
+            try:
+                status = _asyncio.run(_portal._settle_paypal_payment(db, p))
+            except RuntimeError:
+                try:
+                    loop = _asyncio.new_event_loop()
+                    status = loop.run_until_complete(
+                        _portal._settle_paypal_payment(db, p)
+                    )
+                    loop.close()
+                except Exception as _e:
+                    logger.debug(
+                        "Recovery PayPal settlement({}) inner failed: {}",
+                        p.invoice_id,
+                        _e,
+                    )
+                    continue
+            except Exception as _e:
+                logger.debug(
+                    "Recovery PayPal settlement({}) failed: {}",
+                    p.invoice_id,
+                    _e,
+                )
+                continue
+
+            if str(status).lower() == "completed":
+                recovered += 1
+                logger.warning(
+                    "Recovered dropped-webhook PayPal payment: invoice={} user={}",
+                    p.invoice_id,
+                    p.user_id,
+                )
+            continue
 
         try:
             status = _asyncio.run(prov_obj.check_payment(provider_invoice))

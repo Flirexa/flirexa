@@ -1,6 +1,11 @@
 export default {
   common: {
     status: 'Estado',
+    paymentConfirming: 'Confirmando tu pago de PayPal...',
+    paymentCompleted: 'Pago confirmado. Tu suscripción está activa.',
+    paymentPending: 'PayPal aún está procesando el pago. El estado se actualizará automáticamente.',
+    paymentCancelled: 'El pago fue cancelado. No se realizó ningún cargo.',
+    paymentConfirmationFailed: 'Todavía no pudimos confirmar el pago. Comprueba el estado más tarde o contacta con soporte.',
     close: 'Cerrar',
     error: 'Error',
     cancel: 'Cancelar',
@@ -279,6 +284,9 @@ export default {
     applyPromo: 'Aplicar',
     payByCard: 'Pagar con tarjeta',
     cardCheckoutHint: 'Serás redirigido a una página de pago segura.',
+    redirectHint: 'Continúa una vez y completa el pago de forma segura con el proveedor seleccionado.',
+    continueToPayment: 'Continuar al pago',
+    invalidPaymentLink: 'El proveedor devolvió un enlace de pago no válido.',
   },
   auth: {
     signIn: 'Iniciar sesi\u00f3n',

@@ -109,6 +109,7 @@ export const portalApi = {
 
   // Payments
   createInvoice: (data) => api.post('/client-portal/payments/create-invoice', data),
+  capturePayPal: (orderId) => api.post('/client-portal/payments/paypal/capture', { order_id: orderId }),
   checkPayment: (invoiceId) => api.get(`/client-portal/payments/check/${invoiceId}`),
   getPaymentHistory: (limit = 50) => api.get(`/client-portal/payments/history?limit=${limit}`),
 

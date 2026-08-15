@@ -384,6 +384,11 @@ export default {
     filterPending: 'Pending',
     filterFailed: 'Failed',
     noProvidersConfigured: 'No payment providers configured. Ask your admin to enable one.',
+    paymentConfirming: 'Confirming your PayPal payment...',
+    paymentCompleted: 'Payment confirmed. Your subscription is active.',
+    paymentPending: 'PayPal is still processing the payment. The status will update automatically.',
+    paymentCancelled: 'Payment was cancelled. No charge was made.',
+    paymentConfirmationFailed: 'We could not confirm the payment yet. Please try Check Status shortly or contact support.',
   },
   pay: {
     choosePlan: 'Choose Plan',
@@ -422,6 +427,9 @@ export default {
     applyPromo: 'Apply',
     payByCard: 'Pay by card',
     cardCheckoutHint: "You'll be redirected to a secure checkout page to complete the payment.",
+    redirectHint: 'Continue once and complete the payment securely with the selected provider.',
+    continueToPayment: 'Continue to payment',
+    invalidPaymentLink: 'The payment provider returned an invalid checkout link.',
   },
   auth: {
     signIn: 'Sign In',
