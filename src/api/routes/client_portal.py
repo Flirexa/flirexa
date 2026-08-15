@@ -1757,8 +1757,14 @@ async def create_invoice(
                     payment_method = data.provider
                 provider_name = data.provider
             except Exception as _e:
-                logger.error(f"Plugin provider {data.provider} error: {_e}")
-                raise HTTPException(status_code=500, detail=f"Payment error: {_e}")
+                logger.error(
+                    "Plugin provider %s invoice creation failed for user %s: %s",
+                    data.provider, user_id, _e, exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="Payment provider error. Try again or pick a different method.",
+                )
         else:
             raise HTTPException(status_code=500, detail="Payment provider not configured")
 

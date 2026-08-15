@@ -1,6 +1,6 @@
 # Payment Setup
 
-_Last verified: 2026-07-24._
+_Last verified: 2026-08-16._
 
 Flirexa supports **8 payment providers** for the client portal. Customers can pay
 for subscriptions in crypto, cards, bank rails, or local methods.
@@ -183,13 +183,37 @@ Cards (Visa, Mastercard, Amex, Discover, JCB), Apple Pay, Google Pay, plus regio
 | **Secret Key** | <https://dashboard.stripe.com/apikeys> → **Standard keys** → reveal Secret key (`sk_live_…`) |
 | **Webhook Secret** | <https://dashboard.stripe.com/webhooks> → create endpoint → reveal **Signing secret** (`whsec_…`) |
 
+### Payment methods
+
+Keep **Checkout payment methods** set to **Automatic via Stripe Dashboard**
+unless you have a specific reason to override it. In automatic mode Stripe
+shows only payment methods that are both enabled for your account and eligible
+for the current currency and customer. If Alipay, WeChat Pay, or another local
+method is unavailable, card checkout continues to work.
+
+Enable or disable methods in **Stripe Dashboard → Settings → Payment methods**.
+Newly enabled eligible methods then appear without changing Flirexa or
+restarting the portal.
+
+Two advanced overrides are available in the Stripe settings card:
+
+- **Card and card wallets only** limits Checkout to Stripe's `card` method.
+- **Manual method list** sends an explicit comma-separated list. Every listed
+  identifier must be enabled for the Stripe account; one unavailable method can
+  make Stripe reject creation of the entire Checkout session.
+
+Upgraded installations default to automatic mode even if an old
+`STRIPE_PAYMENT_METHODS` value remains in `.env`. The old list is used only
+after explicitly choosing manual mode.
+
 ### Webhook URL to register
 
 In Stripe Dashboard → **Developers → Webhooks → Add endpoint**:
 
 - URL: `https://YOUR_HOST/client-portal/webhooks/stripe`
 - **Events to listen to:**
-  - `checkout.session.completed` (single event is enough — that's when we credit)
+  - `checkout.session.completed`
+  - `checkout.session.async_payment_succeeded` (settles delayed payment methods)
 
 After saving, click **Reveal signing secret** and paste into the Webhook Secret field in admin.
 

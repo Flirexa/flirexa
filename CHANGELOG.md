@@ -4,6 +4,27 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.108 — 2026-08-16
+
+### Improved
+
+- Stripe Checkout now uses Stripe Dashboard's automatic payment-method
+  selection by default, so customers see only methods eligible for the
+  merchant account, currency, and checkout session.
+- Added card-only and validated manual method-list overrides to the Stripe
+  settings card for operators who require explicit control.
+- Added signed settlement handling for delayed Stripe Checkout payment methods
+  while retaining provider polling as dropped-webhook recovery.
+
+### Fixed
+
+- An unavailable regional Stripe method such as Alipay or WeChat Pay no longer
+  prevents an otherwise valid card Checkout session from being created.
+- Payment-provider diagnostics remain available in server logs without
+  exposing raw upstream errors or request identifiers to customers.
+
+---
+
 ## v2.2.107 — 2026-08-13
 
 ### Improved

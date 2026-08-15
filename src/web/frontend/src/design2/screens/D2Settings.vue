@@ -131,8 +131,21 @@
               <button @click="togglePaySandbox" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background:paySandboxBg, transition:'background .15s', flex:'none' }"><span :style="{ position:'absolute', top:'2px', left:paySandboxX, width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button>
               <span style="font-size:13px;color:var(--text-2)">{{ paySandboxLabel }}</span>
             </div>
-            <div v-if="payIsStripe" style="display:flex;align-items:center;font-size:12px;font-weight:600;color:var(--text-2);margin-top:2px">
-              {{ tr('settings.extraMethods') || 'Extra payment methods' }}<D2HelpTip text="Stripe Checkout shows only credit cards by default. To also offer Alipay, WeChat Pay, SEPA Debit, iDEAL, etc., enable each method in your Stripe Dashboard → Settings → Payment methods, then add it to STRIPE_PAYMENT_METHODS in the .env and restart the client-portal service." />
+            <div v-if="payIsStripe" style="display:flex;flex-direction:column;gap:8px">
+              <label style="display:flex;align-items:center;font-size:12px;font-weight:550">
+                {{ tr('settings.stripeMethodMode') || 'Checkout payment methods' }}
+                <D2HelpTip :text="tr('settings.stripeMethodModeHint') || 'Automatic is recommended. Stripe shows only methods enabled and eligible for the account, currency and customer, so an unavailable wallet cannot block card checkout.'" />
+              </label>
+              <select v-model="pf.stripe_payment_method_mode" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:12.5px;outline:none" @focus="onFocus" @blur="onBlur">
+                <option value="automatic">{{ tr('settings.stripeMethodAutomatic') || 'Automatic via Stripe Dashboard (recommended)' }}</option>
+                <option value="card">{{ tr('settings.stripeMethodCard') || 'Card and card wallets only' }}</option>
+                <option value="manual">{{ tr('settings.stripeMethodManual') || 'Manual method list' }}</option>
+              </select>
+              <div v-if="pf.stripe_payment_method_mode === 'manual'">
+                <label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.stripeManualMethods') || 'Stripe method identifiers' }}</label>
+                <input v-model="pf.stripe_payment_methods" type="text" placeholder="card,alipay,wechat_pay" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:12.5px;outline:none" @focus="onFocus" @blur="onBlur">
+                <div style="font-size:11.5px;color:var(--text-3);line-height:1.45;margin-top:6px">{{ tr('settings.stripeManualWarning') || 'Advanced override. Every listed method must be enabled for your Stripe account or Checkout can be rejected.' }}</div>
+              </div>
             </div>
             <div style="padding:11px 13px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)"><div style="font-size:11px;color:var(--text-3);margin-bottom:5px">{{ tr('settings.webhookUrl') || 'Webhook URL' }}</div><div style="display:flex;align-items:center;gap:8px"><span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-2);flex:1;word-break:break-all">{{ payWebhook }}</span><button @click="copyPayWebhook" style="border:none;background:transparent;color:var(--text-3);cursor:pointer;display:flex;flex:none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 012-2h10"></path></svg></button></div></div>
           </div>
@@ -734,7 +747,7 @@ const PAY_META = {
   stripe:      { label: 'Stripe',      dot: 'var(--blue)',   sub: 'Cards, Apple Pay, Google Pay · 46 countries', sandbox: null,
     fields: [
       { key: 'stripe_secret_key', label: 'Secret key', type: 'password', mask: 'stripe_key_masked', ph: 'sk_live_…' },
-      { key: 'stripe_webhook_secret', label: 'Webhook secret (optional)', type: 'password', ph: 'whsec_…' },
+      { key: 'stripe_webhook_secret', label: 'Webhook secret', type: 'password', ph: 'whsec_…' },
     ] },
   payme:       { label: 'Payme',       dot: 'var(--green)',  sub: 'UzCard, Humo, Visa · Uzbekistan', sandbox: null,
     fields: [
@@ -754,6 +767,8 @@ const PAY_META = {
 const pf = reactive({})   // e.g. pf.cryptopay_api_token
 const pmeta = reactive({})
 Object.values(PAY_META).forEach(m => { m.fields.forEach(f => { pf[f.key] = '' }); if (m.sandbox) pf[m.sandbox.key] = false })
+pf.stripe_payment_method_mode = 'automatic'
+pf.stripe_payment_methods = 'card'
 function payProviderConfigured(k) { return !!pmeta[k + '_configured'] }
 const payTabs = computed(() => Object.keys(PAY_META).map(k => {
   const on = payProvider.value === k
@@ -789,12 +804,16 @@ const payConnected = computed(() => payProviderConfigured(payProvider.value))
 // Webhook endpoint — matches the legacy path: {origin}/client-portal/webhooks/{provider}.
 const payWebhook = computed(() => (typeof window !== 'undefined' ? window.location.origin : '') + '/client-portal/webhooks/' + payProvider.value)
 function copyPayWebhook() { try { navigator.clipboard.writeText(payWebhook.value) } catch (_) {} }
-async function loadPayments() { try { const r = await systemApi.getPaymentSettings(); Object.assign(pmeta, r.data || {}); Object.values(PAY_META).forEach(m => { if (m.sandbox) pf[m.sandbox.key] = !!pmeta[m.sandbox.key] }) } catch (_) {} }
+async function loadPayments() { try { const r = await systemApi.getPaymentSettings(); Object.assign(pmeta, r.data || {}); Object.values(PAY_META).forEach(m => { if (m.sandbox) pf[m.sandbox.key] = !!pmeta[m.sandbox.key] }); pf.stripe_payment_method_mode = pmeta.stripe_payment_method_mode || 'automatic'; pf.stripe_payment_methods = pmeta.stripe_payment_methods || 'card' } catch (_) {} }
 async function savePayProvider() {
   const m = PAY_META[payProvider.value]; if (!m) return
   try {
     const body = {}
     if (m.sandbox) body[m.sandbox.key] = !!pf[m.sandbox.key]
+    if (payProvider.value === 'stripe') {
+      body.stripe_payment_method_mode = pf.stripe_payment_method_mode || 'automatic'
+      if (body.stripe_payment_method_mode === 'manual') body.stripe_payment_methods = (pf.stripe_payment_methods || '').trim()
+    }
     m.fields.forEach(f => { const v = (pf[f.key] || '').trim(); if (v) body[f.key] = v })
     await systemApi.updatePaymentSettings(body)
     m.fields.forEach(f => { pf[f.key] = '' })

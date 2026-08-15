@@ -128,6 +128,9 @@ def test_design2_mobile_admin_screens_have_compact_explicit_contracts():
     assert 'class="d2-settings-mobile-nav"' in settings
     assert 'class="d2-settings-rail"' in settings
     assert "function selectSettingsTab" in settings
+    assert 'v-model="pf.stripe_payment_method_mode"' in settings
+    assert "stripeMethodAutomatic" in settings
+    assert "body.stripe_payment_method_mode" in settings
     assert 'class="d2-license-mobile"' in settings
     assert 'class="d2-license-desktop"' in settings
     assert 'licenseSheet = \'details\'' in settings

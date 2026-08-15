@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 
 from src.api.routes import system
 from src.modules import payment_settings_commercial
@@ -51,6 +52,55 @@ def test_paid_env_collection_uses_only_explicit_fields():
         "CRYPTOPAY_TESTNET": "false",
         "PAYPAL_SANDBOX": "true",
     }
+
+
+def test_stripe_automatic_method_mode_is_a_paid_setting(monkeypatch):
+    request = system.PaymentSettingsUpdate(
+        stripe_payment_method_mode="automatic",
+    )
+
+    assert "stripe_payment_method_mode" in payment_settings_commercial.PAID_SETTING_FIELDS
+    assert payment_settings_commercial.collect_env_updates(request) == {
+        "STRIPE_PAYMENT_METHOD_MODE": "automatic",
+    }
+
+    monkeypatch.setenv("STRIPE_PAYMENT_METHOD_MODE", "dynamic")
+    snapshot = payment_settings_commercial.get_settings_snapshot(
+        SimpleNamespace(
+            cryptopay_adapter=None,
+            paypal_provider=None,
+            stripe_provider=None,
+            payme_provider=None,
+            mollie_provider=None,
+            razorpay_provider=None,
+        ),
+        lambda value: value,
+    )
+    assert snapshot["stripe_payment_method_mode"] == "automatic"
+
+
+def test_stripe_manual_method_list_is_validated_at_the_api_boundary():
+    with pytest.raises(ValidationError):
+        system.PaymentSettingsUpdate(
+            stripe_payment_method_mode="manual",
+            stripe_payment_methods="card,not-valid!",
+        )
+
+    valid = system.PaymentSettingsUpdate(
+        stripe_payment_method_mode="manual",
+        stripe_payment_methods="card,alipay,wechat_pay",
+    )
+    assert payment_settings_commercial.collect_env_updates(valid) == {
+        "STRIPE_PAYMENT_METHOD_MODE": "manual",
+        "STRIPE_PAYMENT_METHODS": "card,alipay,wechat_pay",
+    }
+
+
+def test_plugin_checkout_failure_does_not_leak_provider_details_to_customer():
+    source = Path("src/api/routes/client_portal.py").read_text(encoding="utf-8")
+
+    assert 'detail=f"Payment error: {_e}"' not in source
+    assert 'detail="Payment provider error. Try again or pick a different method."' in source
 
 
 @pytest.mark.asyncio

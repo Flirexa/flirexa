@@ -857,6 +857,12 @@ class PaymentSettingsUpdate(BaseModel):
     # Plugin providers
     stripe_secret_key: Optional[str] = None
     stripe_webhook_secret: Optional[str] = None
+    stripe_payment_method_mode: Optional[Literal["automatic", "card", "manual"]] = None
+    stripe_payment_methods: Optional[str] = Field(
+        None,
+        max_length=500,
+        pattern=r"^\s*[a-z0-9_]+(?:\s*,\s*[a-z0-9_]+)*\s*$",
+    )
     payme_merchant_id: Optional[str] = None
     payme_secret_key: Optional[str] = None
     mollie_api_key: Optional[str] = None
