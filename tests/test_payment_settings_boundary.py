@@ -55,6 +55,9 @@ def test_paid_env_collection_uses_only_explicit_fields():
 
 
 def test_stripe_automatic_method_mode_is_a_paid_setting(monkeypatch):
+    if getattr(payment_settings_commercial, "FLIREXA_COMMERCIAL_STUB", False):
+        pytest.skip("Stripe settings implementation is exercised by the private overlay")
+
     request = system.PaymentSettingsUpdate(
         stripe_payment_method_mode="automatic",
     )
@@ -80,6 +83,9 @@ def test_stripe_automatic_method_mode_is_a_paid_setting(monkeypatch):
 
 
 def test_stripe_manual_method_list_is_validated_at_the_api_boundary():
+    if getattr(payment_settings_commercial, "FLIREXA_COMMERCIAL_STUB", False):
+        pytest.skip("Stripe settings implementation is exercised by the private overlay")
+
     with pytest.raises(ValidationError):
         system.PaymentSettingsUpdate(
             stripe_payment_method_mode="manual",

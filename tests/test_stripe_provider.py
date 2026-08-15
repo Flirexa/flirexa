@@ -9,6 +9,13 @@ import pytest
 from plugins.payments import stripe_provider as stripe_module
 
 
+if getattr(stripe_module, "FLIREXA_COMMERCIAL_STUB", False):
+    pytest.skip(
+        "Stripe provider implementation is exercised by the private commercial overlay",
+        allow_module_level=True,
+    )
+
+
 def _provider(monkeypatch, *, mode: str | None = None, methods: str | None = None):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_contract")
     monkeypatch.delenv("STRIPE_PAYMENT_METHOD_MODE", raising=False)
