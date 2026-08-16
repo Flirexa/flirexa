@@ -6,6 +6,14 @@ import uuid
 
 import pytest
 
+from src.modules.subscription import client_balance as client_balance_module
+
+if getattr(client_balance_module, "FLIREXA_COMMERCIAL_STUB", False):
+    pytest.skip(
+        "Client account balance is exercised by the private commercial overlay",
+        allow_module_level=True,
+    )
+
 from src.modules.subscription.client_balance import (
     BalanceError,
     adjust_balance,
@@ -206,4 +214,3 @@ def test_admin_adjustment_is_idempotent_and_cannot_go_negative(db_session):
         )
     db_session.rollback()
     assert get_balance_snapshot(db_session, user.id)["available_minor"] == 1200
-
