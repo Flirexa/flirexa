@@ -593,6 +593,11 @@ export default {
     passwordUpdated: 'Password updated successfully.',
     fullNameLabel: 'Full Name (optional)',
     subscriptionTier: 'Subscription Tier',
+    accountBalance: 'Account balance',
+    adjustBalance: 'Adjust balance',
+    adjustmentAmount: 'Amount, USD',
+    adjustmentAmountHint: 'Use a negative value to deduct credit',
+    adjustmentReason: 'Reason',
     free: 'Free',
   },
 

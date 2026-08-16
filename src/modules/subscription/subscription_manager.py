@@ -641,10 +641,13 @@ class SubscriptionManager:
         user_id: int,
         amount_usd: float,
         payment_method: PaymentMethod,
-        subscription_tier: str,
-        duration_days: int,
+        subscription_tier: Optional[str],
+        duration_days: Optional[int],
         invoice_id: str,
-        provider_name: str
+        provider_name: str,
+        *,
+        purpose: str = "subscription",
+        balance_credit_minor: Optional[int] = None,
     ) -> ClientPortalPayment:
         """Create a payment record. Cancels any existing pending payments for the user
         before creating a new one to avoid orphaned invoices."""
@@ -654,6 +657,7 @@ class SubscriptionManager:
         pending = self.db.query(ClientPortalPayment).filter(
             ClientPortalPayment.user_id == user_id,
             ClientPortalPayment.status == "pending",
+            ClientPortalPayment.purpose == purpose,
         ).all()
         for old in pending:
             old.status = "cancelled"
@@ -667,8 +671,10 @@ class SubscriptionManager:
             invoice_id=invoice_id,
             amount_usd=amount_usd,
             payment_method=payment_method,
+            purpose=purpose,
             subscription_tier=subscription_tier,
             duration_days=duration_days,
+            balance_credit_minor=balance_credit_minor,
             provider_name=provider_name,
             status="pending",
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1)
@@ -716,6 +722,14 @@ class SubscriptionManager:
                 "[PAY] complete_payment: invoice_id=%s not found in DB", invoice_id
             )
             return False
+
+        # A top-up is a verified monetary credit, not a subscription
+        # activation. Keep the settlement hook here because every provider,
+        # webhook and recovery path already converges on complete_payment().
+        if getattr(payment, "purpose", "subscription") == "balance_topup":
+            from .client_balance import settle_topup
+
+            return settle_topup(self.db, payment, tx_hash=tx_hash)
 
         # Attach pipeline tracer
         try:

@@ -1812,6 +1812,7 @@ def get_metrics(db: Session = Depends(get_db)):
     # orphaned: completed but no active sub (last 7d)
     recent_completed = db.query(ClientPortalPayment).filter(
         ClientPortalPayment.status == "completed",
+        ClientPortalPayment.purpose == "subscription",
         ClientPortalPayment.completed_at >= cutoff_7d,
     ).all()
     orphaned_payments_7d = 0

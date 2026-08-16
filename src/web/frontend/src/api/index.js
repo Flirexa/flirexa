@@ -359,6 +359,7 @@ export const portalUsersApi = {
   get: (id) => api.get(`/portal-users/${id}`),
   update: (id, data) => api.put(`/portal-users/${id}`, data),
   setPassword: (id, data) => api.post(`/portal-users/${id}/password`, data),
+  adjustBalance: (id, data) => api.post(`/portal-users/${id}/balance/adjust`, data),
   getTiers: () => api.get('/portal-users/tiers'),
   grantSubscription: (id, data) => api.post(`/portal-users/${id}/grant-subscription`, data),
   extendSubscription: (id, data) => api.post(`/portal-users/${id}/extend-subscription`, data),

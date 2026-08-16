@@ -36,6 +36,21 @@ Each provider has its own card with:
 PayLio currently uses `.env` configuration as documented below rather than a
 credential card in Settings.
 
+## Customer account balance (Business+)
+
+Business and Enterprise installations can let customers prepay account credit.
+On the client portal Billing page, the customer selects **Add funds**, completes
+checkout through any configured paid provider, and receives USD credit only
+after Flirexa verifies settlement with that provider. The customer can then
+select **Account balance** when purchasing or renewing a subscription.
+
+Balances and their transaction history use exact integer cents. Repeated
+provider callbacks or repeated purchase requests do not credit or debit twice.
+Administrators can view the balance in the portal-user detail and make an
+audited manual credit or debit with a required reason; a debit cannot take the
+account below zero. The feature is hidden and rejected by the API when the
+installation does not have the signed Business `payments` entitlement.
+
 > **About webhook URLs in this guide:** every section below lists `https://YOUR_HOST/client-portal/webhooks/<provider>` for documentation purposes. **Don't copy that template manually.** Open the provider's card in your admin panel — the actual URL with your real domain is shown there with a Copy button. That's the one you paste into the provider's dashboard.
 
 ---

@@ -329,7 +329,8 @@ class BusinessValidator:
         If not, flag as inconsistent and log CRITICAL.
         """
         q = self.db.query(ClientPortalPayment).filter(
-            ClientPortalPayment.status == "completed"
+            ClientPortalPayment.status == "completed",
+            ClientPortalPayment.purpose == "subscription",
         )
         if invoice_id is not None:
             q = q.filter(ClientPortalPayment.invoice_id == invoice_id)

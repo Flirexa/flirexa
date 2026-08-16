@@ -4,6 +4,24 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.110 — 2026-08-16
+
+### Added
+
+- Added prepaid customer account credit for Business and Enterprise portals.
+  Customers can add funds through configured providers, review their balance
+  history, and purchase or renew a subscription using available credit.
+- Added reasoned administrator credit and debit adjustments to portal-user
+  details, with corresponding balance history and audit records.
+
+### Fixed
+
+- Made balance settlement and subscription purchases exact to the cent,
+  idempotent across repeated callbacks or requests, and atomic with the
+  resulting subscription period.
+- Updated release migration detection so a newly created Alembic migration in
+  the working tree cannot be packaged without the required migration flag.
+
 ## v2.2.109 — 2026-08-16
 
 ### Improved

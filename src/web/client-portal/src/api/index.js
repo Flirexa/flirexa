@@ -112,6 +112,8 @@ export const portalApi = {
   capturePayPal: (orderId) => api.post('/client-portal/payments/paypal/capture', { order_id: orderId }),
   checkPayment: (invoiceId) => api.get(`/client-portal/payments/check/${invoiceId}`),
   getPaymentHistory: (limit = 50) => api.get(`/client-portal/payments/history?limit=${limit}`),
+  getBalance: (limit = 50) => api.get(`/client-portal/payments/balance?limit=${limit}`),
+  purchaseWithBalance: (data) => api.post('/client-portal/payments/balance/purchase', data),
 
   // Providers & Crypto
   getProviders: () => api.get('/client-portal/payments/providers'),

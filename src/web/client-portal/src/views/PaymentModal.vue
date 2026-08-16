@@ -73,6 +73,31 @@
 
         <!-- Step 2: Select Payment Method -->
         <div v-if="step === 2">
+          <div v-if="isTopup" class="mb-3">
+            <label class="form-label fw-bold small">{{ $t('pay.topupAmount') }}</label>
+            <div class="duration-grid mb-2">
+              <button
+                v-for="amount in topupPresets"
+                :key="amount"
+                type="button"
+                class="duration-option"
+                :class="{ selected: Number(topupAmount) === amount }"
+                @click="topupAmount = amount"
+              >
+                <span class="fw-bold">${{ amount }}</span>
+              </button>
+            </div>
+            <input
+              v-model.number="topupAmount"
+              type="number"
+              min="5"
+              max="1000"
+              step="0.01"
+              class="form-control"
+              :placeholder="$t('pay.customTopupAmount')"
+            />
+            <small class="text-muted">{{ $t('pay.topupLimits') }}</small>
+          </div>
           <!-- Provider Selection -->
           <div v-if="providers.length > 1" class="mb-3">
             <label class="form-label fw-bold small">{{ $t('pay.paymentMethod') }}</label>
@@ -100,13 +125,18 @@
               <div>
                 <div class="card-pay-title">{{ selectedProviderName }}</div>
                 <div class="card-pay-sub">
-                  {{ $t('pay.cardCheckoutHint') }}
+                  {{ selectedProvider === 'balance' ? $t('pay.balanceCheckoutHint', { balance: balanceAvailable }) : $t('pay.cardCheckoutHint') }}
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="alert alert-info mt-3 small py-2">{{ $t('pay.redirectHint') }}</div>
+          <div v-if="selectedProvider === 'balance' && !balanceSufficient" class="alert alert-warning mt-3 small py-2">
+            {{ $t('pay.insufficientBalance', { balance: balanceAvailable, total: Number(totalPrice).toFixed(2) }) }}
+          </div>
+          <div v-else class="alert alert-info mt-3 small py-2">
+            {{ selectedProvider === 'balance' ? $t('pay.balanceInstantHint') : $t('pay.redirectHint') }}
+          </div>
         </div>
 
         <!-- Step 3: Invoice -->
@@ -158,11 +188,13 @@ const emit = defineEmits(['close', 'success'])
 const props = defineProps({
   plan: { type: Object, default: null },
   preselectProvider: { type: String, default: '' },
+  mode: { type: String, default: 'subscription' },
 })
 
 const { t } = useI18n()
 
-const step = ref(1)
+const isTopup = computed(() => props.mode === 'topup')
+const step = ref(props.mode === 'topup' ? 2 : 1)
 const plans = ref([])
 const providers = ref([])
 const selectedProvider = ref('')
@@ -185,9 +217,13 @@ const promoMessage = ref('')
 const promoError = ref('')
 const promoDiscount = ref(0)
 const operatorFeatures = ref({ promo_codes: false })
+const balanceSnapshot = ref(null)
+const topupAmount = ref(25)
+const topupPresets = [10, 25, 50, 100]
 const copied = ref(false)
 
 const stepTitle = computed(() => {
+  if (isTopup.value) return t('pay.addFunds')
   if (step.value === 1) return t('pay.choosePlan')
   if (step.value === 2) return t('pay.selectPayment')
   return t('pay.invoice')
@@ -224,6 +260,7 @@ watch(selectedPlan, (plan) => {
 })
 
 const totalPrice = computed(() => {
+  if (isTopup.value) return Number(topupAmount.value || 0).toFixed(2)
   if (!selectedPlan.value) return 0
   const days = parseInt(duration.value)
   let price
@@ -243,8 +280,12 @@ const totalPrice = computed(() => {
 const canProceed = computed(() => {
   if (step.value === 1) return selectedPlan.value && duration.value
   if (step.value === 2) {
-    return selectedCurrency.value
+    const providerReady = selectedCurrency.value
       && providers.value.some(provider => provider.id === selectedProvider.value)
+    if (!providerReady) return false
+    if (isTopup.value) return Number(topupAmount.value) >= 5 && Number(topupAmount.value) <= 1000
+    if (selectedProvider.value === 'balance') return balanceSufficient.value
+    return true
   }
   return false
 })
@@ -279,6 +320,10 @@ const selectedProviderName = computed(() => {
   return p?.display_name || p?.name || selectedProvider.value
 })
 
+const balanceAvailableMinor = computed(() => Number(balanceSnapshot.value?.available_minor || 0))
+const balanceAvailable = computed(() => (balanceAvailableMinor.value / 100).toFixed(2))
+const balanceSufficient = computed(() => balanceAvailableMinor.value >= Math.round(Number(totalPrice.value || 0) * 100))
+
 const getProviderIcon = (id) => {
   const icons = {
     cryptopay:   '💎',
@@ -289,11 +334,16 @@ const getProviderIcon = (id) => {
     razorpay:    '💳',
     payme:       '💳',
     paylio:      '💳',
+    balance:     '◉',
   }
   return icons[id] || '💰'
 }
 
-const goBack = () => { step.value === 2 ? step.value = 1 : emit('close') }
+const goBack = () => {
+  if (isTopup.value) emit('close')
+  else if (step.value === 2) step.value = 1
+  else emit('close')
+}
 
 const nextStep = async () => { step.value === 2 ? await createInvoice() : step.value++ }
 
@@ -301,12 +351,26 @@ const createInvoice = async () => {
   loading.value = true
   error.value = null
   try {
+    if (selectedProvider.value === 'balance' && !isTopup.value) {
+      const response = await portalApi.purchaseWithBalance({
+        plan_tier: selectedPlan.value.tier,
+        duration_days: parseInt(duration.value),
+        ...(promoApplied.value && promoCode.value ? { promo_code: promoCode.value.trim().toUpperCase() } : {}),
+        request_id: (globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`).replace(/-/g, '_'),
+      })
+      balanceSnapshot.value = response.data?.balance || balanceSnapshot.value
+      emit('success')
+      emit('close')
+      return
+    }
     const invoiceData = {
-      plan_tier: selectedPlan.value.tier,
+      plan_tier: isTopup.value ? null : selectedPlan.value.tier,
       duration_days: parseInt(duration.value),
       currency: selectedCurrency.value,
       provider: selectedProvider.value,
+      purpose: isTopup.value ? 'balance_topup' : 'subscription',
     }
+    if (isTopup.value) invoiceData.topup_amount_usd = Number(topupAmount.value)
     if (promoApplied.value && promoCode.value) invoiceData.promo_code = promoCode.value.trim().toUpperCase()
     const response = await portalApi.createInvoice(invoiceData)
     invoice.value = response.data
@@ -398,7 +462,7 @@ onMounted(async () => {
     providers.value = Array.isArray(providersRes.data)
       ? providersRes.data.filter(provider => provider.configured !== false)
       : []
-    if (!plans.value.length) error.value = t('common.loadError')
+    if (!plans.value.length && !isTopup.value) error.value = t('common.loadError')
     else if (!providers.value.length) error.value = t('payments.noProvidersConfigured')
     // Feature decoration must never block the working purchase flow. The
     // backend still enforces promo/provider entitlements if this optional
@@ -408,6 +472,23 @@ onMounted(async () => {
       operatorFeatures.value = {
         ...operatorFeatures.value,
         ...(featuresRes.data?.features || {}),
+      }
+      if (operatorFeatures.value.account_balance) {
+        try {
+          const balanceRes = await portalApi.getBalance(20)
+          balanceSnapshot.value = balanceRes.data || null
+          if (!isTopup.value && Number(balanceSnapshot.value?.available_minor || 0) > 0) {
+            // Keep the operator's normal checkout provider as the default.
+            // Balance is an optional payment source, not a dead-end first
+            // choice for customers whose wallet is still empty.
+            providers.value.push({
+              id: 'balance',
+              name: t('pay.accountBalance'),
+              display_name: t('pay.accountBalance'),
+              type: 'balance',
+            })
+          }
+        } catch (_) { /* keep external checkout available */ }
       }
     } catch (_) { /* keep commercial controls hidden */ }
     // Honor the parent's preselectProvider if it matches a configured one,

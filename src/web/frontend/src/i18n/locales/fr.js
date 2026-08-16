@@ -391,6 +391,11 @@ export default {
     passwordUpdated: 'Mot de passe mis à jour.',
     fullNameLabel: 'Nom complet (optionnel)',
     subscriptionTier: "Niveau d'abonnement",
+    accountBalance: 'Solde du compte',
+    adjustBalance: 'Ajuster le solde',
+    adjustmentAmount: 'Montant, USD',
+    adjustmentAmountHint: 'Utilisez une valeur négative pour déduire du crédit',
+    adjustmentReason: 'Motif',
     free: 'Gratuit',
   },
   dashboard: {

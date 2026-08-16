@@ -11,7 +11,9 @@ from .subscription_models import (
     SubscriptionTier,
     SubscriptionStatus,
     PaymentMethod,
-    ClientUserClients
+    ClientUserClients,
+    ClientAccountBalance,
+    ClientBalanceTransaction,
 )
 from .subscription_manager import SubscriptionManager
 from .cryptopay_adapter import CryptoPayAdapter
@@ -25,6 +27,8 @@ __all__ = [
     "SubscriptionStatus",
     "PaymentMethod",
     "ClientUserClients",
+    "ClientAccountBalance",
+    "ClientBalanceTransaction",
     "SubscriptionManager",
     "CryptoPayAdapter",
 ]

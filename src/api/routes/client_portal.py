@@ -11,7 +11,7 @@ from fastapi.responses import Response, FileResponse
 from sqlalchemy.orm import Session, defer
 from sqlalchemy import func as sa_func, text as sa_text
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
@@ -402,15 +402,15 @@ async def _settle_paypal_payment(
     manager = SubscriptionManager(db)
     restricted = _is_user_restricted(db, payment.user_id)
     if not manager.complete_payment(payment.invoice_id, tx_hash=capture_id or None, sync_wg=False):
-        raise RuntimeError("PayPal payment was captured but the subscription could not be activated")
-    if not restricted:
+        raise RuntimeError("PayPal payment was captured but could not be applied")
+    if not restricted and getattr(payment, "purpose", "subscription") == "subscription":
         await _sync_wg_after_payment(
             db,
             payment.user_id,
             manager,
             invoice_id=payment.invoice_id,
         )
-    else:
+    elif restricted:
         logger.warning(
             "PayPal payment %s completed for restricted user %s; WG was not activated",
             payment.invoice_id,
@@ -673,11 +673,13 @@ def _server_visible_to(s, request: Optional[Request]) -> bool:
 
 
 class CreateInvoiceRequest(BaseModel):
-    plan_tier: str
+    plan_tier: Optional[str] = None
     duration_days: int = Field(30, ge=7, le=3650)
     currency: str = Field("USDT")
     provider: str = Field("cryptopay")
     promo_code: Optional[str] = None
+    purpose: Literal["subscription", "balance_topup"] = "subscription"
+    topup_amount_usd: Optional[Decimal] = Field(None, ge=Decimal("5.00"), le=Decimal("1000.00"))
 
 
 class InvoiceResponse(BaseModel):
@@ -691,6 +693,13 @@ class InvoiceResponse(BaseModel):
 
 class PayPalCaptureRequest(BaseModel):
     order_id: str = Field(..., min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class BalancePurchaseRequest(BaseModel):
+    plan_tier: str = Field(..., min_length=1, max_length=50)
+    duration_days: int = Field(30, ge=7, le=3650)
+    promo_code: Optional[str] = Field(None, max_length=64)
+    request_id: str = Field(..., min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1157,6 +1166,7 @@ async def get_features(
             "config_download": gates["config_download"],
             "qr": gates["qr"],
             "promo_codes": _operator_has_feature("promo_codes"),
+            "account_balance": _operator_has_feature("payments"),
             "auto_renewal": (
                 _AUTO_RENEWAL_RUNTIME_ENABLED
                 and _operator_has_feature("auto_renewal")
@@ -1581,6 +1591,94 @@ def range_count_days(n: int):
 # PAYMENT ROUTES
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _quote_subscription_purchase(
+    db: Session,
+    manager: SubscriptionManager,
+    *,
+    plan_tier: str,
+    duration_days: int,
+    promo_code: Optional[str],
+) -> dict[str, Any]:
+    """Return the authoritative server-side plan quote used by every rail."""
+
+    plan = manager.get_plan_by_tier(plan_tier)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if plan.price_monthly_usd is None or plan.price_monthly_usd <= 0:
+        raise HTTPException(status_code=400, detail="This plan cannot be purchased")
+
+    custom_tiers = plan.pricing_tiers if isinstance(plan.pricing_tiers, list) else None
+    amount = None
+    if custom_tiers:
+        for tier in custom_tiers:
+            if not isinstance(tier, dict):
+                continue
+            try:
+                tier_days = int(tier.get("days", 0))
+                tier_price = Decimal(str(tier.get("price_usd", 0))).quantize(Decimal("0.01"))
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+            if tier_days == duration_days:
+                amount = tier_price
+                break
+        if amount is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Requested duration is not offered for this plan",
+            )
+    elif duration_days >= 365:
+        amount = Decimal(str(plan.price_yearly_usd or (plan.price_monthly_usd * 12)))
+    elif duration_days >= 90:
+        amount = Decimal(str(plan.price_quarterly_usd or (plan.price_monthly_usd * 3)))
+    else:
+        amount = Decimal(str(plan.price_monthly_usd)) * Decimal(duration_days) / Decimal(30)
+    amount = amount.quantize(Decimal("0.01"))
+
+    promo_id = None
+    discount_amount = Decimal("0.00")
+    bonus_days = 0
+    if promo_code:
+        from src.modules.subscription.subscription_models import PromoCode
+
+        code = promo_code.strip().upper()
+        promo_q = db.query(PromoCode).filter(PromoCode.code == code)
+        try:
+            promo = promo_q.with_for_update().first()
+        except Exception:
+            promo = promo_q.first()
+        if promo and promo.is_valid:
+            if promo.applies_to_tier and promo.applies_to_tier != plan_tier:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Promo code is only valid for the {promo.applies_to_tier} tier",
+                )
+            if promo.min_duration_days and duration_days < promo.min_duration_days:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Promo code requires a minimum of {promo.min_duration_days} days",
+                )
+            promo_id = promo.id
+            if promo.discount_type == "percent":
+                discount_amount = (
+                    amount * Decimal(str(promo.discount_value)) / Decimal(100)
+                ).quantize(Decimal("0.01"))
+                amount = (amount - discount_amount).quantize(Decimal("0.01"))
+            elif promo.discount_type == "days":
+                bonus_days = int(promo.discount_value)
+
+    if not amount.is_finite() or amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid amount")
+    if amount > Decimal("10000.00"):
+        raise HTTPException(status_code=400, detail="Amount too high")
+    return {
+        "plan": plan,
+        "amount_usd": float(amount),
+        "amount_minor": int(amount * 100),
+        "promo_id": promo_id,
+        "discount_amount": float(discount_amount),
+        "bonus_days": bonus_days,
+    }
+
 @router.post("/payments/create-invoice", response_model=InvoiceResponse)
 async def create_invoice(
     data: CreateInvoiceRequest,
@@ -1618,14 +1716,11 @@ async def create_invoice(
         raise HTTPException(status_code=429, detail="Too many invoices. Try again later.")
     _invoice_rate[user_id].append(now_ts)
 
-    # Get plan details
-    plan = manager.get_plan_by_tier(data.plan_tier)
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
-
     # NOWPayments remains the open-core payment rail; every other provider is
     # Business-only. Repeat the promo gate here even though the UI hides it,
     # because a customer can call this endpoint directly.
+    if data.promo_code and data.purpose == "balance_topup":
+        raise HTTPException(status_code=400, detail="Promo codes cannot be applied to balance top-ups")
     if data.promo_code and not _operator_has_feature("promo_codes"):
         raise HTTPException(
             status_code=403,
@@ -1637,93 +1732,38 @@ async def create_invoice(
             detail="This payment method is not available for this service.",
         )
 
-    # Validate plan price
-    if plan.price_monthly_usd is None or plan.price_monthly_usd <= 0:
-        raise HTTPException(status_code=400, detail="This plan cannot be purchased")
-
-    # Calculate price based on duration.
-    # Priority: operator-defined `pricing_tiers` (if set on the plan) →
-    # legacy yearly/quarterly/monthly tiers → prorated monthly fallback.
-    # An operator-defined ladder MUST match exactly: the customer's
-    # requested duration_days has to be one of the entries, otherwise
-    # we refuse rather than guess a price. Prevents a hand-crafted
-    # API call from buying e.g. 28 days at the 30-day rate.
-    custom_tiers = plan.pricing_tiers if isinstance(plan.pricing_tiers, list) else None
-    amount_usd = None
-    if custom_tiers:
-        for tier in custom_tiers:
-            if not isinstance(tier, dict):
-                continue
-            try:
-                t_days = int(tier.get("days", 0))
-                t_price = float(tier.get("price_usd", 0))
-            except (TypeError, ValueError):
-                continue
-            if t_days == data.duration_days:
-                amount_usd = t_price
-                break
-        if amount_usd is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Requested duration is not offered for this plan",
-            )
+    if data.purpose == "balance_topup":
+        if not _operator_has_feature("payments"):
+            raise HTTPException(status_code=403, detail="Account balance is not available for this service.")
+        if data.topup_amount_usd is None:
+            raise HTTPException(status_code=400, detail="Top-up amount is required")
+        amount = data.topup_amount_usd.quantize(Decimal("0.01"))
+        if not amount.is_finite() or amount < Decimal("5.00") or amount > Decimal("1000.00"):
+            raise HTTPException(status_code=400, detail="Top-up amount must be between $5.00 and $1,000.00")
+        amount_usd = float(amount)
+        amount_minor = int(amount * 100)
+        plan = None
+        purchase_name = "Account balance top-up"
+        promo_id = None
+        discount_amount = 0.0
+        bonus_days = 0
     else:
-        if data.duration_days >= 365:
-            amount_usd = plan.price_yearly_usd or (plan.price_monthly_usd * 12)
-        elif data.duration_days >= 90:
-            amount_usd = plan.price_quarterly_usd or (plan.price_monthly_usd * 3)
-        else:
-            amount_usd = plan.price_monthly_usd * (data.duration_days / 30)
-
-    amount_usd = round(amount_usd, 2)
-
-    # Apply promo code discount
-    promo_id = None
-    discount_amount = 0.0
-    bonus_days = 0
-    if data.promo_code:
-        from src.modules.subscription.subscription_models import PromoCode
-        promo_code_str = data.promo_code.strip().upper()
-        # FOR UPDATE serialises concurrent invoice-creations for the same
-        # promo (e.g. user double-clicks Pay or opens two tabs). Without
-        # the lock, both reads of `is_valid` could see `used_count <
-        # max_uses` and both proceed. complete_payment then runs a
-        # conditional atomic increment that refuses to overflow
-        # max_uses, so the second invoice's activation still rejects
-        # the discount even if it slipped past this check.
-        promo_q = db.query(PromoCode).filter(PromoCode.code == promo_code_str)
-        try:
-            promo = promo_q.with_for_update().first()
-        except Exception:
-            promo = promo_q.first()
-        if promo and promo.is_valid:
-            # Enforce promo scoping server-side. /promo/validate checks these, but a
-            # direct create-invoice call must too — otherwise a promo scoped to
-            # another tier or a longer minimum duration can be redeemed here for a
-            # bigger discount than intended. (security: promo scope bypass 2026-07)
-            if promo.applies_to_tier and promo.applies_to_tier != data.plan_tier:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Promo code is only valid for the {promo.applies_to_tier} tier",
-                )
-            if promo.min_duration_days and data.duration_days < promo.min_duration_days:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Promo code requires a minimum of {promo.min_duration_days} days",
-                )
-            promo_id = promo.id
-            if promo.discount_type == "percent":
-                discount_amount = round(amount_usd * promo.discount_value / 100, 2)
-                amount_usd = round(amount_usd - discount_amount, 2)
-            elif promo.discount_type == "days":
-                bonus_days = int(promo.discount_value)
-            # Note: used_count is incremented on payment completion, not on invoice creation
-
-    # Validate amount
-    if amount_usd <= 0:
-        raise HTTPException(status_code=400, detail="Invalid amount")
-    if amount_usd > 10000:
-        raise HTTPException(status_code=400, detail="Amount too high")
+        if not data.plan_tier:
+            raise HTTPException(status_code=400, detail="Plan is required")
+        quote = _quote_subscription_purchase(
+            db,
+            manager,
+            plan_tier=data.plan_tier,
+            duration_days=data.duration_days,
+            promo_code=data.promo_code,
+        )
+        plan = quote["plan"]
+        amount_usd = quote["amount_usd"]
+        amount_minor = quote["amount_minor"]
+        promo_id = quote["promo_id"]
+        discount_amount = quote["discount_amount"]
+        bonus_days = quote["bonus_days"]
+        purchase_name = f"VPN - {plan.name} ({data.duration_days} days)"
 
     # Map currency to PaymentMethod enum
     currency_to_method = {
@@ -1747,12 +1787,13 @@ async def create_invoice(
         try:
             portal_base = _client_portal_base_url()
             invoice = await paypal_provider.create_invoice(
-                amount=int(amount_usd * 100),
+                amount=amount_minor,
                 currency=data.currency.upper() if data.currency.upper() in ("USD", "EUR", "GBP") else "USD",
-                description=f"VPN - {plan.name} ({data.duration_days} days)",
+                description=purchase_name,
                 metadata={
                     "user_id": user_id,
                     "plan": data.plan_tier,
+                    "purpose": data.purpose,
                     "return_url": f"{portal_base}/payments?paypal_return=1",
                     "cancel_url": f"{portal_base}/payments?paypal_cancel=1",
                 },
@@ -1795,6 +1836,7 @@ async def create_invoice(
             np_meta = {
                 "user_id": user_id,
                 "plan": data.plan_tier,
+                "purpose": data.purpose,
                 "ipn_callback_url": ipn_url,
                 # NOWPayments REQUIRES non-empty success_url and
                 # cancel_url. Point both at the portal root so the
@@ -1810,9 +1852,9 @@ async def create_invoice(
                 np_meta["pay_currency"] = picked.lower()
 
             invoice = await nowpayments_provider.create_invoice(
-                amount=int(amount_usd * 100),
+                amount=amount_minor,
                 currency=np_fiat,
-                description=f"VPN - {plan.name} ({data.duration_days} days)",
+                description=purchase_name,
                 metadata=np_meta,
             )
             invoice_data = {
@@ -1833,7 +1875,7 @@ async def create_invoice(
                 invoice_data_raw = await create_subscription_invoice(
                     adapter=cryptopay_adapter,
                     user_id=user_id,
-                    plan_name=plan.name,
+                    plan_name=(plan.name if plan else purchase_name),
                     amount_usd=amount_usd,
                     currency=data.currency,
                     duration_days=data.duration_days
@@ -1870,10 +1912,11 @@ async def create_invoice(
         if _prov and hasattr(_prov, "create_invoice"):
             try:
                 _inv = await _prov.create_invoice(
-                    amount=int(amount_usd * 100),
+                    amount=amount_minor,
                     currency=data.currency.upper(),
-                    description=f"VPN - {plan.name} ({data.duration_days} days)",
+                    description=purchase_name,
                     metadata={"user_id": user_id, "plan": data.plan_tier,
+                              "purpose": data.purpose,
                               "return_url": os.getenv("CLIENT_PORTAL_URL", ""),
                               "cancel_url": os.getenv("CLIENT_PORTAL_URL", "")},
                 )
@@ -1929,10 +1972,12 @@ async def create_invoice(
         user_id=user_id,
         amount_usd=amount_usd,
         payment_method=payment_method,
-        subscription_tier=data.plan_tier,
-        duration_days=data.duration_days,
+        subscription_tier=(data.plan_tier if data.purpose == "subscription" else None),
+        duration_days=(data.duration_days if data.purpose == "subscription" else None),
         invoice_id=invoice_data["invoice_id"],
         provider_name=provider_name,
+        purpose=data.purpose,
+        balance_credit_minor=(amount_minor if data.purpose == "balance_topup" else None),
     )
 
     payment.crypto_amount = str(invoice_data.get("amount_crypto") or "")
@@ -2052,6 +2097,82 @@ async def get_available_providers():
     return providers
 
 
+@router.get("/payments/balance")
+async def get_account_balance(
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = Query(50, ge=1, le=100),
+):
+    """Return the current user's Business+ account credit and ledger."""
+
+    if not _operator_has_feature("payments"):
+        raise HTTPException(status_code=403, detail="Account balance is not available for this service.")
+    from src.modules.subscription.client_balance import get_balance_snapshot
+
+    return get_balance_snapshot(db, user_id, limit=limit)
+
+
+@router.post("/payments/balance/purchase")
+async def purchase_with_account_balance(
+    data: BalancePurchaseRequest,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Atomically pay for one subscription from prepaid account credit."""
+
+    if not _operator_has_feature("payments"):
+        raise HTTPException(status_code=403, detail="Account balance is not available for this service.")
+    if data.promo_code and not _operator_has_feature("promo_codes"):
+        raise HTTPException(status_code=403, detail="Promo codes are not available for this service.")
+
+    manager = SubscriptionManager(db)
+    user = manager.get_user_by_id(user_id)
+    if not user or user.is_banned or not user.is_active:
+        raise HTTPException(status_code=403, detail="Account restricted")
+    quote = _quote_subscription_purchase(
+        db,
+        manager,
+        plan_tier=data.plan_tier,
+        duration_days=data.duration_days,
+        promo_code=data.promo_code,
+    )
+    duration_days = data.duration_days + int(quote["bonus_days"] or 0)
+    from src.modules.subscription.client_balance import BalanceError, purchase_subscription
+
+    try:
+        payment = purchase_subscription(
+            db,
+            manager,
+            user_id=user_id,
+            amount_minor=quote["amount_minor"],
+            subscription_tier=data.plan_tier,
+            duration_days=duration_days,
+            request_id=data.request_id,
+            promo_code_id=quote["promo_id"],
+            discount_amount_usd=quote["discount_amount"],
+        )
+    except BalanceError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    await _sync_wg_after_payment(
+        db,
+        user_id,
+        manager,
+        invoice_id=payment.invoice_id,
+    )
+    from src.modules.subscription.client_balance import get_balance_snapshot
+
+    return {
+        "status": "completed",
+        "invoice_id": payment.invoice_id,
+        "subscription_tier": payment.subscription_tier,
+        "duration_days": payment.duration_days,
+        "amount_usd": payment.amount_usd,
+        "balance": get_balance_snapshot(db, user_id, limit=20),
+    }
+
+
 @router.get("/payments/check/{invoice_id}")
 async def check_payment_status(
     invoice_id: str,
@@ -2078,7 +2199,8 @@ async def check_payment_status(
                 ps = await nowpayments_provider.check_payment(payment.provider_invoice_id)
                 if ps == PS.COMPLETED:
                     manager.complete_payment(invoice_id, sync_wg=False)
-                    await _sync_wg_after_payment(db, payment.user_id, manager, invoice_id=invoice_id)
+                    if getattr(payment, "purpose", "subscription") == "subscription":
+                        await _sync_wg_after_payment(db, payment.user_id, manager, invoice_id=invoice_id)
                     payment_status = "completed"
                 else:
                     payment_status = ps.value
@@ -2086,7 +2208,8 @@ async def check_payment_status(
                 payment_status = await cryptopay_adapter.check_payment(int(invoice_id))
                 if payment_status == "paid" and payment.status != "completed":
                     manager.complete_payment(invoice_id, sync_wg=False)
-                    await _sync_wg_after_payment(db, payment.user_id, manager, invoice_id=invoice_id)
+                    if getattr(payment, "purpose", "subscription") == "subscription":
+                        await _sync_wg_after_payment(db, payment.user_id, manager, invoice_id=invoice_id)
                     payment_status = "completed"
             else:
                 # Plugin provider
@@ -2105,7 +2228,8 @@ async def check_payment_status(
                     _ps = await _prov.check_payment(payment.provider_invoice_id or invoice_id)
                     if _ps == _PS.COMPLETED:
                         manager.complete_payment(invoice_id, sync_wg=False)
-                        await _sync_wg_after_payment(db, payment.user_id, manager, invoice_id=invoice_id)
+                        if getattr(payment, "purpose", "subscription") == "subscription":
+                            await _sync_wg_after_payment(db, payment.user_id, manager, invoice_id=invoice_id)
                         payment_status = "completed"
         except Exception as _chk_err:
             logger.warning(
@@ -2170,6 +2294,7 @@ async def get_payment_history(
             "amount_usd": p.amount_usd,
             "payment_method": p.payment_method.value,
             "status": p.status,
+            "purpose": getattr(p, "purpose", "subscription"),
             "subscription_tier": p.subscription_tier if p.subscription_tier else None,
             "duration_days": p.duration_days,
             "created_at": p.created_at.isoformat(),
@@ -2246,7 +2371,7 @@ async def cryptopay_webhook(
             # Check if user is banned/inactive — still record payment but skip WG activation
             restricted = _is_user_restricted(db, payment.user_id)
             manager.complete_payment(str(invoice_id), sync_wg=False)
-            if not restricted:
+            if not restricted and getattr(payment, "purpose", "subscription") == "subscription":
                 try:
                     await _sync_wg_after_payment(db, payment.user_id, manager)
                 except Exception as e:
@@ -2360,7 +2485,7 @@ async def nowpayments_webhook(
             if payment and payment.status != "completed":
                 restricted = _is_user_restricted(db, payment.user_id)
                 manager.complete_payment(order_id, sync_wg=False)
-                if not restricted:
+                if not restricted and getattr(payment, "purpose", "subscription") == "subscription":
                     try:
                         await _sync_wg_after_payment(db, payment.user_id, manager)
                     except Exception as e:
@@ -2429,10 +2554,11 @@ async def paylio_webhook(
     if payment.status != "completed":
         manager = SubscriptionManager(db)
         manager.complete_payment(payment.invoice_id, sync_wg=False)
-        try:
-            await _sync_wg_after_payment(db, payment.user_id, manager)
-        except Exception as e:
-            logger.error("PayLio: WG sync failed for user %s: %s", payment.user_id, e)
+        if getattr(payment, "purpose", "subscription") == "subscription":
+            try:
+                await _sync_wg_after_payment(db, payment.user_id, manager)
+            except Exception as e:
+                logger.error("PayLio: WG sync failed for user %s: %s", payment.user_id, e)
         logger.info("PayLio: payment %s completed (invoice=%s)", paylio_payment_id, payment.invoice_id)
 
     return {"status": "ok"}
@@ -2544,10 +2670,11 @@ async def plugin_webhook(
     payment = manager.get_payment_by_invoice(str(order_id), for_update=True)
     if payment and payment.status != "completed":
         manager.complete_payment(str(order_id), sync_wg=False)
-        try:
-            await _sync_wg_after_payment(db, payment.user_id, manager)
-        except Exception as e:
-            logger.error(f"Plugin {provider_name}: WG sync failed: {e}")
+        if getattr(payment, "purpose", "subscription") == "subscription":
+            try:
+                await _sync_wg_after_payment(db, payment.user_id, manager)
+            except Exception as e:
+                logger.error(f"Plugin {provider_name}: WG sync failed: {e}")
         logger.info(f"Plugin {provider_name}: payment {order_id} completed")
 
     return {"status": "ok"}

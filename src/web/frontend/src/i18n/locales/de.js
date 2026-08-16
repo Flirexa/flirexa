@@ -391,6 +391,11 @@ export default {
     passwordUpdated: 'Passwort erfolgreich aktualisiert.',
     fullNameLabel: 'Vollst\u00e4ndiger Name (optional)',
     subscriptionTier: 'Abonnement-Stufe',
+    accountBalance: 'Kontoguthaben',
+    adjustBalance: 'Guthaben anpassen',
+    adjustmentAmount: 'Betrag, USD',
+    adjustmentAmountHint: 'Zum Abziehen einen negativen Wert verwenden',
+    adjustmentReason: 'Grund',
     free: 'Kostenlos',
   },
   dashboard: {

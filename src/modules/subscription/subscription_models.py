@@ -3,7 +3,7 @@ Flirexa Client Portal - Subscription Models
 Database models for subscription and payment management
 """
 
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, Float, Text, ForeignKey, Enum as SQLEnum, UniqueConstraint, Index, JSON
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, Float, Text, ForeignKey, Enum as SQLEnum, UniqueConstraint, CheckConstraint, Index, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from enum import Enum
@@ -122,6 +122,17 @@ class ClientUser(Base):
     # Relationships
     subscription = relationship("ClientPortalSubscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
     payments = relationship("ClientPortalPayment", back_populates="user", cascade="all, delete-orphan")
+    account_balance = relationship(
+        "ClientAccountBalance",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    balance_transactions = relationship(
+        "ClientBalanceTransaction",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     refresh_tokens = relationship(
         "ClientRefreshToken",
         back_populates="user",
@@ -324,8 +335,10 @@ class ClientPortalPayment(Base):
     status = Column(String(50), default="pending")  # pending, completed, expired, failed
 
     # Purpose
+    purpose = Column(String(32), nullable=False, default="subscription", index=True)
     subscription_tier = Column(String(50), nullable=True)
     duration_days = Column(Integer, nullable=True)
+    balance_credit_minor = Column(BigInteger, nullable=True)
     description = Column(Text, nullable=True)
 
     # Promo code applied
@@ -394,6 +407,75 @@ class ClientPortalPayment(Base):
 
     def __repr__(self):
         return f"<Payment {self.invoice_id} {self.amount_usd} USD via {self.payment_method.value}>"
+
+
+class ClientAccountBalance(Base):
+    """Current customer account credit, stored in integer minor units."""
+
+    __tablename__ = "client_account_balances"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("client_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    currency = Column(String(3), nullable=False, default="USD")
+    available_minor = Column(BigInteger, nullable=False, default=0)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    user = relationship("ClientUser", back_populates="account_balance")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_client_account_balances_user_id"),
+        CheckConstraint("available_minor >= 0", name="ck_client_account_balance_nonnegative"),
+    )
+
+
+class ClientBalanceTransaction(Base):
+    """Immutable audit ledger for every customer-balance mutation."""
+
+    __tablename__ = "client_balance_transactions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("client_users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    amount_minor = Column(BigInteger, nullable=False)
+    balance_after_minor = Column(BigInteger, nullable=False)
+    currency = Column(String(3), nullable=False, default="USD")
+    transaction_type = Column(String(32), nullable=False, index=True)
+    reference = Column(String(255), nullable=True, index=True)
+    description = Column(String(500), nullable=True)
+    actor_type = Column(String(32), nullable=False, default="system")
+    actor_id = Column(String(100), nullable=True)
+    idempotency_key = Column(String(160), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        index=True,
+    )
+
+    user = relationship("ClientUser", back_populates="balance_transactions")
+
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_client_balance_tx_idempotency_key"),
+        Index("ix_client_balance_user_created", "user_id", "created_at"),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════

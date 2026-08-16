@@ -391,6 +391,11 @@ export default {
     passwordUpdated: 'Contraseña actualizada correctamente.',
     fullNameLabel: 'Nombre completo (opcional)',
     subscriptionTier: 'Nivel de suscripci\u00f3n',
+    accountBalance: 'Saldo de la cuenta',
+    adjustBalance: 'Ajustar saldo',
+    adjustmentAmount: 'Importe, USD',
+    adjustmentAmountHint: 'Usa un valor negativo para descontar crédito',
+    adjustmentReason: 'Motivo',
     free: 'Gratis',
   },
   dashboard: {

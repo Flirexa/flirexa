@@ -40,11 +40,16 @@
       </div>
       <div class="fx-stat">
         <div class="fx-stat-eyebrow">
-          <span class="fx-stat-label">{{ $t('payments.nextCharge') }}</span>
-          <span class="fx-stat-icon"><FxIcon name="calendar" :size="14" /></span>
+          <span class="fx-stat-label">{{ $t('payments.accountBalance') }}</span>
+          <span class="fx-stat-icon"><FxIcon name="card" :size="14" /></span>
         </div>
-        <div class="fx-stat-value">{{ nextChargeAmount }}</div>
-        <div class="fx-stat-foot"><span>{{ nextChargeMeta }}</span></div>
+        <div class="fx-stat-value">${{ balanceAvailable }}</div>
+        <div class="fx-stat-foot">
+          <button v-if="balanceEnabled" type="button" class="fx-balance-link" @click="topupModalOpen = true">
+            {{ $t('payments.addFunds') }}
+          </button>
+          <span v-else>{{ $t('payments.balanceUnavailable') }}</span>
+        </div>
       </div>
       <div class="fx-stat">
         <div class="fx-stat-eyebrow">
@@ -100,7 +105,7 @@
               </td>
               <td style="color:var(--text-2)">{{ formatDate(p.created_at) }}</td>
               <td>
-                <span class="fx-badge fx-badge-accent">{{ p.subscription_tier || '—' }}</span>
+                <span class="fx-badge fx-badge-accent">{{ p.purpose === 'balance_topup' ? $t('payments.balanceTopup') : (p.subscription_tier || '—') }}</span>
                 <small v-if="p.duration_days" style="color:var(--text-3); margin-left:6px">{{ p.duration_days }}d</small>
               </td>
               <td>
@@ -158,6 +163,29 @@
 
         </div>
 
+        <div v-if="balanceEnabled" class="fx-card" style="padding:var(--pad-card)">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <h3 class="fx-section-title">{{ $t('payments.balanceActivity') }}</h3>
+            <button type="button" class="fx-btn fx-btn-secondary fx-btn-sm" @click="topupModalOpen = true">
+              {{ $t('payments.addFunds') }}
+            </button>
+          </div>
+          <div v-if="!balanceTransactions.length" class="fx-empty" style="padding:24px 0">
+            <p class="fx-empty-sub">{{ $t('payments.noBalanceActivity') }}</p>
+          </div>
+          <div v-else class="fx-balance-ledger">
+            <div v-for="tx in balanceTransactions.slice(0, 8)" :key="tx.id" class="fx-balance-row">
+              <div>
+                <div class="fx-balance-title">{{ balanceTransactionLabel(tx) }}</div>
+                <div class="fx-balance-date">{{ formatDate(tx.created_at) }}</div>
+              </div>
+              <div :class="['fx-balance-amount', { credit: Number(tx.amount_minor) > 0 }]">
+                {{ Number(tx.amount_minor) > 0 ? '+' : '-' }}${{ (Math.abs(Number(tx.amount_minor)) / 100).toFixed(2) }}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="fx-card" style="padding:var(--pad-card)">
           <h3 class="fx-section-title">{{ $t('payments.billingDetails') }}</h3>
           <div class="fx-sub-rows" style="margin-top:10px">
@@ -176,6 +204,12 @@
       :preselect-provider="payModalProvider"
       @close="payModalOpen = false"
       @success="onPaymentSuccess"
+    />
+    <PaymentModal
+      v-if="topupModalOpen"
+      mode="topup"
+      @close="topupModalOpen = false"
+      @success="onTopupSuccess"
     />
   </div>
 </template>
@@ -204,6 +238,8 @@ const providers = ref([])
 const providersLoading = ref(true)
 const payModalOpen = ref(false)
 const payModalProvider = ref('')
+const topupModalOpen = ref(false)
+const balance = ref(null)
 const paypalReturnState = ref('')
 const paypalReturnMessage = computed(() => {
   const messages = {
@@ -240,10 +276,9 @@ const lastPayment = computed(() => payments.value.find(p => p.status === 'comple
 const lastPaymentAmount = computed(() => lastPayment.value ? '$' + Number(lastPayment.value.amount_usd || 0).toFixed(2) : '—')
 const lastPaymentDate = computed(() => lastPayment.value ? formatDate(lastPayment.value.created_at) : t('payments.noPayments'))
 
-// No automatic debit is scheduled while settlement-backed renewal is
-// disabled. Never infer a future charge from the stored monthly price.
-const nextChargeAmount = computed(() => '—')
-const nextChargeMeta = computed(() => t('payments.noChargeScheduled'))
+const balanceEnabled = computed(() => balance.value?.enabled === true)
+const balanceAvailable = computed(() => (Number(balance.value?.available_minor || 0) / 100).toFixed(2))
+const balanceTransactions = computed(() => balance.value?.transactions || [])
 
 const userEmail = computed(() => {
   return portalSession.user?.email || '—'
@@ -285,6 +320,16 @@ const onPaymentSuccess = () => {
   portalApi.getPaymentHistory(50).then(r => { payments.value = r.data || [] })
                               .finally(() => { loading.value = false })
 }
+const onTopupSuccess = async () => {
+  topupModalOpen.value = false
+  await loadData()
+}
+const balanceTransactionLabel = (tx) => {
+  if (tx.type === 'topup') return t('payments.balanceTopup')
+  if (tx.type === 'subscription_purchase') return t('payments.balanceSubscriptionPurchase')
+  if (tx.type === 'admin_adjustment') return t('payments.balanceAdjustment')
+  return tx.description || tx.type
+}
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '—'
@@ -318,15 +363,24 @@ const loadData = async () => {
     portalApi.getPaymentHistory(50),
     portalApi.getSubscription(),
     portalApi.getProviders(),
+    portalApi.getFeatures(),
   ])
-  const [paymentsRes, subRes, provRes] = results
+  const [paymentsRes, subRes, provRes, featureRes] = results
   if (paymentsRes.status === 'fulfilled') payments.value = paymentsRes.value.data || []
   if (subRes.status === 'fulfilled') subscription.value = subRes.value.data || {}
   if (provRes.status === 'fulfilled') {
     const rows = Array.isArray(provRes.value.data) ? provRes.value.data : []
     providers.value = rows.filter(provider => provider.configured !== false)
   }
-  const firstError = results.find(result => result.status === 'rejected')
+  if (featureRes.status === 'fulfilled' && featureRes.value.data?.features?.account_balance) {
+    try {
+      const balanceRes = await portalApi.getBalance(50)
+      balance.value = balanceRes.data || null
+    } catch (_) { balance.value = null }
+  } else {
+    balance.value = null
+  }
+  const firstError = results.slice(0, 3).find(result => result.status === 'rejected')
   if (firstError) loadError.value = apiErrorMessage(firstError.reason, t('common.loadError'))
   loading.value = false
   providersLoading.value = false
@@ -400,4 +454,11 @@ onMounted(async () => {
 }
 .fx-method-name .fx-badge { height: 18px; font-size: 10px; }
 .fx-method-meta { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.fx-balance-link { border:0; padding:0; background:transparent; color:var(--accent); font:inherit; font-size:11px; font-weight:650; cursor:pointer; }
+.fx-balance-ledger { display:flex; flex-direction:column; margin-top:12px; }
+.fx-balance-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid var(--border); }
+.fx-balance-title { font-size:12.5px; font-weight:550; color:var(--text); }
+.fx-balance-date { font-size:10.5px; color:var(--text-3); margin-top:2px; }
+.fx-balance-amount { font-family:var(--mono); font-size:12px; font-weight:650; color:var(--text-2); }
+.fx-balance-amount.credit { color:var(--success); }
 </style>

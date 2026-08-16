@@ -457,6 +457,7 @@ def get_full_health(db: Session = Depends(get_db)):
         cutoff = now - timedelta(days=7)
         payments_recent = db.query(ClientPortalPayment).filter(
             ClientPortalPayment.status == "completed",
+            ClientPortalPayment.purpose == "subscription",
             ClientPortalPayment.completed_at >= cutoff,
         ).all()
         orphaned_payments = 0

@@ -5,6 +5,7 @@ Admin management of client portal users, subscriptions, payments, revenue
 
 from typing import Optional, List
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import io
 import csv
 import bcrypt
@@ -28,9 +29,11 @@ from ...modules.subscription.subscription_models import (
     ClientUser, ClientPortalSubscription, ClientPortalPayment,
     SubscriptionPlan, SubscriptionStatus, ClientUserClients,
     SupportMessage, DeviceSlot, ClientRefreshToken,
+    ClientAccountBalance,
 )
 from ...modules.subscription.subscription_manager import SubscriptionManager
 from ..middleware.auth import get_current_admin
+from ..middleware.license_gate import require_license_feature
 
 router = APIRouter()
 
@@ -202,6 +205,12 @@ class SetSubscriptionExpiryRequest(BaseModel):
     expiry_date: datetime
 
 
+class BalanceAdjustmentRequest(BaseModel):
+    amount_usd: Decimal = Field(..., ge=Decimal("-1000000.00"), le=Decimal("1000000.00"))
+    reason: str = Field(..., min_length=3, max_length=500)
+    request_id: str = Field(..., min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
 class SendMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
 
@@ -260,6 +269,9 @@ def _serialize_user_summary(user: ClientUser, db: Session, devices_count: int = 
             ClientUserClients.client_user_id == user.id
         ).count()
 
+    balance = db.query(ClientAccountBalance).filter(
+        ClientAccountBalance.user_id == user.id
+    ).first()
     return {
         "id": user.id,
         "username": user.username,
@@ -273,6 +285,7 @@ def _serialize_user_summary(user: ClientUser, db: Session, devices_count: int = 
         "subscription_status": sub.status.value if sub else None,
         "expiry_date": _dt_str(sub.expiry_date) if sub else None,
         "devices_count": devices_count,
+        "balance_minor": int(balance.available_minor or 0) if balance else 0,
     }
 
 
@@ -1189,6 +1202,15 @@ def get_portal_user(user_id: int, db: Session = Depends(get_db)):
         referred_by_username = referrer.username if referrer else None
     referral_count = db.query(ClientUser).filter(ClientUser.referred_by_id == user.id).count()
 
+    balance_data = None
+    try:
+        from ...modules.license.manager import get_license_manager
+        if get_license_manager().get_license_info().has_feature("payments"):
+            from ...modules.subscription.client_balance import get_balance_snapshot
+            balance_data = get_balance_snapshot(db, user_id, limit=50)
+    except Exception:
+        balance_data = None
+
     return {
         "id": user.id,
         "username": user.username,
@@ -1208,7 +1230,61 @@ def get_portal_user(user_id: int, db: Session = Depends(get_db)):
         "subscription": sub_data,
         "devices": devices,
         "payments": payments_data,
+        "balance": balance_data,
     }
+
+
+@router.post(
+    "/{user_id}/balance/adjust",
+    dependencies=[Depends(require_license_feature("payments"))],
+)
+def adjust_portal_user_balance(
+    user_id: int,
+    data: BalanceAdjustmentRequest,
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Apply an explicit, idempotent and audited account-credit adjustment."""
+
+    user = db.query(ClientUser).filter(ClientUser.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    from ...modules.subscription.client_balance import (
+        BalanceError,
+        adjust_balance,
+        usd_to_minor,
+    )
+
+    amount_minor = usd_to_minor(data.amount_usd)
+    try:
+        snapshot = adjust_balance(
+            db,
+            user_id=user_id,
+            amount_minor=amount_minor,
+            reason=data.reason,
+            actor_id=str(current_admin.get("user_id") or "admin"),
+            idempotency_key=f"{user_id}:{data.request_id}",
+        )
+    except BalanceError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    db.add(AuditLog(
+        user_id=current_admin.get("user_id"),
+        user_type="admin",
+        action=AuditAction.CONFIG_CHANGE,
+        target_type="portal_user_balance",
+        target_id=user.id,
+        target_name=user.username,
+        details={
+            "action": "balance_adjustment",
+            "amount_minor": amount_minor,
+            "currency": "USD",
+            "reason": data.reason,
+        },
+    ))
+    db.commit()
+    return snapshot
 
 
 @router.put("/{user_id}")

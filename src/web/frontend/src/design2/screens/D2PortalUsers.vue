@@ -188,6 +188,22 @@
 
         <!-- Payments tab -->
         <div v-if="tab === 'pay'">
+          <div v-if="detail.balance" style="padding:14px;border:1px solid var(--border);border-radius:11px;background:var(--panel-2);margin-bottom:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+              <div>
+                <div style="font-size:11px;color:var(--text-3)">{{ tr('portalUsers.accountBalance') || 'Account balance' }}</div>
+                <div class="mono" style="font-size:22px;font-weight:680;margin-top:3px">${{ Number(detail.balance.available || 0).toFixed(2) }}</div>
+              </div>
+              <button class="d2-mbtn" @click="showBalanceAdjustment = !showBalanceAdjustment">
+                {{ tr('portalUsers.adjustBalance') || 'Adjust balance' }}
+              </button>
+            </div>
+            <div v-if="showBalanceAdjustment" class="d2-balance-adjust">
+              <D2Field v-model="balanceAdjustment.amount_usd" type="number" step="0.01" :label="tr('portalUsers.adjustmentAmount') || 'Amount, USD'" :hint="tr('portalUsers.adjustmentAmountHint') || 'Use a negative value to deduct credit'" />
+              <D2Field v-model="balanceAdjustment.reason" :label="tr('portalUsers.adjustmentReason') || 'Reason'" />
+              <D2Button size="sm" :loading="balanceAdjustBusy" :disabled="!balanceAdjustmentValid" @click="submitBalanceAdjustment">{{ tr('common.apply') || 'Apply' }}</D2Button>
+            </div>
+          </div>
           <div v-if="!(detail.payments && detail.payments.length)" style="padding:24px;text-align:center;font-size:13px;color:var(--text-3)">{{ tr('portalUsers.noPayments') || 'No payments' }}</div>
           <div v-else style="overflow-x:auto"><table data-rtab style="width:100%;border-collapse:collapse;font-size:12.5px">
             <thead><tr style="text-align:left">
@@ -382,6 +398,32 @@ const grantForm = ref({ tier: 'basic', duration_days: 30 })
 const extendDays = ref(30)
 const showSetExpiry = ref(false)
 const setExpiryDate = ref('')
+const showBalanceAdjustment = ref(false)
+const balanceAdjustBusy = ref(false)
+const balanceAdjustment = ref({ amount_usd: '', reason: '' })
+const balanceAdjustmentValid = computed(() => {
+  const amount = Number(balanceAdjustment.value.amount_usd)
+  return Number.isFinite(amount) && amount !== 0 && balanceAdjustment.value.reason.trim().length >= 3
+})
+async function submitBalanceAdjustment() {
+  if (!detail.value || !balanceAdjustmentValid.value) return
+  balanceAdjustBusy.value = true
+  try {
+    const requestId = (globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`).replace(/-/g, '_')
+    const res = await portalUsersApi.adjustBalance(detail.value.id, {
+      amount_usd: Number(balanceAdjustment.value.amount_usd),
+      reason: balanceAdjustment.value.reason.trim(),
+      request_id: requestId,
+    })
+    detail.value.balance = res.data
+    balanceAdjustment.value = { amount_usd: '', reason: '' }
+    showBalanceAdjustment.value = false
+  } catch (e) {
+    alert(e.response?.data?.detail || 'Could not adjust account balance')
+  } finally {
+    balanceAdjustBusy.value = false
+  }
+}
 
 // admin password reset modal
 const showPassword = ref(false)
@@ -680,11 +722,14 @@ onMounted(() => {
 .d2-del2:hover { background: var(--red-soft); color: var(--red); }
 .d2-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .d2-portal-mobile-user { width:100%;display:flex;align-items:center;gap:10px;color:var(--text);font:inherit;cursor:pointer; }
+.d2-balance-adjust { display:grid;grid-template-columns:minmax(120px,.45fr) minmax(180px,1fr) auto;gap:10px;align-items:end;margin-top:14px; }
 @media (max-width:900px) {
   .d2-portal-toolbar { display:grid !important;grid-template-columns:1fr 1fr; }
   .d2-portal-toolbar > select { width:100%; }
   .d2-portal-toolbar > div { grid-column:1 / -1;margin-left:0 !important;display:grid !important;grid-template-columns:repeat(2,minmax(0,1fr)); }
   .d2-portal-toolbar > div > button { width:100%;justify-content:center; }
+  .d2-balance-adjust { grid-template-columns:1fr; }
+  .d2-balance-adjust :deep(button) { width:100%;justify-content:center; }
 }
 @keyframes d2spin { to { transform: rotate(360deg); } }
 </style>

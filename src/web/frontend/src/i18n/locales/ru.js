@@ -403,6 +403,11 @@ export default {
     passwordUpdated: 'Пароль успешно обновлён.',
     fullNameLabel: 'Полное имя (необязательно)',
     subscriptionTier: 'Тариф подписки',
+    accountBalance: 'Баланс аккаунта',
+    adjustBalance: 'Изменить баланс',
+    adjustmentAmount: 'Сумма, USD',
+    adjustmentAmountHint: 'Для списания укажите отрицательную сумму',
+    adjustmentReason: 'Причина',
     free: 'Бесплатный',
   },
   dashboard: {
