@@ -1,13 +1,22 @@
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCREEN = ROOT / "src/web/frontend/src/design2/screens/D2DnsProtection.vue"
 LOCALES = ("en", "ru", "de", "fr", "es")
 
 
-def test_dns_protection_uses_localized_design2_surface():
+def _private_screen_source():
     source = SCREEN.read_text(encoding="utf-8")
+    if "FLIREXA_COMMERCIAL_STUB = True" in source:
+        pytest.skip("commercial design2 implementation is intentionally private")
+    return source
+
+
+def test_dns_protection_uses_localized_design2_surface():
+    source = _private_screen_source()
 
     assert "useI18n" in source
     assert "d2confirm" in source
@@ -19,7 +28,7 @@ def test_dns_protection_uses_localized_design2_surface():
 
 
 def test_dns_protection_mobile_layout_has_no_overlap_hacks():
-    source = SCREEN.read_text(encoding="utf-8")
+    source = _private_screen_source()
 
     assert "@media(max-width:680px)" in source
     assert "grid-template-columns:38px minmax(0,1fr)" in source
