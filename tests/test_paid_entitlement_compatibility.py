@@ -23,6 +23,7 @@ BUSINESS_FEATURES = {
     "auto_backup",
     "promo_codes",
     "auto_renewal",
+    "dns_protection",
 }
 
 ENTERPRISE_ONLY_FEATURES = {
@@ -32,6 +33,7 @@ ENTERPRISE_ONLY_FEATURES = {
     "corporate_vpn",
     "manager_rbac",
     "app_integration",
+    "dns_policy_advanced",
 }
 
 

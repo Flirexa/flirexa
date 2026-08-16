@@ -1,0 +1,9 @@
+{
+  "name": "dns-protection",
+  "version": "1.0.0",
+  "display_name": "Per-device DNS Protection",
+  "description": "Business DNS protection profiles and per-device customer selection.",
+  "requires_license_feature": "dns_protection",
+  "min_tier": "business",
+  "author": "flirexa"
+}

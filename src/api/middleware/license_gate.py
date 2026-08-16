@@ -39,6 +39,8 @@ FEATURE_MINIMUM_TIER = {
     "telegram_client_bot": "business",
     "payments": "business",
     "traffic_rules": "business",
+    "dns_protection": "business",
+    "dns_policy_advanced": "enterprise",
     # All built-in appearance controls are Enterprise-only. Keep the legacy
     # feature name mapped to Enterprise so an old caller cannot advertise
     # Business as sufficient.

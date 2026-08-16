@@ -99,6 +99,11 @@ _FEATURE_ALIASES: dict[str, tuple[str, ...]] = {
     # is gone (FREE must not pass); only `multi_server` (the Pro+ marker)
     # satisfies.
     "payments":           ("multi_server",),
+    # Per-device DNS modes are included for existing Business lifetime
+    # customers via the historic Business marker. Advanced custom/scoped
+    # policies remain Enterprise-only via the white-label marker.
+    "dns_protection":     ("multi_server",),
+    "dns_policy_advanced": ("white_label",),
     # Standard+ tier features re-added with markers so old Standard/Pro/
     # Business/Enterprise keys don't lose entitlements that were always
     # part of their plan but never explicitly listed in their signed payload.
@@ -277,6 +282,7 @@ LICENSE_TIERS = {
             "auto_backup",
             "promo_codes",
             "auto_renewal",
+            "dns_protection",
         ],
     },
     # Old tier names — STARTER/BUSINESS map to STANDARD/PRO conceptually,
@@ -314,6 +320,7 @@ LICENSE_TIERS = {
             "auto_backup",
             "promo_codes",
             "auto_renewal",
+            "dns_protection",
         ]
     },
     LicenseType.ENTERPRISE: {
@@ -340,6 +347,8 @@ LICENSE_TIERS = {
             "promo_codes",
             "auto_renewal",
             "app_integration",
+            "dns_protection",
+            "dns_policy_advanced",
         ]
     },
 }

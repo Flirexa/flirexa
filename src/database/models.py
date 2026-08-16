@@ -463,6 +463,14 @@ class Client(Base):
     segment_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("client_segments.id", ondelete="SET NULL"), nullable=True, index=True)
 
+    # Optional commercial DNS-protection override for legacy/admin-created
+    # peers that do not belong to a DeviceSlot.  Policy logic lives in the
+    # private dns_protection module; keeping the nullable reference here lets
+    # the open core safely ignore it and continue using Server.dns.
+    dns_profile_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("dns_profiles.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Traffic tracking
     traffic_limit_mb: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     traffic_limit_expiry: Mapped[Optional[datetime]] = mapped_column(

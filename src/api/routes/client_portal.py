@@ -1167,6 +1167,8 @@ async def get_features(
             "qr": gates["qr"],
             "promo_codes": _operator_has_feature("promo_codes"),
             "account_balance": _operator_has_feature("payments"),
+            "dns_protection": _operator_has_feature("dns_protection"),
+            "dns_policy_advanced": _operator_has_feature("dns_policy_advanced"),
             "auto_renewal": (
                 _AUTO_RENEWAL_RUNTIME_ENABLED
                 and _operator_has_feature("auto_renewal")
@@ -4667,6 +4669,49 @@ def switch_slot_server(
 
 class RenameSlotRequest(BaseModel):
     label: str = Field(..., min_length=1, max_length=64)
+
+
+class SelectDnsProfileRequest(BaseModel):
+    profile_id: Optional[int] = Field(None, ge=1)
+
+
+@router.get("/devices/{slot_id}/dns")
+def get_slot_dns_policy(
+    slot_id: int,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from src.modules.dns_protection import DnsProtectionError, portal_state
+    try:
+        return portal_state(db, user_id, slot_id)
+    except DnsProtectionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.put("/devices/{slot_id}/dns")
+def select_slot_dns_policy(
+    slot_id: int,
+    data: SelectDnsProfileRequest,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from src.database.models import AuditAction, AuditLog
+    from src.modules.dns_protection import DnsProtectionError, select_portal_profile
+    try:
+        result = select_portal_profile(db, user_id, slot_id, data.profile_id)
+    except DnsProtectionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.add(AuditLog(
+        user_id=user_id,
+        user_type="client",
+        action=AuditAction.CONFIG_CHANGE,
+        target_type="device_dns",
+        target_id=slot_id,
+        target_name="dns_profile_selection",
+        details={"profile_id": data.profile_id},
+    ))
+    db.commit()
+    return result
 
 
 @router.patch("/devices/{slot_id}")

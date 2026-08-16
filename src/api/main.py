@@ -22,7 +22,7 @@ import psutil
 
 from sqlalchemy.orm import Session
 from ..database.connection import init_db, close_db, SessionLocal, get_db
-from .routes import clients, servers, bots, payments, system, agent, client_portal, tariffs, traffic_rules, internal, admin_auth, portal_users, promo_codes, app_accounts, backup, corporate, health, updates, plugins_admin, segments
+from .routes import clients, servers, bots, payments, system, agent, client_portal, tariffs, traffic_rules, internal, admin_auth, portal_users, promo_codes, app_accounts, backup, corporate, health, updates, plugins_admin, segments, dns_protection
 # Register corporate models so Base.metadata.create_all() includes their tables
 from ..modules.corporate import models as _corporate_models  # noqa: F401
 from .middleware.auth import get_current_admin, require_permission, require_superadmin
@@ -812,6 +812,13 @@ def create_app(
         prefix="/api/v1/traffic",
         tags=["Traffic Rules"],
         dependencies=admin_auth_dep + [Depends(require_permission("settings"))]
+    )
+
+    app.include_router(
+        dns_protection.router,
+        prefix="/api/v1/dns-protection",
+        tags=["DNS Protection"],
+        dependencies=admin_auth_dep + [Depends(require_permission("settings"))],
     )
 
     app.include_router(

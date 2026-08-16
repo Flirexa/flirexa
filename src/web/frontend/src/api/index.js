@@ -502,6 +502,17 @@ export const pluginsApi = {
   uninstall: (name) => api.delete(`/plugins/${encodeURIComponent(name)}`),
 }
 
+// ===== Commercial DNS protection =====
+export const dnsProtectionApi = {
+  get: () => api.get('/dns-protection'),
+  saveSettings: (data) => api.put('/dns-protection/settings', data),
+  updateProfile: (id, data) => api.put(`/dns-protection/profiles/${id}`, data),
+  createProfile: (data) => api.post('/dns-protection/profiles', data),
+  deleteProfile: (id) => api.delete(`/dns-protection/profiles/${id}`),
+  saveAssignment: (data) => api.post('/dns-protection/assignments', data),
+  deleteAssignment: (id) => api.delete(`/dns-protection/assignments/${id}`),
+}
+
 export const appAccountsApi = {
   list: () => api.get('/app-accounts'),
   get: (id) => api.get(`/app-accounts/${id}`),

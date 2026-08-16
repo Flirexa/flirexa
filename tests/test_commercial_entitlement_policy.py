@@ -37,13 +37,15 @@ def _blocked(call, feature: str, tier: str):
 def test_upgrade_payload_uses_current_public_plan_names():
     assert feature_required_detail("promo_codes")["upgrade_tier"] == "starter"
     assert feature_required_detail("payments")["upgrade_tier"] == "business"
+    assert feature_required_detail("dns_protection")["upgrade_tier"] == "business"
+    assert feature_required_detail("dns_policy_advanced")["upgrade_tier"] == "enterprise"
     assert feature_required_detail("app_integration")["upgrade_tier"] == "enterprise"
     assert feature_required_detail("white_label_basic")["upgrade_tier"] == "enterprise"
 
 
 def test_business_cannot_infer_appearance_or_app_entitlements():
     info = _license(LicenseType.BUSINESS, max_servers=10, features=("multi_server",))
-    for feature in ("white_label", "white_label_basic", "android_app", "app_integration"):
+    for feature in ("white_label", "white_label_basic", "android_app", "app_integration", "dns_policy_advanced"):
         assert info.has_feature(feature) is False
 
 

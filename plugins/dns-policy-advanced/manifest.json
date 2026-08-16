@@ -1,0 +1,9 @@
+{
+  "name": "dns-policy-advanced",
+  "version": "1.0.0",
+  "display_name": "Advanced DNS Policies",
+  "description": "Enterprise custom resolver profiles and enforced scoped policies.",
+  "requires_license_feature": "dns_policy_advanced",
+  "min_tier": "enterprise",
+  "author": "flirexa"
+}

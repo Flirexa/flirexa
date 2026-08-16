@@ -62,6 +62,13 @@ export default {
     atLimit: 'Device limit reached — {used} of {max} slots in use',
     atLimitHint: 'Upgrade your plan for more slots, or remove a device below to free one up.',
     configError: 'No config returned',
+    dnsProtection: 'DNS protection',
+    dnsProtectionHelp: 'Choose the DNS filtering mode for this device. Downloaded configuration files must be downloaded again after a change.',
+    dnsLoading: 'Loading DNS options…',
+    dnsForced: 'This DNS mode is managed by your VPN provider.',
+    dnsRefreshHint: 'Official apps receive the new mode on their next configuration refresh. Manually downloaded files must be downloaded again.',
+    dnsUpdated: 'DNS protection updated',
+    dnsUpdateError: 'Could not update DNS protection',
   },
   footer: {
     privacy: 'Privacy',

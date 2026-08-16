@@ -43,6 +43,10 @@ PLUGINS = [
      [LicenseType.ENTERPRISE]),
     ("corporate-vpn", "corporate_vpn",
      [LicenseType.ENTERPRISE]),
+    ("dns-protection", "dns_protection",
+     [LicenseType.PRO, LicenseType.BUSINESS, LicenseType.ENTERPRISE]),
+    ("dns-policy-advanced", "dns_policy_advanced",
+     [LicenseType.ENTERPRISE]),
 ]
 
 
@@ -132,7 +136,7 @@ def test_all_phase5_plugins_load_on_enterprise(repo_plugins_dir):
 def test_starter_does_not_get_business_features():
     """STARTER must not include Business-only features."""
     starter = LICENSE_TIERS[LicenseType.STARTER]["features"]
-    business_only = ["multi_server", "telegram_client_bot", "auto_backup", "traffic_rules"]
+    business_only = ["multi_server", "telegram_client_bot", "auto_backup", "traffic_rules", "dns_protection"]
     leaks = [f for f in business_only if f in starter]
     assert not leaks, f"STARTER leaked Business features: {leaks}"
 
@@ -141,7 +145,7 @@ def test_business_does_not_get_enterprise_features():
     business = LICENSE_TIERS[LicenseType.BUSINESS]["features"]
     enterprise_only = [
         "corporate_vpn", "manager_rbac", "white_label",
-        "white_label_basic", "android_app",
+        "white_label_basic", "android_app", "dns_policy_advanced",
     ]
     leaks = [f for f in enterprise_only if f in business]
     assert not leaks, f"BUSINESS leaked Enterprise features: {leaks}"

@@ -603,6 +603,64 @@ class PromoRedemption(Base):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# COMMERCIAL DNS PROTECTION DATA
+# ═══════════════════════════════════════════════════════════════════════════
+
+class DnsProfile(Base):
+    """Validated resolver profile used by the commercial DNS policy engine.
+
+    The schema is deliberately inert in open-core builds: only the private
+    implementation reads or mutates it, while a missing/disabled profile
+    always falls back to the server's existing DNS value.
+    """
+    __tablename__ = "dns_profiles"
+    __table_args__ = (
+        UniqueConstraint("mode", name="uq_dns_profiles_mode"),
+        CheckConstraint("length(name) > 0", name="ck_dns_profiles_name_nonempty"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    mode = Column(String(48), nullable=True)
+    name = Column(String(100), nullable=False)
+    description = Column(String(500), nullable=True)
+    resolver_addresses = Column(JSON, nullable=False, default=list, server_default="[]")
+    enabled = Column(Boolean, nullable=False, default=False, server_default="false")
+    is_default = Column(Boolean, nullable=False, default=False, server_default="false")
+    customer_selectable = Column(Boolean, nullable=False, default=True, server_default="true")
+    is_custom = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class DnsPolicyAssignment(Base):
+    """Enterprise-enforced profile for one bounded policy scope."""
+    __tablename__ = "dns_policy_assignments"
+    __table_args__ = (
+        UniqueConstraint("scope_type", "scope_value", name="uq_dns_policy_scope"),
+        CheckConstraint(
+            "scope_type IN ('plan','segment','client','device')",
+            name="ck_dns_policy_scope_type",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    profile_id = Column(Integer, ForeignKey("dns_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    scope_type = Column(String(24), nullable=False, index=True)
+    scope_value = Column(String(100), nullable=False, index=True)
+    enforced = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # LINKING TABLE
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -671,6 +729,16 @@ class DeviceSlot(Base):
         Integer,
         ForeignKey("servers.id", ondelete="SET NULL"),
         nullable=True,
+    )
+
+    # Customer-selected DNS profile. An Enterprise enforced assignment can
+    # override this value, but the selection remains stored so it becomes
+    # effective again if the enforced policy is removed.
+    dns_profile_id = Column(
+        Integer,
+        ForeignKey("dns_profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     # Device-bind (Option B): once the slot serves a wg-quick config to

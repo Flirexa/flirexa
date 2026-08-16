@@ -60,6 +60,11 @@ const routes = [
     component: D2_SCREENS.Settings,
   },
   {
+    path: '/dns-protection',
+    name: 'DnsProtection',
+    component: D2_SCREENS.DnsProtection,
+  },
+  {
     path: '/design',
     redirect: '/settings',
   },

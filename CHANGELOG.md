@@ -4,6 +4,33 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.112 — 2026-08-16
+
+### Added
+
+- Added per-device DNS protection for generated WireGuard and AmneziaWG
+  configurations. Business includes four operator-configured filtering modes;
+  Enterprise additionally supports custom profiles and enforced policies by
+  plan, segment, portal customer, or device.
+- Added customer self-selection of an allowed DNS mode for each device in the
+  client portal, while preserving administrator-enforced policies.
+
+### Improved
+
+- Localized the DNS Protection administration screen and built-in modes in
+  English, Russian, German, French, and Spanish.
+- Refined the DNS Protection screen for compact mobile layouts and the current
+  Design 2.0 visual system on both desktop and mobile.
+
+### Fixed
+
+- Invalid, disabled, or unavailable DNS profiles now fall back safely to the
+  VPN server's configured DNS instead of producing an unusable client config.
+- Standardized DNS selection across administrator downloads, portal downloads,
+  QR/config endpoints, and official application configuration responses.
+
+---
+
 ## v2.2.110 — 2026-08-16
 
 ### Added

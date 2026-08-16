@@ -27,6 +27,7 @@ import D2AppLogs from './D2AppLogs.vue'
 import D2Support from './D2Support.vue'
 import D2TrafficRules from './D2TrafficRules.vue'
 import D2Settings from './D2Settings.vue'
+import D2DnsProtection from './D2DnsProtection.vue'
 
 export const D2_SCREENS = {
   Dashboard: D2Dashboard,
@@ -52,4 +53,5 @@ export const D2_SCREENS = {
   SupportMessages: D2Support,
   TrafficRules: D2TrafficRules,
   Settings: D2Settings,
+  DnsProtection: D2DnsProtection,
 }

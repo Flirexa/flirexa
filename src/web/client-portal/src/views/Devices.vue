@@ -139,6 +139,31 @@
         </div>
       </div>
 
+      <!-- Commercial per-device DNS protection. Resolver choice belongs to
+           the slot, so it follows the physical device across regions. -->
+      <div v-if="features.dns_protection && dnsStates[slot.id]?.enabled" class="fx-slot-section fx-dns-section">
+        <div class="fx-slot-section-title">
+          {{ $t('devices.dnsProtection') || 'DNS protection' }}
+          <FxHelp :text="$t('devices.dnsProtectionHelp') || 'Choose the DNS filtering mode for this device. Downloaded configs must be downloaded again after a change.'" />
+        </div>
+        <div v-if="dnsStates[slot.id]?.profiles?.length" class="fx-dns-picker">
+          <button v-for="profile in dnsStates[slot.id].profiles" :key="profile.id"
+                  class="fx-dns-option"
+                  :class="{ active: dnsStates[slot.id].effective_profile_id === profile.id }"
+                  :disabled="dnsSaving === slot.id || dnsStates[slot.id].forced || !dnsStates[slot.id].customer_choice_enabled"
+                  @click="selectDns(slot, profile.id)">
+            <span class="fx-dns-check"><FxIcon v-if="dnsStates[slot.id].effective_profile_id === profile.id" name="check" :size="12" /></span>
+            <span><strong>{{ profile.name }}</strong><small>{{ profile.description }}</small></span>
+          </button>
+        </div>
+        <div v-if="dnsStates[slot.id]?.forced" class="fx-dns-managed">
+          {{ $t('devices.dnsForced') || 'This protection mode is managed by your VPN provider' }}
+        </div>
+        <div v-else class="fx-dns-refresh-note">
+          {{ $t('devices.dnsRefreshHint') || 'Official apps apply the change on their next configuration refresh. Download manual configs again.' }}
+        </div>
+      </div>
+
       <!-- Config download row -->
       <div class="fx-slot-section" v-if="features.config_download">
         <div class="fx-slot-section-title">
@@ -288,6 +313,8 @@ const subscription = ref({})
 // Per-operator portal gates; default ON (fail open). Backend 403 is the real gate.
 const features = ref({ config_download: true, qr: true })
 const servers = ref([])
+const dnsStates = ref({})
+const dnsSaving = ref(null)
 
 const showCreate = ref(false)
 const newLabel = ref('Phone')
@@ -418,11 +445,36 @@ const loadSlots = async () => {
     // Fire-and-forget RTT probe — UI does not wait for it. Failures
     // simply leave the chips in "…" state, which is fine.
     probeAllServers()
+    if (features.value.dns_protection) loadDnsStates()
   } catch (e) {
     if (e.response?.status === 401) router.push('/login')
     else toast(apiErrorMessage(e, t('common.error')), 'error')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadDnsStates() {
+  await Promise.all(slots.value.map(async (slot) => {
+    try {
+      const { data } = await portalApi.getSlotDns(slot.id)
+      dnsStates.value = { ...dnsStates.value, [slot.id]: data }
+    } catch { /* commercial feature may be disabled by the operator */ }
+  }))
+}
+
+async function selectDns(slot, profileId) {
+  const current = dnsStates.value[slot.id]
+  if (!current || current.forced || !current.customer_choice_enabled) return
+  dnsSaving.value = slot.id
+  try {
+    const { data } = await portalApi.setSlotDns(slot.id, profileId)
+    dnsStates.value = { ...dnsStates.value, [slot.id]: data }
+    toast(t('devices.dnsUpdated') || 'DNS protection updated', 'success')
+  } catch (e) {
+    toast(apiErrorMessage(e, t('common.error')), 'error')
+  } finally {
+    dnsSaving.value = null
   }
 }
 
@@ -623,7 +675,10 @@ const confirmDeleteWithPassword = async () => {
 async function loadFeatures() {
   try {
     const { data } = await portalApi.getFeatures()
-    if (data && data.features) features.value = { ...features.value, ...data.features }
+    if (data && data.features) {
+      features.value = { ...features.value, ...data.features }
+      if (features.value.dns_protection && slots.value.length) loadDnsStates()
+    }
   } catch { /* fail open: keep defaults */ }
 }
 onMounted(() => { loadSlots(); loadFeatures() })
@@ -760,6 +815,8 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 6px;
 }
+.fx-dns-section{border-top:1px solid var(--border);padding-top:14px}.fx-dns-picker{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px}.fx-dns-option{display:flex;align-items:flex-start;gap:9px;text-align:left;padding:10px;border:1px solid var(--border);border-radius:9px;background:var(--bg-2);color:var(--text);cursor:pointer}.fx-dns-option:hover:not(:disabled){border-color:var(--accent)}.fx-dns-option.active{border-color:var(--accent);background:color-mix(in oklab,var(--accent) 8%,var(--bg-2))}.fx-dns-option:disabled{cursor:default;opacity:.78}.fx-dns-option>span:last-child{min-width:0}.fx-dns-option strong,.fx-dns-option small{display:block}.fx-dns-option strong{font-size:12.5px}.fx-dns-option small{font-size:11px;color:var(--text-3);line-height:1.35;margin-top:2px}.fx-dns-check{width:18px;height:18px;border-radius:50%;border:1px solid var(--border);display:grid;place-items:center;color:#fff;flex:none}.fx-dns-option.active .fx-dns-check{background:var(--accent);border-color:var(--accent)}.fx-dns-managed,.fx-dns-refresh-note{font-size:11px;color:var(--text-3);margin-top:8px}.fx-dns-managed{color:var(--accent);font-weight:600}
+@media(max-width:700px){.fx-dns-picker{grid-template-columns:1fr}.fx-dns-option{padding:9px}}
 .fx-form-label {
   display: block;
   font-size: 12px;

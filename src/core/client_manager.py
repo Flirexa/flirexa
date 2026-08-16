@@ -658,6 +658,16 @@ class ClientManager:
         # split tunneling page (isDefaultServerDefaultContainerHasSplitTunneling = true).
         allowed_ips = "0.0.0.0/0"
 
+        # One authoritative commercial policy hook is used by every admin,
+        # portal, QR and app config path because they all delegate to this
+        # renderer. Open-core builds safely fall back to Server.dns.
+        effective_dns = server.dns
+        try:
+            from ..modules.dns_protection import resolve_dns_for_client
+            effective_dns = resolve_dns_for_client(self.db, client, server)
+        except Exception as exc:
+            logger.warning("DNS policy fallback for client {}: {}", client.id, exc)
+
         if is_awg:
             from .amneziawg import AWG_DEFAULT_MTU
             awg_mtu = getattr(server, 'awg_mtu', None) or AWG_DEFAULT_MTU
@@ -685,7 +695,7 @@ class ClientManager:
                 server_public_key=server.public_key,
                 server_endpoint=client_endpoint,
                 preshared_key=client.preshared_key,
-                dns=server.dns,
+                dns=effective_dns,
                 mtu=awg_mtu,
                 allowed_ips=allowed_ips,
                 persistent_keepalive=server.persistent_keepalive,
@@ -702,7 +712,7 @@ class ClientManager:
             server_public_key=server.public_key,
             server_endpoint=client_endpoint,
             preshared_key=client.preshared_key,
-            dns=server.dns,
+            dns=effective_dns,
             mtu=server.mtu,
             allowed_ips=allowed_ips,
             persistent_keepalive=server.persistent_keepalive
