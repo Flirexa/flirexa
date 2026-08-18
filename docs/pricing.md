@@ -1,6 +1,6 @@
 # Pricing
 
-_Last verified: 2026-07-30. The checkout on [flirexa.biz](https://flirexa.biz) is authoritative for current prices and billing periods._
+_Last verified: 2026-08-18. The checkout on [flirexa.biz](https://flirexa.biz) is authoritative for current prices and billing periods._
 
 Flirexa is **open-core**: the FREE tier is a complete, unlimited-time VPN service without a paid licence heartbeat. Paid tiers unlock additional features.
 
@@ -21,6 +21,9 @@ Flirexa is **open-core**: the FREE tier is a complete, unlimited-time VPN servic
 | **Multi-server management** | — | — | Yes | Yes |
 | **Traffic rules (auto-throttle / quota)** | — | — | Yes | Yes |
 | **Scheduled backups** | — | — | Yes | Yes |
+| **Prepaid customer balance** | — | — | Yes | Yes |
+| **Per-device DNS protection modes** | — | — | Yes | Yes |
+| **Custom and enforced DNS policy** | — | — | — | Yes |
 | **White-label branding** | — | — | — | Full appearance, domain, email, and legal-page controls |
 | **Corporate VPN (site-to-site)** | — | — | — | Yes |
 | **Manager RBAC (scoped admins)** | — | — | — | Yes |
@@ -36,7 +39,7 @@ signed into an older paid key remain honoured after an update.
 
 - The billing period selected at checkout (monthly, annual, or lifetime when offered)
 - Every release published while your subscription is active
-- Access to all supported VPN protocols
+- Access to the protocols and commercial features included in the selected tier
 - One month of daily onboarding/operational help from purchase, followed by
   priority ticket support
 - Lifetime, when selected, includes future normal product updates
@@ -49,7 +52,7 @@ Recurring plans can be cancelled before renewal. Your licence stays active throu
 
 Subscriptions can be paid either way:
 
-- **Card / fiat** — Visa, Mastercard, Apple Pay, Google Pay, via PayLio.
+- **Card / fiat** — through the currently available card checkout shown on the website.
 - **Cryptocurrency** — via NOWPayments: BTC, ETH, USDT, USDC, LTC, XMR, TON, SOL, and many others.
 
 After payment confirmation, activation details are shown by the checkout and sent to the address supplied there.

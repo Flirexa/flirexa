@@ -1,164 +1,220 @@
 # Flirexa
 
-**Self-hosted VPN management for WireGuard, AmneziaWG, Hysteria2, TUIC, and VLESS-Reality.**
-Open core under MIT. Paid plugins for the parts that turn it into a real business.
+## Launch and operate your own VPN service on infrastructure you control
 
-_Repository and product claims last verified: 2026-08-13. Current checkout
-pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
+Flirexa brings the admin panel, customer portal, subscriptions, payments,
+multi-server operations, and five VPN protocols into one self-hosted platform.
+Start on one server, then add locations from the same panel as your service
+grows.
+
+The public open core is MIT-licensed. Commercial plans add protected business
+features, higher limits, white-label controls, and customer applications.
+
+_Product claims last verified: 2026-08-18. The checkout on
+[flirexa.biz](https://flirexa.biz) is authoritative for current prices and
+billing periods._
+
+[Website](https://flirexa.biz) ·
+[Interactive demo](https://flirexa.biz/demo/VPN-Admin-Panel-demo.html?theme=dark&lang=en) ·
+[Pricing](https://flirexa.biz/#pricing) ·
+[Documentation](docs/getting-started.md) ·
+[Enterprise trial](https://flirexa.biz/#pricing)
 
 [![Tests](https://github.com/Flirexa/flirexa/actions/workflows/test.yml/badge.svg)](https://github.com/Flirexa/flirexa/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/github/v/release/Flirexa/flirexa?label=version&color=blue)](https://github.com/Flirexa/flirexa/releases)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![Stars](https://img.shields.io/github/stars/Flirexa/flirexa?style=social)](https://github.com/Flirexa/flirexa/stargazers)
+
+![Flirexa admin dashboard](docs/screenshots/dashboard.png)
+
+## What one guided installation gives you
+
+- A responsive admin panel for customers, servers, traffic, subscriptions,
+  payments, backups, and system health
+- A separate customer portal for registration, purchases, device slots,
+  configuration delivery, and support
+- PostgreSQL, generated secrets, system services, migrations, and health checks
+- The first local WireGuard and AmneziaWG endpoints
+- Signed updates with checksum verification, backup, rollback, and release
+  channels
+- An admin Telegram bot for operational work away from the browser
+
+You still choose the VPS, domain, payment accounts, prices, and brand. Flirexa
+does not resell connectivity or place customer traffic on a third-party VPN
+network.
 
 ```bash
-# One command on a supported Ubuntu Server 22.04/24.04 x86-64 host:
+# Supported production hosts: Ubuntu Server 22.04 or 24.04, x86-64
 curl -fsSL https://flirexa.biz/install.sh | sudo bash
 ```
 
-![Admin dashboard](docs/screenshots/dashboard.png)
+The installer checks the host, explains any unsupported optional component,
+deploys the services, and prints the access details when verification passes.
+See the [installation reference](docs/installation.md) before using an existing
+server with custom firewall, web, or database configuration.
 
----
+## Built for operators, not just tunnel configuration
 
-## Run a real VPN service. Today.
+Flirexa is useful when the work extends beyond creating a WireGuard peer. It
+keeps customer access, plan limits, payments, device slots, server state, and
+support workflows in one operational model.
 
-Flirexa is what you'd build if you took Marzban, gave it a working client portal, and made the multi-server / corporate / white-label parts a paid upgrade instead of unfinished issues.
+It is designed for:
 
-**For yourself or a few friends?** Run the FREE tier and never look at this README again.
-**Selling VPN as a service?** Free tier handles up to 80 clients on one physical host with crypto payments out of the box. When you outgrow it, you upgrade — the same installation, more features unlocked.
+- founders launching a self-hosted VPN service
+- existing VPN operators replacing manual account and configuration work
+- hosting companies and MSPs adding a managed VPN product
+- teams that need branded customer access on infrastructure they control
+- organizations managing many VPN locations from one panel
 
-The FREE runtime has no licence heartbeat and no remote kill switch. The installer and updater do contact official Flirexa services: the updater fetches a signed manifest, while the installer reports coarse phase/failure diagnostics by default so broken installs can be supported. The installer may also ask for an optional email address; entering one opts in to a single English help email only if that attempt fails. Set `INSTALL_TELEMETRY=off` to disable installer diagnostics and the optional help flow.
+## Free tier
 
----
+The FREE tier has no expiry, paid licence heartbeat, or remote kill switch.
 
-## What you get for free
-
-| | |
+| Capability | Included |
 |---|---|
-| **Protocols** | WireGuard + AmneziaWG (DPI-resistant — works in censorship-heavy networks) |
-| **Capacity** | Up to 80 clients on one physical host, with one local WireGuard and one local AmneziaWG endpoint |
-| **Admin panel** | Responsive Vue 3 SPA — real-time stats, traffic graphs, QR codes, and phone/tablet workflows |
-| **Client portal** | Separate FastAPI process on port 10090 — self-service signup, plans, config download |
-| **Telegram** | Admin bot for managing the service from your phone |
-| **Payments** | NOWPayments (BTC, ETH, USDT, XMR, +50 cryptocurrencies) out of the box |
-| **Languages** | English, Русский, Deutsch, Français, Español |
-| **Updates** | Signed update manifest, package checksum verification, and rollback |
-| **Backup** | Manual export/restore with full data |
-| **Payment providers** | NOWPayments ships in FREE. CryptoPay, PayLio, and additional card/local rails are license-gated; see [payment setup](docs/payment-setup.md) for what is included and how each provider is delivered. |
+| Protocols | WireGuard and AmneziaWG |
+| Capacity | Up to 80 customers |
+| Deployment | One physical host, with one local endpoint per included protocol |
+| Admin panel | Customers, traffic, QR codes, plans, payments, backups, and updates |
+| Customer portal | Registration, plans, checkout, device configuration, and account management |
+| Payments | NOWPayments cryptocurrency checkout |
+| Telegram | Admin bot |
+| Languages | English, Russian, Ukrainian, German, French, and Spanish |
+| Backups | Manual backup and restore |
+| Source | MIT-licensed public open core |
 
-If you can run a VPS, you can run a VPN service.
+The installer can report coarse phase and failure diagnostics so failed
+installations can be supported. Set `INSTALL_TELEMETRY=off` to disable that
+diagnostic flow. The signed updater still contacts the update service when an
+operator requests or schedules an update check.
 
----
+## Commercial plans
 
-## Screenshots
+Paid capabilities are enforced by signed feature flags and backend checks.
+Official releases supply protected commercial implementations; this public
+repository contains the open core and explicit compatibility boundaries.
+
+| Plan | From | Best for | Added capabilities |
+|---|---:|---|---|
+| Starter | $12/month | A small service that needs more protocols | Hysteria2, TUIC, VLESS-Reality, promo codes, up to 500 customers |
+| Business | $49/month | A growing multi-location VPN business | Up to 10 managed servers and 2,000 customers, full payment-provider suite, customer Telegram bot, traffic rules, scheduled backups, prepaid customer balance, per-device DNS protection |
+| Enterprise | $149/month | A full branded service or large network | Unlimited servers and customers, full white-label controls, manager RBAC, advanced DNS policy, corporate site-to-site VPN, standard Android/Windows/Linux client apps |
+
+Business DNS protection lets the operator configure four resolver modes and
+optionally let each customer choose a mode per device. Enterprise adds custom
+profiles and enforced policies by plan, segment, customer, or device. Flirexa
+writes the selected resolver address into the generated configuration; the
+operator runs or selects the DNS resolvers.
+
+Business and Enterprise also support prepaid customer credit. Provider-confirmed
+top-ups use exact-cent accounting and an append-only ledger. Customers can pay
+for a subscription from their balance, while administrator adjustments require
+a reason and are audit-logged.
+
+Monthly and annual licences renew until cancelled. Lifetime, when offered for
+the selected tier, is a one-time purchase and includes future standard product
+updates. Every paid purchase includes one month of daily onboarding help from
+the purchase date, followed by priority ticket support.
+
+[Compare every plan and gate](docs/free-vs-paid.md) ·
+[Read the licensing model](docs/licensing.md) ·
+[View current checkout pricing](https://flirexa.biz/#pricing)
+
+## Product tour
 
 <table>
 <tr>
 <td width="50%">
 
-**Admin dashboard**
-![Dashboard](docs/screenshots/dashboard.png)
+**Customer management**
+![Customer management](docs/screenshots/clients.png)
 
 </td>
 <td width="50%">
 
-**Client management**
-![Clients](docs/screenshots/clients.png)
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-**Multi-server view**
-![Servers](docs/screenshots/servers.png)
-
-</td>
-<td width="50%">
-
-**Client portal**
-![Client portal](docs/screenshots/portal.png)
+**Multi-server operations**
+![Multi-server operations](docs/screenshots/servers.png)
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-**Telegram bots**
-![Bots](docs/screenshots/bots.png)
+**Separate customer portal**
+![Customer portal](docs/screenshots/portal.png)
 
 </td>
 <td width="50%">
 
-**Settings & branding**
-![Settings](docs/screenshots/settings.png)
+**Telegram workflows**
+![Telegram bots](docs/screenshots/bots.png)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Settings and branding**
+![Settings and branding](docs/screenshots/settings.png)
+
+</td>
+<td width="50%">
+
+**Operational dashboard**
+![Operational dashboard](docs/screenshots/dashboard.png)
 
 </td>
 </tr>
 </table>
 
-The admin interface uses purpose-built compact views on phones and tablets:
-operational tables become readable summary rows with expandable details,
-settings use focused sheets, and support uses a list-to-conversation flow.
-Desktop layouts remain full-width and information-dense.
+The mobile admin interface does not squeeze desktop tables into a narrow
+viewport. Operational lists use compact summary rows, expandable details, and
+touch-sized actions. Desktop views remain information-dense.
 
----
+## Protocols and server growth
 
-## What's paid
+- **WireGuard** and **AmneziaWG** are included in FREE
+- **Hysteria2**, **TUIC**, and **VLESS-Reality** start with Starter
+- Remote-node orchestration starts with Business
+- Add Server can bootstrap and verify a compatible remote VPN node from the
+  main panel
+- Business supports up to 10 servers; Enterprise removes the server limit
 
-Paid capabilities use signed feature flags and backend checks. The public tree
-contains the MIT open core and deterministic compatibility stubs; official
-customer archives supply protected commercial implementations under a separate
-licence.
+Protocol support and orchestration are separate concerns. Starter expands the
+protocol set on the installation host. Business adds the remote locations and
+central operations needed to grow a network.
 
-| Tier | Per month | Plugins unlocked |
-|---|---|---|
-| **Starter** | $12 | `extra-protocols` (Hysteria2, TUIC, VLESS-Reality), `promo-codes` |
-| **Business** | $49 | + `multi-server`, `client-tg-bot`, full payment-provider suite, `traffic-rules`, `auto-backup` |
-| **Enterprise** | $149 | + full white-label/appearance controls, standard client-app package, `corporate-vpn`, `manager-rbac` |
+## Payments and subscriptions
 
-Automatic renewal of an operator's end-customer subscriptions is temporarily
-unavailable while it is rebuilt around one verified provider settlement per
-extension. Manual portal checkout and renewal continue to work. This is
-separate from purchasing a monthly, annual, or Lifetime Flirexa licence.
-The table applies to newly issued licences; an older key keeps any capability
-that is explicitly present in its signed feature set.
+FREE includes NOWPayments. Business and Enterprise can use the commercial
+payment-provider suite, including Stripe, PayPal, PayLio, CryptoPay, Mollie,
+Razorpay, and Payme where supported by the operator's provider account and
+region.
 
-**Subscriptions can be paid by card or crypto.** Card/fiat — Visa/Mastercard, Apple Pay, Google Pay, bank transfer in USD/EUR via [PayLio](https://paylio.org) recurring subscriptions; or pay in cryptocurrency via NOWPayments. If you need an invoice for accounting purposes, email `support@flirexa.biz` and we'll issue one.
+Checkout grants access only after the provider reports a matching settled
+payment. The return page alone is never treated as proof of payment. Automatic
+end-customer renewal is temporarily unavailable while it is being rebuilt
+around one newly verified provider settlement per extension; manual checkout
+and renewal remain supported.
 
-Pricing and licensing: [flirexa.biz](https://flirexa.biz)
+## API and integrations
 
-> **Why open-core?** The self-hosted VPN management space has good free tools (Marzban, Hiddify, 3X-UI) and good closed tools — but very little in between. Flirexa is what we wished existed: a genuinely useful free product that small operators can grow with, plus paid plugins for serious commercial operators who need multi-server, white-label, and B2B features.
+Flirexa exposes a documented FastAPI admin API and OpenAPI schema on every
+installation. Endpoints are grouped by operational domain, including
+customers, servers, payments, subscriptions, backups, and support.
 
----
+- [API reference](docs/api.md)
+- [Architecture](docs/architecture.md)
+- [Plugin authoring](docs/plugins.md)
+- [Payment setup](docs/payment-setup.md)
 
-## Compared to alternatives
+Admin API clients use Bearer authentication. Browser customer-portal sessions
+use short-lived HttpOnly access cookies, rotating hash-only refresh families,
+and CSRF protection. Official mobile applications retain the compatible Bearer
+contract.
 
-Competitor feature sets change too quickly for a static matrix to remain honest.
-Compare current releases in their official repositories:
-[Marzban](https://github.com/Gozargah/Marzban),
-[Hiddify](https://github.com/hiddify/hiddify-app),
-[WG-Easy](https://github.com/wg-easy/wg-easy), and
-[3X-UI](https://github.com/MHSanaei/3x-ui).
-
-Flirexa's deliberate trade-off is a useful MIT-licensed FREE service for one
-operator/host, with commercial protocol, orchestration, white-label, and B2B
-features layered on top.
-
----
-
-## Install
-
-### Quick install (Ubuntu Server 22.04 or 24.04, Linux x86-64)
-
-```bash
-curl -fsSL https://flirexa.biz/install.sh | sudo bash
-```
-
-The installer sets up Python venv, PostgreSQL, systemd services, generates secrets, and runs the first migrations. Admin panel is at `http://<your-server-ip>:10086` afterwards. First login creates the admin account.
-
-### From source
+## Install from source
 
 ```bash
 git clone https://github.com/Flirexa/flirexa.git
@@ -166,12 +222,12 @@ cd flirexa
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.lock
-cp .env.example .env  # edit as needed
+cp .env.example .env
 alembic upgrade head
 python main.py
 ```
 
-### Docker
+For Docker development and evaluation:
 
 ```bash
 git clone https://github.com/Flirexa/flirexa.git
@@ -179,100 +235,51 @@ cd flirexa
 docker compose up -d
 ```
 
-See [docs/installation.md](docs/installation.md) for details, alternative database setups, and TLS / domain config.
-
----
-
-## API
-
-The admin API is a documented FastAPI app. After install:
-
-- **Swagger UI:** `http://<your-server-ip>:10086/api/docs`
-- **OpenAPI schema:** `http://<your-server-ip>:10086/api/openapi.json`
-- **Architecture overview:** [docs/architecture.md](docs/architecture.md)
-- **API reference:** [docs/api.md](docs/api.md)
-
-REST endpoints are grouped by domain (`/api/v1/clients`, `/api/v1/servers`, `/api/v1/payments`, …). Admin authentication uses a Bearer JWT. Browser client-portal sessions use short-lived HttpOnly access cookies, rotating hash-only refresh families, and CSRF protection; released mobile clients retain their compatible Bearer contract.
-
----
-
-## Plugins
-
-The plugin system is open and documented. To write a community plugin:
-
-1. Copy `plugins/_example/` to `plugins/<your-plugin-name>/`.
-2. Edit `manifest.json` (kebab-case `name`, semver `version`).
-3. Set `requires_license_feature` to a feature flag your installs always have. For community plugins (no license gate), use `community` — the plugin loader treats it as universally granted.
-4. Implement your plugin in `__init__.py` — export a `PLUGIN` instance subclassing `src.modules.plugin_loader.Plugin`.
-5. Restart the API.
-
-See [docs/plugins.md](docs/plugins.md) for the full plugin authoring guide and [plugins/_example/](plugins/_example/) for a working scaffold.
-
----
-
-## Client apps
-
-Android, Windows, and Linux client apps are available to Enterprise customers. They connect end users to an operator's Flirexa installation; iOS remains planned. Current availability and licensing are listed at [flirexa.biz](https://flirexa.biz).
-
----
+The guided installer is the supported production path. Source and Docker
+flows are intended for contributors and operators who understand the manual
+configuration they introduce.
 
 ## Documentation
 
-| Topic | Where |
+| Topic | Guide |
 |---|---|
-| Getting started | [docs/getting-started.md](docs/getting-started.md) |
-| Installation (full reference) | [docs/installation.md](docs/installation.md) |
-| Architecture overview | [docs/architecture.md](docs/architecture.md) |
-| API reference | [docs/api.md](docs/api.md) |
-| Plugin authoring | [docs/plugins.md](docs/plugins.md) |
-| FREE vs paid (what's gated, what's not) | [docs/free-vs-paid.md](docs/free-vs-paid.md) |
-| Licensing model | [docs/licensing.md](docs/licensing.md) |
-| Updates & rollback | [docs/updates.md](docs/updates.md) |
-| Backup & disaster recovery | [docs/backup-restore.md](docs/backup-restore.md) |
-| Troubleshooting | [docs/troubleshooting.md](docs/troubleshooting.md) |
-| Roadmap | [ROADMAP.md](ROADMAP.md) |
-| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+| First installation | [Getting started](docs/getting-started.md) |
+| Production installation | [Installation reference](docs/installation.md) |
+| FREE and paid boundaries | [FREE vs paid](docs/free-vs-paid.md) |
+| Pricing and plan limits | [Pricing](docs/pricing.md) |
+| Licence activation and transfer | [Licensing](docs/licensing.md) |
+| Updates and rollback | [Updates](docs/updates.md) |
+| Backup and recovery | [Backup and restore](docs/backup-restore.md) |
+| API | [API reference](docs/api.md) |
+| Plugins | [Plugin guide](docs/plugins.md) |
+| Troubleshooting | [Troubleshooting](docs/troubleshooting.md) |
+| Security reports | [Security policy](SECURITY.md) |
+| Product direction | [Roadmap](ROADMAP.md) |
 
----
+## Open core and commercial boundary
 
-## Roadmap
+The public repository contains a functional MIT-licensed VPN management core.
+Commercial implementations are distributed separately under their own licence
+and still require the matching signed entitlement at runtime. Native packaging
+raises the cost of copying paid modules, but Flirexa does not present client-side
+protection on a root-controlled server as an absolute barrier.
 
-Active items, in rough order. See [ROADMAP.md](ROADMAP.md) for the full picture.
+Existing paid keys keep capabilities explicitly present in their signed
+feature set. An official update preserves the database, environment, licence
+state, limits, and feature flags while replacing managed application files.
 
-- **2026 Q3** — Signed distribution for separately delivered commercial extensions
-- **2026 Q3** — Settlement-backed end-customer subscription renewal
-- **2026 Q3** — Plugin marketplace (community-authored plugins)
-- **2026 Q3** — Documentation site and additional community plugin examples
-- **2026 Q4** — iOS client app and localisation expansion
+## Contributing and support
 
-The public interactive demo and Android, Windows, and Linux client apps are already available from [flirexa.biz](https://flirexa.biz).
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+and [SECURITY.md](SECURITY.md) before opening one. Use
+[GitHub Discussions](https://github.com/Flirexa/flirexa/discussions) for product
+questions and community ideas.
 
----
+For licensing, onboarding, white-label, and commercial integration questions,
+email [support@flirexa.biz](mailto:support@flirexa.biz).
 
-## Support the project
+## Licence
 
-If Flirexa saves you time or money, consider:
-
-- ⭐ **Starring this repository** — costs nothing, helps massively with visibility.
-- 💬 **Telling us what worked / what didn't** — open an issue or [discussion](https://github.com/Flirexa/flirexa/discussions).
-- 💛 **Supporting development** — FREE and trial installations expose an
-  optional support action in the current admin header. Purchased tiers do not
-  show donation prompts or controls.
-
-For commercial support (priority response, custom integrations, training): `support@flirexa.biz`.
-
----
-
-## Contributing
-
-PRs and issues welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md) first — they explain what we accept, what we don't, and how to set up a dev environment.
-
-For commercial enquiries (pricing, support contracts, white-label OEM): `support@flirexa.biz`.
-
----
-
-## License
-
-MIT — see [LICENSE](LICENSE).
-
-The contents of this repository are MIT-licensed. Separately delivered commercial extensions are covered by their own licence terms. See [docs/licensing.md](docs/licensing.md) for the full breakdown.
+The public repository is available under the [MIT License](LICENSE).
+Separately delivered commercial components are covered by their own licence
+terms. See [docs/licensing.md](docs/licensing.md) for the boundary.

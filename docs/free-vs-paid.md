@@ -1,6 +1,6 @@
 # FREE vs paid
 
-_Last verified: 2026-07-30. Current checkout pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
+_Last verified: 2026-08-18. Current checkout pricing on [flirexa.biz](https://flirexa.biz) is authoritative._
 
 Honest, unhedged answer to "what do I get for free and what do I have to pay for?"
 
@@ -14,9 +14,13 @@ If you're choosing between Flirexa and an alternative, this page is the comparis
 
 **Starter (from $12/mo)** adds Hysteria2/TUIC/VLESS-Reality protocols and promo codes.
 
-**Business (from $49/mo)** adds multi-server, traffic rules, scheduled backups, the full payment-provider suite, and the full client Telegram bot.
+**Business (from $49/mo)** adds multi-server, traffic rules, scheduled backups,
+the full payment-provider suite, the full client Telegram bot, prepaid customer
+credit, and four per-device DNS protection modes.
 
-**Enterprise (from $149/mo)** adds site-to-site corporate VPN, all built-in appearance/white-label controls, multi-admin RBAC, and the standard client-app package.
+**Enterprise (from $149/mo)** adds site-to-site corporate VPN, all built-in
+appearance and white-label controls, multi-admin RBAC, the standard client-app
+package, custom DNS profiles, and enforced DNS policies.
 
 These plan descriptions apply to newly issued licences. An older paid key keeps
 any capability explicitly present in its signed feature set; updates do not
@@ -37,7 +41,7 @@ silently remove a previously purchased flag.
 | **Telegram client bot** | not available (Business+ feature) |
 | **Crypto payments** | NOWPayments built-in (BTC, ETH, USDT, XMR, +50 more) |
 | **Other payment providers** | not in FREE — CryptoPay, PayLio, and additional card/local rails require a paid licence |
-| **Languages** | EN, RU, DE, FR, ES |
+| **Languages** | EN, RU, UK, DE, FR, ES |
 | **Manual backup / restore** | yes |
 | **Scheduled backups** | not available (Business+ feature) |
 | **Auto-updates** | yes, from the signed official update manifest |
@@ -83,6 +87,12 @@ The headline-feature tier. This is what serious commercial operators actually pa
 - **Full client Telegram bot** — end users can register, browse plans, pay in crypto, download configs, all via Telegram. Many operators in censorship-heavy and crypto-native markets prefer this over the web portal.
 - **Traffic rules** — per-client and global throttling, automatic enforcement when a quota threshold is hit
 - **Scheduled backups** — daily automatic backups; mount remote storage (S3, FTP, NFS, SMB); retain N revisions
+- **Customer account balance** — customers can add prepaid USD credit through
+  a configured provider and use it for later subscription purchases; operator
+  adjustments require a reason and are audit-logged
+- **Per-device DNS protection** — configure no-filter, ads/trackers, malware,
+  and combined resolver modes, then optionally let each portal customer choose
+  a mode for every device
 - **Up to 2,000 clients** across up to 10 servers
 
 ---
@@ -96,6 +106,8 @@ For ISPs, MSPs, and companies who don't run an end-user VPN service but need sit
 - **Corporate VPN (site-to-site)** — multi-site WireGuard mesh with subnet allocation, full-mesh routing, per-site config generation, network diagnostics. The use case is "branch-office connectivity": three offices in different cities, all employees on a private VPN, traffic routed peer-to-peer through Flirexa-managed config.
 - **Full white-label** — product/company names, logos, colours, footer, custom portal/admin domains, custom `From` identity, favicon, browser title, and customer Privacy/Terms links or hosted branded legal pages
 - **Manager RBAC** — additional admin accounts with permission scopes (clients-only, servers-only, support-only), audit log of who did what
+- **Advanced DNS policy** — create custom resolver profiles and enforce one by
+  subscription plan, customer segment, portal customer, or device
 - **Standard client apps** — Android, Windows, and Linux application package
 - **Unlimited clients and servers**
 
@@ -130,7 +142,9 @@ their runtime activation still depends on the signed licence feature set.
   licence cache, signed server list, limits, and feature flags. It replaces the
   implementation/runtime tree without reactivating or reissuing the licence.
 
-If your subscription expires or is cancelled, the paid plugins refuse to load on the next restart. Your FREE-tier features keep working unchanged.
+If your subscription expires or is cancelled, paid capabilities stop loading.
+Your local data remains on the installation and the FREE-tier capabilities keep
+working.
 
 ---
 
@@ -151,8 +165,14 @@ A few things people sometimes ask about that are FREE forever:
 
 A few things to know up front:
 
-- **Lifetime is perpetual and outage-tolerant, not a reusable static unlock.** It includes future normal updates and a signed offline window of up to 30 days after successful validation. FREE installs remain independent of the licensing service.
-- **Commercial implementations are separately licensed.** The open core exposes marked compatibility stubs and feature interfaces. Official customer archives protect the commercial backend; NOWPayments and the documented FREE functionality remain in the MIT core.
+- **Lifetime is perpetual and outage-tolerant, not a reusable static unlock.**
+  It includes future standard product updates and a hardware-, instance-, and
+  licence-bound signed offline lease valid for up to 30 days after successful
+  validation. FREE installs remain independent of the licensing service.
+- **Commercial implementations are separately licensed.** The open core
+  exposes marked compatibility boundaries and feature interfaces. Official
+  customer releases protect the commercial backend; NOWPayments and the
+  documented FREE functionality remain in the MIT core.
 - **Billing periods vary.** Monthly, annual, and lifetime options can be offered by the current checkout. Consult [flirexa.biz](https://flirexa.biz) for the combinations available for each tier.
 
 ---

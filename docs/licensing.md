@@ -1,6 +1,6 @@
 # Licensing
 
-_Last verified: 2026-07-30._
+_Last verified: 2026-08-18._
 
 ## Obtaining your activation code
 
@@ -8,7 +8,8 @@ After the payment provider confirms settlement, one activation code is created
 and sent to the email address supplied at checkout. A browser redirect or
 thank-you page is not proof of payment and does not issue a licence by itself.
 
-Keep your activation code safe. It is your proof of purchase and is required for installation.
+Keep your activation code safe. It is your proof of purchase. You can install
+the FREE tier first and activate a paid licence later from the panel.
 
 ## Activation code format
 

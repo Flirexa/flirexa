@@ -1,6 +1,6 @@
 # Plugins
 
-_Last verified: 2026-07-27._
+_Last verified: 2026-08-18._
 
 How the plugin system works, how to write your own community plugin, and what makes paid plugins different.
 
@@ -52,14 +52,26 @@ implementations; the public paths are compatibility stubs only.
 
 To add a new payment provider, copy `plugins/payments/_template.py`, fill in the `create_invoice` / `check_payment` methods, configure credentials in `.env`, restart.
 
+Stripe Checkout uses Dynamic Payment Methods by default. Flirexa lets Stripe
+choose only methods that are enabled and eligible for the operator account,
+currency, and customer, so an unavailable regional wallet does not block card
+checkout. Operators can deliberately select card-only or a manual method list
+from payment-provider settings.
+
+PayPal uses Orders v2 and the configured public customer-portal HTTPS URL for
+both approval return and cancellation. Buyer return, signed webhook delivery,
+and status polling converge on one idempotent capture path. A subscription is
+granted only after Flirexa re-reads the order and matches a completed capture's
+amount and currency to the local invoice.
+
 ### 3. Paid plugins (license-gated)
 
 Paid capabilities declare a non-`community` `requires_license_feature` and only
 load when that feature is granted. The public repository contains marked
 compatibility stubs, not the Hysteria2, TUIC, VLESS-Reality, Corporate VPN,
-multi-server, RBAC, automation, or third-party payment implementations. Those
-implementations are separately licensed and supplied through official customer
-builds.
+multi-server, RBAC, account-balance, DNS-policy, automation, or third-party
+payment implementations. Those implementations are separately licensed and
+supplied through official customer builds.
 
 The current compatibility migration uses one universal protected commercial
 runtime for paid installations. The signed licence still decides which
