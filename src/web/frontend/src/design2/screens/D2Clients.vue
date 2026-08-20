@@ -312,7 +312,7 @@ import D2HelpTip from '../ui/D2HelpTip.vue'
 import D2Countdown from '../ui/D2Countdown.vue'
 import D2MobileSheet from '../ui/D2MobileSheet.vue'
 
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k, p) { try { const v = t(k, p || {}); return v === k ? '' : v } catch (_) { return '' } }
 const store = useClientsStore()
 const ui = useD2Ui()

@@ -110,7 +110,7 @@
               </td>
               <td>
                 <span class="fx-pay-method">
-                  <span class="fx-pay-method-icon" :class="{ crypto: isCrypto(p.payment_method) }">{{ payMethodLabel(p.payment_method) }}</span>
+                  <PaymentProviderMark :id="paymentProviderId(p.payment_method)" :name="p.payment_method" />
                   <span style="color:var(--text-2)">{{ p.payment_method || '—' }}</span>
                 </span>
               </td>
@@ -145,9 +145,7 @@
 
           <div v-else class="fx-method-list">
             <div v-for="p in providers" :key="p.id" class="fx-method-row" @click="payWith(p)">
-              <span class="fx-method-icon" :class="providerIconClass(p)">
-                {{ providerInitials(p) }}
-              </span>
+              <PaymentProviderMark :id="p.id" :name="p.display_name || p.name" />
               <div class="fx-method-text">
                 <div class="fx-method-name">
                   {{ p.display_name || p.name }}
@@ -221,6 +219,7 @@ import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
 import { portalSession } from '../session'
 import FxIcon from '../components/FxIcon.vue'
+import PaymentProviderMark from '../components/PaymentProviderMark.vue'
 import PaymentModal from './PaymentModal.vue'
 import { apiErrorMessage } from '../utils.js'
 
@@ -293,23 +292,11 @@ const defaultProviderId = computed(() => {
   return providers.value.find(p => m.includes(p.id))?.id || ''
 })
 
-const providerInitials = (p) => {
-  const name = (p.display_name || p.name || p.id || '?').replace(/\(.+\)/, '').trim()
-  const parts = name.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
-  return parts[0].slice(0, 2).toUpperCase()
-}
 const providerKindLabel = (p) => {
-  if (p.type === 'crypto') return 'Crypto'
-  if (p.type === 'fiat') return 'Card / Bank'
-  if (p.type === 'plugin') return 'Plugin'
+  if (p.type === 'crypto') return t('pay.providerCrypto')
+  if (p.type === 'balance') return t('pay.providerBalance')
+  if (p.type === 'fiat' || p.type === 'plugin') return t('pay.providerHosted')
   return p.type || ''
-}
-const providerIconClass = (p) => {
-  if (p.id === 'nowpayments' || p.type === 'crypto') return 'crypto'
-  if (p.id === 'paypal') return 'paypal'
-  if (p.id === 'stripe') return 'stripe'
-  return 'fiat'
 }
 
 const payWith = (p) => { payModalProvider.value = p.id; payModalOpen.value = true }
@@ -323,6 +310,7 @@ const onPaymentSuccess = () => {
 const onTopupSuccess = async () => {
   topupModalOpen.value = false
   await loadData()
+  window.dispatchEvent(new CustomEvent('fx:balance-updated'))
 }
 const balanceTransactionLabel = (tx) => {
   if (tx.type === 'topup') return t('payments.balanceTopup')
@@ -338,13 +326,15 @@ const formatDate = (dateStr) => {
   })
 }
 
-const isCrypto = (m) => m && /btc|eth|usdt|trx|crypto/i.test(m)
-const payMethodLabel = (m) => {
-  if (!m) return 'N/A'
-  if (/paypal/i.test(m)) return 'PP'
-  if (/visa/i.test(m)) return 'VISA'
-  if (isCrypto(m)) return 'CR'
-  return m.slice(0, 4).toUpperCase()
+const paymentProviderId = method => {
+  const value = String(method || '').toLowerCase()
+  if (value.includes('paypal')) return 'paypal'
+  if (value.includes('stripe') || value.includes('visa') || value.includes('mastercard')) return 'stripe'
+  if (value.includes('nowpayment') || /btc|eth|usdt|trx|crypto/.test(value)) return 'nowpayments'
+  if (value.includes('cryptopay')) return 'cryptopay'
+  if (value.includes('paylio')) return 'paylio'
+  if (value.includes('balance')) return 'balance'
+  return value
 }
 const statusBadge = (s) => {
   if (s === 'completed') return 'fx-badge-success'
@@ -409,6 +399,10 @@ const handlePayPalReturn = async () => {
 onMounted(async () => {
   await handlePayPalReturn()
   await loadData()
+  if (route.query.topup === '1' && balanceEnabled.value) {
+    topupModalOpen.value = true
+    await router.replace({ path: '/payments' })
+  }
 })
 </script>
 
@@ -420,7 +414,7 @@ onMounted(async () => {
 }
 .fx-method-row {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 10px;
@@ -435,17 +429,6 @@ onMounted(async () => {
   background: var(--bg-hover);
   transform: translateY(-1px);
 }
-.fx-method-icon {
-  width: 36px; height: 36px;
-  border-radius: var(--r-sm);
-  display: grid; place-items: center;
-  font-size: 11px; font-weight: 700; letter-spacing: .04em;
-  color: white;
-  background: linear-gradient(135deg, #1a1f71, #5b6cff);
-}
-.fx-method-icon.crypto { background: linear-gradient(135deg, #f7931a, #ffb84d); }
-.fx-method-icon.paypal { background: linear-gradient(135deg, #003087, #009cde); }
-.fx-method-icon.stripe { background: linear-gradient(135deg, #635bff, #9d8df1); }
 .fx-method-text { min-width: 0; }
 .fx-method-name {
   font-size: 13px; font-weight: 500;

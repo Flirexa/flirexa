@@ -1,180 +1,176 @@
 <template>
-  <div class="payment-overlay" @click.self="$emit('close')">
-    <div class="payment-modal">
-      <div class="payment-modal-header">
-        <h5 class="mb-0">{{ stepTitle }}</h5>
-        <button type="button" class="btn-close" @click="$emit('close')"></button>
-      </div>
+  <div class="fx-modal-overlay fx-payment-overlay" @click.self="$emit('close')">
+    <section class="fx-modal-box fx-payment-dialog" role="dialog" aria-modal="true" :aria-label="stepTitle">
+      <header class="fx-modal-header fx-payment-header">
+        <div>
+          <span class="fx-payment-kicker">{{ isTopup ? $t('payments.accountBalance') : $t('payments.paymentMethod') }}</span>
+          <h3>{{ stepTitle }}</h3>
+        </div>
+        <div class="fx-payment-header-actions">
+          <span v-if="!isTopup" class="fx-payment-step">{{ Math.min(step, 3) }} / 3</span>
+          <button type="button" class="fx-icon-btn-sm" :aria-label="$t('common.close')" @click="$emit('close')">
+            <FxIcon name="close" :size="16" />
+          </button>
+        </div>
+      </header>
 
-      <div class="payment-modal-body">
-        <!-- Step 1: Select Plan -->
-        <div v-if="step === 1">
-          <div class="plan-grid">
-            <div v-for="plan in plans" :key="plan.tier" class="plan-option"
-              :class="{ selected: selectedPlan?.tier === plan.tier }" @click="selectedPlan = plan">
-              <div class="plan-option-name">{{ plan.name }}</div>
-              <div class="plan-option-price">${{ plan.price_monthly_usd }}<small>{{ $t('pay.perMonth') }}</small></div>
-              <div class="plan-option-info">
-                {{ $t('pay.maxDevices', { n: plan.max_devices }) }} &middot;
-                {{ plan.traffic_limit_gb
-                    ? $t('pay.trafficGb', { gb: plan.traffic_limit_gb })
-                    : $t('pay.unlimitedData') }} &middot;
-                {{ plan.bandwidth_limit_mbps
-                    ? plan.bandwidth_limit_mbps + ' Mbps'
-                    : $t('pay.maxBandwidth') }}
-              </div>
+      <div class="fx-modal-body fx-payment-body">
+        <div v-if="step === 1" class="fx-payment-section">
+          <div class="fx-payment-option-list">
+            <button
+              v-for="plan in plans"
+              :key="plan.tier"
+              type="button"
+              class="fx-plan-option"
+              :class="{ selected: selectedPlan?.tier === plan.tier }"
+              @click="selectedPlan = plan"
+            >
+              <span class="fx-plan-main">
+                <strong>{{ plan.name }}</strong>
+                <small>
+                  {{ $t('pay.maxDevices', { n: plan.max_devices }) }} ·
+                  {{ plan.traffic_limit_gb ? $t('pay.trafficGb', { gb: plan.traffic_limit_gb }) : $t('pay.unlimitedData') }}
+                </small>
+              </span>
+              <span class="fx-plan-price">${{ plan.price_monthly_usd }}<small>{{ $t('pay.perMonth') }}</small></span>
+              <span class="fx-option-check"><FxIcon v-if="selectedPlan?.tier === plan.tier" name="check" :size="12" /></span>
+            </button>
+          </div>
+
+          <div class="fx-payment-field">
+            <label class="fx-label">{{ $t('pay.duration') }}</label>
+            <div v-if="customTiers" class="fx-choice-grid">
+              <label v-for="tier in customTiers" :key="tier.days" class="fx-choice" :class="{ selected: duration === String(tier.days) }">
+                <input v-model="duration" type="radio" name="dur" :value="String(tier.days)" />
+                <strong>{{ tier.label || (tier.days + ' ' + $t('pay.daysShort')) }}</strong>
+                <small>${{ Number(tier.price_usd || 0).toFixed(2) }}</small>
+              </label>
+            </div>
+            <div v-else class="fx-choice-grid">
+              <label class="fx-choice" :class="{ selected: duration === '30' }">
+                <input v-model="duration" type="radio" name="dur" value="30" />
+                <strong>{{ $t('pay.month1') }}</strong>
+              </label>
+              <label class="fx-choice" :class="{ selected: duration === '90' }">
+                <input v-model="duration" type="radio" name="dur" value="90" />
+                <strong>{{ $t('pay.months3') }}</strong><small>{{ $t('pay.save10') }}</small>
+              </label>
+              <label class="fx-choice" :class="{ selected: duration === '365' }">
+                <input v-model="duration" type="radio" name="dur" value="365" />
+                <strong>{{ $t('pay.year1') }}</strong><small>{{ $t('pay.save20') }}</small>
+              </label>
             </div>
           </div>
-          <div class="mt-3">
-            <label class="form-label fw-bold small">{{ $t('pay.duration') }}</label>
-            <!-- Custom ladder from the plan, when the operator defined one -->
-            <div v-if="customTiers" class="duration-grid">
-              <label v-for="t in customTiers" :key="t.days" class="duration-option"
-                     :class="{ selected: duration === String(t.days) }">
-                <input type="radio" name="dur" :value="String(t.days)" v-model="duration" class="d-none" />
-                <span class="fw-bold">{{ t.label || (t.days + ' ' + $t('pay.daysShort')) }}</span>
-                <small class="d-block text-muted">${{ Number(t.price_usd || 0).toFixed(2) }}</small>
-              </label>
-            </div>
-            <!-- Legacy monthly/quarterly/yearly buttons when no custom ladder set -->
-            <div v-else class="duration-grid">
-              <label class="duration-option" :class="{ selected: duration === '30' }">
-                <input type="radio" name="dur" value="30" v-model="duration" class="d-none" />
-                <span class="fw-bold">{{ $t('pay.month1') }}</span>
-              </label>
-              <label class="duration-option" :class="{ selected: duration === '90' }">
-                <input type="radio" name="dur" value="90" v-model="duration" class="d-none" />
-                <span class="fw-bold">{{ $t('pay.months3') }}</span>
-                <small class="d-block text-success">{{ $t('pay.save10') }}</small>
-              </label>
-              <label class="duration-option" :class="{ selected: duration === '365' }">
-                <input type="radio" name="dur" value="365" v-model="duration" class="d-none" />
-                <span class="fw-bold">{{ $t('pay.year1') }}</span>
-                <small class="d-block text-success">{{ $t('pay.save20') }}</small>
-              </label>
-            </div>
-          </div>
-          <!-- Promo Code -->
-          <div v-if="operatorFeatures.promo_codes" class="mt-3">
-            <div class="input-group input-group-sm">
-              <input type="text" class="form-control" v-model="promoCode" :placeholder="$t('pay.promoPlaceholder')" :disabled="promoApplied">
-              <button class="btn btn-outline-primary" @click="applyPromo" :disabled="!promoCode || promoApplied || promoChecking">
-                {{ promoApplied ? '✓' : ($t('pay.applyPromo')) }}
+
+          <div v-if="operatorFeatures.promo_codes" class="fx-payment-field">
+            <label class="fx-label">{{ $t('pay.promoPlaceholder') }}</label>
+            <div class="fx-payment-inline-field">
+              <input v-model="promoCode" type="text" class="fx-input" :placeholder="$t('pay.promoPlaceholder')" :disabled="promoApplied" />
+              <button type="button" class="fx-btn fx-btn-secondary" :disabled="!promoCode || promoApplied || promoChecking" @click="applyPromo">
+                <FxIcon v-if="promoApplied" name="check" :size="14" />
+                <span v-else>{{ $t('pay.applyPromo') }}</span>
               </button>
             </div>
-            <small v-if="promoApplied" class="text-success">{{ promoMessage }}</small>
-            <small v-if="promoError" class="text-danger">{{ promoError }}</small>
+            <small v-if="promoApplied" class="fx-field-message success">{{ promoMessage }}</small>
+            <small v-if="promoError" class="fx-field-message danger">{{ promoError }}</small>
           </div>
-          <div class="total-bar mt-3">
+
+          <div class="fx-payment-total">
             <span>{{ $t('pay.total') }}</span>
-            <span class="total-amount">${{ totalPrice }}</span>
+            <strong>${{ totalPrice }}</strong>
           </div>
         </div>
 
-        <!-- Step 2: Select Payment Method -->
-        <div v-if="step === 2">
-          <div v-if="isTopup" class="mb-3">
-            <label class="form-label fw-bold small">{{ $t('pay.topupAmount') }}</label>
-            <div class="duration-grid mb-2">
+        <div v-if="step === 2" class="fx-payment-section">
+          <div v-if="isTopup" class="fx-payment-field fx-payment-field-first">
+            <label class="fx-label">{{ $t('pay.topupAmount') }}</label>
+            <div class="fx-topup-grid">
               <button
                 v-for="amount in topupPresets"
                 :key="amount"
                 type="button"
-                class="duration-option"
+                class="fx-topup-choice"
                 :class="{ selected: Number(topupAmount) === amount }"
                 @click="topupAmount = amount"
+              >${{ amount }}</button>
+            </div>
+            <input v-model.number="topupAmount" type="number" min="5" max="1000" step="0.01" class="fx-input" :placeholder="$t('pay.customTopupAmount')" />
+            <small class="fx-field-help">{{ $t('pay.topupLimits') }}</small>
+          </div>
+
+          <div v-if="providers.length > 1" class="fx-payment-field fx-payment-field-first">
+            <label class="fx-label">{{ $t('pay.paymentMethod') }}</label>
+            <div class="fx-provider-list">
+              <button
+                v-for="provider in providers"
+                :key="provider.id"
+                type="button"
+                class="fx-provider-option"
+                :class="{ selected: selectedProvider === provider.id }"
+                @click="selectedProvider = provider.id"
               >
-                <span class="fw-bold">${{ amount }}</span>
+                <PaymentProviderMark :id="provider.id" :name="provider.display_name || provider.name" />
+                <span class="fx-provider-copy">
+                  <strong>{{ provider.display_name || provider.name }}</strong>
+                  <small>{{ providerTypeLabel(provider) }}</small>
+                </span>
+                <span class="fx-option-check"><FxIcon v-if="selectedProvider === provider.id" name="check" :size="12" /></span>
               </button>
             </div>
-            <input
-              v-model.number="topupAmount"
-              type="number"
-              min="5"
-              max="1000"
-              step="0.01"
-              class="form-control"
-              :placeholder="$t('pay.customTopupAmount')"
-            />
-            <small class="text-muted">{{ $t('pay.topupLimits') }}</small>
           </div>
-          <!-- Provider Selection -->
-          <div v-if="providers.length > 1" class="mb-3">
-            <label class="form-label fw-bold small">{{ $t('pay.paymentMethod') }}</label>
-            <div class="provider-grid">
-              <div v-for="prov in providers" :key="prov.id" class="provider-option"
-                :class="{ selected: selectedProvider === prov.id }" @click="selectedProvider = prov.id">
-                <span class="provider-icon">{{ getProviderIcon(prov.id) }}</span>
-                <span class="provider-name">{{ prov.name }}</span>
-              </div>
+
+          <div class="fx-checkout-summary">
+            <PaymentProviderMark :id="selectedProvider" :name="selectedProviderName" />
+            <div>
+              <strong>{{ selectedProviderName }}</strong>
+              <p>{{ selectedProvider === 'balance' ? $t('pay.balanceCheckoutHint', { balance: balanceAvailable }) : $t('pay.cardCheckoutHint') }}</p>
             </div>
           </div>
 
-          <!-- Every provider we ship (Stripe / Mollie / Razorpay / Payme /
-               PayLio / NOWPayments / PayPal / CryptoPay) opens its own
-               hosted checkout where the customer picks the actual coin /
-               card / currency. Surface the provider's display name so
-               single-provider setups don't leave the customer wondering
-               who they're paying, and skip the client-side currency
-               picker entirely — it was confusing customers and, on
-               NOWPayments, pre-seeded `price_currency=USDT` which broke
-               every coin's availability lookup on the hosted page. -->
-          <div class="card-pay-summary">
-            <div class="card-pay-line">
-              <span class="card-pay-icon">{{ getProviderIcon(selectedProvider) }}</span>
-              <div>
-                <div class="card-pay-title">{{ selectedProviderName }}</div>
-                <div class="card-pay-sub">
-                  {{ selectedProvider === 'balance' ? $t('pay.balanceCheckoutHint', { balance: balanceAvailable }) : $t('pay.cardCheckoutHint') }}
-                </div>
-              </div>
-            </div>
+          <div v-if="selectedProvider === 'balance' && !balanceSufficient" class="fx-inline-notice danger">
+            <FxIcon name="warning" :size="17" />
+            <span>{{ $t('pay.insufficientBalance', { balance: balanceAvailable, total: Number(totalPrice).toFixed(2) }) }}</span>
           </div>
-
-          <div v-if="selectedProvider === 'balance' && !balanceSufficient" class="alert alert-warning mt-3 small py-2">
-            {{ $t('pay.insufficientBalance', { balance: balanceAvailable, total: Number(totalPrice).toFixed(2) }) }}
-          </div>
-          <div v-else class="alert alert-info mt-3 small py-2">
-            {{ selectedProvider === 'balance' ? $t('pay.balanceInstantHint') : $t('pay.redirectHint') }}
+          <div v-else class="fx-inline-notice info">
+            <FxIcon name="external" :size="17" />
+            <span>{{ selectedProvider === 'balance' ? $t('pay.balanceInstantHint') : $t('pay.redirectHint') }}</span>
           </div>
         </div>
 
-        <!-- Step 3: Invoice -->
-        <div v-if="step === 3 && invoice">
-          <div class="text-center">
-            <div class="mb-3">
-              <label class="text-muted small">{{ $t('pay.amount') }}</label>
-              <div class="input-group input-group-sm">
-                <input type="text" class="form-control text-center fw-bold" :value="invoiceDisplayAmount" readonly />
-                <button class="btn btn-outline-secondary" @click="copyToClipboard(String(invoice.amount_crypto || invoice.amount_usd))">{{ copied ? $t('common.copied') : $t('common.copy') }}</button>
-              </div>
-            </div>
-            <div class="alert alert-warning small py-2">{{ $t('pay.expiresIn', { min: expiryMinutes }) }}</div>
-            <div v-if="invoice.amount_crypto" class="small text-muted mb-2">{{ $t('pay.cryptoRateDisclaimer') }}</div>
-            <a v-if="invoice.payment_url" :href="invoice.payment_url" target="_blank" rel="noreferrer" class="btn btn-primary w-100 mb-2">{{ $t('pay.openPaymentPage') }}</a>
-            <button class="btn btn-outline-primary btn-sm w-100" @click="checkPayment" :disabled="checkingPayment">
-              <span v-if="checkingPayment" class="spinner-border spinner-border-sm me-1"></span>
-              {{ $t('pay.checkStatus') }}
+        <div v-if="step === 3 && invoice" class="fx-payment-section">
+          <div class="fx-invoice-amount">
+            <span>{{ $t('pay.amount') }}</span>
+            <strong>{{ invoiceDisplayAmount }}</strong>
+            <button type="button" class="fx-btn fx-btn-secondary fx-btn-sm" @click="copyToClipboard(String(invoice.amount_crypto || invoice.amount_usd))">
+              <FxIcon name="copy" :size="13" /> {{ copied ? $t('common.copied') : $t('common.copy') }}
             </button>
           </div>
+          <div class="fx-inline-notice warning"><FxIcon name="warning" :size="17" /><span>{{ $t('pay.expiresIn', { min: expiryMinutes }) }}</span></div>
+          <p v-if="invoice.amount_crypto" class="fx-invoice-hint">{{ $t('pay.cryptoRateDisclaimer') }}</p>
+          <a v-if="invoice.payment_url" :href="invoice.payment_url" target="_blank" rel="noreferrer" class="fx-btn fx-btn-primary fx-btn-block">{{ $t('pay.openPaymentPage') }}</a>
+          <button type="button" class="fx-btn fx-btn-secondary fx-btn-block" :disabled="checkingPayment" @click="checkPayment">
+            <FxIcon :name="checkingPayment ? 'refresh' : 'checkCircle'" :size="14" :class="{ 'fx-spin': checkingPayment }" />
+            {{ $t('pay.checkStatus') }}
+          </button>
         </div>
 
-        <div v-if="loading" class="text-center py-4">
-          <div class="spinner-border text-primary"></div>
-          <div class="mt-2 small">{{ $t('pay.processing') }}</div>
+        <div v-if="loading" class="fx-payment-loading">
+          <FxIcon name="refresh" :size="20" class="fx-spin" />
+          <span>{{ $t('pay.processing') }}</span>
         </div>
-        <div v-if="error" class="alert alert-danger small mt-2 py-2">{{ error }}</div>
+        <div v-if="error" class="fx-inline-notice danger fx-payment-error"><FxIcon name="warning" :size="17" /><span>{{ error }}</span></div>
       </div>
 
-      <div class="payment-modal-footer">
-        <button type="button" class="btn btn-secondary btn-sm" @click="goBack">
+      <footer class="fx-modal-footer fx-payment-footer">
+        <button type="button" class="fx-btn fx-btn-ghost" @click="goBack">
           {{ step > 1 && step < 3 ? $t('common.back') : $t('common.close') }}
         </button>
-        <button type="button" class="btn btn-primary btn-sm" @click="nextStep" :disabled="!canProceed || loading" v-if="step < 3">
+        <button v-if="step < 3" type="button" class="fx-btn fx-btn-primary" :disabled="!canProceed || loading" @click="nextStep">
           {{ step === 2 ? $t('pay.continueToPayment') : $t('common.next') }}
+          <FxIcon name="chevron" :size="14" />
         </button>
-      </div>
-    </div>
+      </footer>
+    </section>
   </div>
 </template>
 
@@ -182,6 +178,8 @@
 import { ref, computed, watch, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api'
+import FxIcon from '../components/FxIcon.vue'
+import PaymentProviderMark from '../components/PaymentProviderMark.vue'
 import { apiErrorMessage, copyText } from '../utils.js'
 
 const emit = defineEmits(['close', 'success'])
@@ -324,19 +322,10 @@ const balanceAvailableMinor = computed(() => Number(balanceSnapshot.value?.avail
 const balanceAvailable = computed(() => (balanceAvailableMinor.value / 100).toFixed(2))
 const balanceSufficient = computed(() => balanceAvailableMinor.value >= Math.round(Number(totalPrice.value || 0) * 100))
 
-const getProviderIcon = (id) => {
-  const icons = {
-    cryptopay:   '💎',
-    paypal:      '🅿️',
-    nowpayments: '🔗',
-    stripe:      '💳',
-    mollie:      '💳',
-    razorpay:    '💳',
-    payme:       '💳',
-    paylio:      '💳',
-    balance:     '◉',
-  }
-  return icons[id] || '💰'
+const providerTypeLabel = provider => {
+  if (provider?.id === 'balance' || provider?.type === 'balance') return t('pay.providerBalance')
+  if (provider?.type === 'crypto' || ['nowpayments', 'cryptopay'].includes(provider?.id)) return t('pay.providerCrypto')
+  return t('pay.providerHosted')
 }
 
 const goBack = () => {
@@ -523,93 +512,83 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.payment-overlay { position: fixed; inset: 0; background: rgba(34,41,47,.55); z-index: 1050; overflow-y: auto; padding: 1rem; display: flex; align-items: flex-start; justify-content: center; animation: overlayIn .25s ease; }
-.payment-modal { background: var(--vxy-modal-bg); color: var(--vxy-text); border-radius: .75rem; width: 100%; max-width: 500px; margin: auto; box-shadow: 0 20px 60px rgba(0,0,0,.3); display: flex; flex-direction: column; max-height: calc(100vh - 2rem); animation: modalSlideIn .25s ease; }
-@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
-@keyframes modalSlideIn { from { opacity: 0; transform: scale(.95) translateY(-10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
-.payment-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--vxy-border); flex-shrink: 0; }
-.payment-modal-body { padding: 1.25rem; overflow-y: auto; flex: 1; min-height: 0; }
-.payment-modal-footer { display: flex; justify-content: space-between; padding: 1rem 1.5rem; border-top: 1px solid var(--vxy-border); flex-shrink: 0; }
-.plan-grid { display: grid; grid-template-columns: 1fr; gap: .5rem; }
-.plan-option { border: 2px solid var(--vxy-border); border-radius: .5rem; padding: .75rem 1rem; cursor: pointer; transition: all .2s; display: flex; align-items: center; gap: .75rem; color: var(--vxy-text); }
-.plan-option.selected { border-color: var(--vxy-primary); background: var(--vxy-primary-light); }
-.plan-option-name { font-weight: 700; min-width: 80px; color: var(--vxy-heading); }
-.plan-option-price { font-weight: 700; color: var(--vxy-primary); white-space: nowrap; }
-.plan-option-price small { font-weight: 400; color: var(--vxy-muted); }
-.plan-option-info { font-size: .75rem; color: var(--vxy-muted); margin-left: auto; }
-.duration-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
-.duration-option { border: 2px solid var(--vxy-border); border-radius: .5rem; padding: .5rem; text-align: center; cursor: pointer; transition: all .2s; font-size: .85rem; color: var(--vxy-text); }
-.duration-option.selected { border-color: var(--vxy-primary); background: var(--vxy-primary-light); }
-.total-bar { display: flex; justify-content: space-between; align-items: center; background: var(--vxy-hover-bg); padding: .75rem 1rem; border-radius: .375rem; font-weight: 600; color: var(--vxy-text); }
-.total-amount { font-size: 1.5rem; color: var(--vxy-primary); font-weight: 800; }
-.provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: .5rem; }
-.provider-option { border: 2px solid var(--vxy-border); border-radius: .5rem; padding: .75rem; text-align: center; cursor: pointer; transition: all .2s; color: var(--vxy-text); }
-.provider-option.selected { border-color: var(--vxy-primary); background: var(--vxy-primary-light); }
-.provider-icon { font-size: 1.5rem; display: block; margin-bottom: .25rem; }
-.provider-name { font-size: .8rem; font-weight: 600; }
-.crypto-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
-.crypto-option { border: 2px solid var(--vxy-border); border-radius: .5rem; padding: .75rem .5rem; text-align: center; cursor: pointer; transition: all .2s; color: var(--vxy-text); }
-.crypto-option.selected { border-color: var(--vxy-warning); background: var(--vxy-warning-light); }
-.crypto-option-icon { font-size: 1.75rem; display: block; margin-bottom: .25rem; }
-.crypto-option-name { font-size: .8rem; font-weight: 700; }
-
-/* Card-checkout summary panel: no currency picker, just "you'll be redirected
-   to the hosted card page" framing so the user understands why the picker
-   they saw with crypto/PayPal isn't here. */
-.card-pay-summary {
-  border: 1px solid var(--vxy-border);
-  border-radius: .5rem;
-  padding: 1rem 1.1rem;
-  background: var(--vxy-hover-bg);
+.fx-payment-overlay { animation:fx-payment-fade .18s ease; }
+.fx-payment-dialog { width:min(620px,calc(100vw - 28px));max-width:620px;overflow:hidden;animation:fx-payment-enter .2s ease; }
+@keyframes fx-payment-fade { from { opacity:0 } }
+@keyframes fx-payment-enter { from { opacity:0;transform:translateY(8px) scale(.985) } }
+.fx-payment-header { min-height:72px;padding:16px 20px; }
+.fx-payment-header h3 { margin:2px 0 0;font-size:17px;letter-spacing:-.015em; }
+.fx-payment-kicker { display:block;color:var(--text-3);font-size:10px;font-weight:650;letter-spacing:.09em;text-transform:uppercase; }
+.fx-payment-header-actions { display:flex;align-items:center;gap:8px; }
+.fx-payment-step { display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid var(--border);border-radius:var(--r-pill);color:var(--text-3);font:500 10px var(--mono); }
+.fx-payment-body { padding:20px; }
+.fx-payment-section { display:flex;flex-direction:column;gap:16px; }
+.fx-payment-option-list,.fx-provider-list { display:flex;flex-direction:column;gap:8px; }
+.fx-plan-option,.fx-provider-option {
+  width:100%;min-width:0;border:1px solid var(--border);border-radius:12px;background:var(--bg-elev);color:var(--text);font:inherit;cursor:pointer;text-align:left;
+  display:grid;align-items:center;transition:border-color .15s,box-shadow .15s,transform .15s;
 }
-.card-pay-line { display: flex; align-items: center; gap: .85rem; }
-.card-pay-icon { font-size: 1.75rem; line-height: 1; flex-shrink: 0; }
-.card-pay-title { font-weight: 700; font-size: .95rem; color: var(--vxy-text); }
-.card-pay-sub { font-size: .8rem; color: var(--vxy-muted); margin-top: 2px; line-height: 1.4; }
+.fx-plan-option { grid-template-columns:minmax(0,1fr) auto 22px;gap:14px;padding:13px 14px; }
+.fx-plan-option:hover,.fx-provider-option:hover { border-color:var(--border-strong);box-shadow:var(--shadow-sm);transform:translateY(-1px); }
+.fx-plan-option.selected,.fx-provider-option.selected { border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset; }
+.fx-plan-main { display:flex;flex-direction:column;gap:4px;min-width:0; }
+.fx-plan-main strong { font-size:13.5px;font-weight:650; }
+.fx-plan-main small { color:var(--text-3);font-size:11px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.fx-plan-price { color:var(--text);font:650 16px var(--font);white-space:nowrap; }
+.fx-plan-price small { margin-left:2px;color:var(--text-3);font-size:10.5px;font-weight:500; }
+.fx-option-check { width:20px;height:20px;border:1px solid var(--border-strong);border-radius:50%;display:grid;place-items:center;color:var(--accent); }
+.selected > .fx-option-check { border-color:var(--accent);background:var(--accent);color:var(--accent-fg); }
+.fx-payment-field { display:flex;flex-direction:column;gap:8px;padding-top:2px; }
+.fx-payment-field-first { padding-top:0; }
+.fx-choice-grid { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px; }
+.fx-choice { position:relative;min-width:0;min-height:58px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elev);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;text-align:center;transition:border-color .15s,box-shadow .15s; }
+.fx-choice input { position:absolute;opacity:0;pointer-events:none; }
+.fx-choice strong { max-width:100%;font-size:12px;font-weight:600;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.fx-choice small { color:var(--text-3);font-size:10px; }
+.fx-choice.selected { border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset; }
+.fx-payment-inline-field { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px; }
+.fx-field-message,.fx-field-help { display:block;font-size:10.5px;line-height:1.4; }
+.fx-field-help { color:var(--text-3); }
+.fx-field-message.success { color:var(--success); }.fx-field-message.danger { color:var(--danger); }
+.fx-payment-total { min-height:58px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-subtle);display:flex;align-items:center;justify-content:space-between;gap:16px;color:var(--text-2);font-size:12px; }
+.fx-payment-total strong { color:var(--text);font-size:22px;font-weight:650;letter-spacing:-.025em;font-variant-numeric:tabular-nums; }
+.fx-topup-grid { display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px; }
+.fx-topup-choice { height:42px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elev);color:var(--text);font:600 12px var(--font);cursor:pointer; }
+.fx-topup-choice:hover { border-color:var(--border-strong); }.fx-topup-choice.selected { border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset;color:var(--accent); }
+.fx-provider-option { grid-template-columns:38px minmax(0,1fr) 20px;gap:12px;padding:10px 12px; }
+.fx-provider-copy { min-width:0;display:flex;flex-direction:column;gap:2px; }
+.fx-provider-copy strong { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600; }
+.fx-provider-copy small { color:var(--text-3);font-size:10.5px; }
+.fx-checkout-summary { display:grid;grid-template-columns:38px minmax(0,1fr);gap:12px;align-items:center;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--bg-subtle); }
+.fx-checkout-summary strong { display:block;color:var(--text);font-size:13px;font-weight:600; }
+.fx-checkout-summary p { margin:3px 0 0;color:var(--text-3);font-size:11px;line-height:1.45; }
+.fx-inline-notice { display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--border);border-left-width:3px;border-radius:10px;background:var(--bg-elev);color:var(--text-2);font-size:11.5px;line-height:1.45; }
+.fx-inline-notice svg { flex-shrink:0;margin-top:1px; }.fx-inline-notice.info { border-left-color:var(--accent); }.fx-inline-notice.info svg { color:var(--accent); }.fx-inline-notice.warning { border-left-color:var(--warning); }.fx-inline-notice.warning svg { color:var(--warning); }.fx-inline-notice.danger { border-left-color:var(--danger); }.fx-inline-notice.danger svg { color:var(--danger); }
+.fx-invoice-amount { display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 12px;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--bg-subtle); }
+.fx-invoice-amount > span { grid-column:1;color:var(--text-3);font-size:10px;font-weight:650;text-transform:uppercase;letter-spacing:.08em; }.fx-invoice-amount strong { grid-column:1;color:var(--text);font:650 22px var(--mono);overflow-wrap:anywhere; }.fx-invoice-amount .fx-btn { grid-column:2;grid-row:1/3; }
+.fx-invoice-hint { margin:0;color:var(--text-3);font-size:11px;line-height:1.45; }
+.fx-payment-loading { display:flex;align-items:center;justify-content:center;gap:9px;padding:16px;color:var(--text-2);font-size:12px; }
+.fx-payment-error { margin-top:14px; }
+.fx-payment-footer { justify-content:space-between;padding:13px 20px; }
 
-@media (max-width: 768px) {
-  /* Bottom sheet on mobile */
-  .payment-overlay {
-    align-items: flex-end;
-    padding: 0;
-  }
-  .payment-modal {
-    max-width: 100%;
-    margin: 0;
-    border-radius: 1rem 1rem 0 0;
-    max-height: 92vh;
-    animation: modalSlideUp .3s ease;
-  }
-  @keyframes modalSlideUp {
-    from { transform: translateY(100%); opacity: .8; }
-    to   { transform: translateY(0);   opacity: 1; }
-  }
-  /* Drag handle */
-  .payment-modal-header::before {
-    content: '';
-    display: block;
-    position: absolute;
-    top: .5rem; left: 50%;
-    transform: translateX(-50%);
-    width: 36px; height: 4px;
-    border-radius: 2px;
-    background: var(--vxy-border);
-  }
-  .payment-modal-header { position: relative; padding: 1.25rem 1rem .875rem; }
-  .payment-modal-body { padding: 1rem; }
-  .payment-modal-footer {
-    padding: .75rem 1rem;
-    padding-bottom: calc(.75rem + env(safe-area-inset-bottom, 0px));
-  }
-  .provider-grid { grid-template-columns: repeat(2, 1fr); }
-  .duration-grid { grid-template-columns: repeat(3, 1fr); }
+@media (max-width:640px) {
+  .fx-payment-overlay { align-items:flex-end;padding:0; }
+  .fx-payment-dialog { width:100%;max-width:none;max-height:min(92vh,820px);border-radius:18px 18px 0 0;animation:fx-payment-sheet .22s ease; }
+  @keyframes fx-payment-sheet { from { opacity:.7;transform:translateY(40px) } }
+  .fx-payment-header { position:relative;min-height:68px;padding:18px 16px 12px; }
+  .fx-payment-header::before { content:"";position:absolute;top:7px;left:50%;width:34px;height:3px;transform:translateX(-50%);border-radius:2px;background:var(--border-strong); }
+  .fx-payment-body { padding:16px; }
+  .fx-payment-footer { position:sticky;bottom:0;padding:11px 16px calc(11px + env(safe-area-inset-bottom,0px));background:var(--bg-elev); }
+  .fx-plan-option { grid-template-columns:minmax(0,1fr) auto 20px;gap:10px;padding:12px; }
+  .fx-plan-main small { white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical; }
+  .fx-topup-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
-
-@media (max-width: 400px) {
-  .duration-grid { grid-template-columns: 1fr; }
-  .crypto-grid { grid-template-columns: repeat(2, 1fr); }
-  .plan-option { flex-wrap: wrap; gap: .4rem; padding: .65rem .75rem; }
-  .plan-option-info { margin-left: 0; font-size: .7rem; }
-  .total-amount { font-size: 1.25rem; }
+@media (max-width:390px) {
+  .fx-choice-grid { grid-template-columns:1fr; }
+  .fx-choice { min-height:46px;flex-direction:row;justify-content:space-between;padding:9px 11px;text-align:left; }
+  .fx-plan-option { grid-template-columns:minmax(0,1fr) 20px; }
+  .fx-plan-price { grid-column:1;font-size:14px; }.fx-plan-option > .fx-option-check { grid-column:2;grid-row:1/3; }
+  .fx-payment-inline-field { grid-template-columns:1fr; }.fx-payment-inline-field .fx-btn { width:100%; }
+  .fx-payment-footer .fx-btn { min-width:0;padding:0 11px; }
 }
 </style>

@@ -794,6 +794,20 @@ def create_app(
     )
 
     app.include_router(
+        system.stats_router,
+        prefix="/api/v1/system",
+        tags=["Statistics"],
+        dependencies=admin_auth_dep + [Depends(require_permission("stats"))]
+    )
+
+    app.include_router(
+        system.logs_router,
+        prefix="/api/v1/system",
+        tags=["Logs"],
+        dependencies=admin_auth_dep + [Depends(require_permission("logs"))]
+    )
+
+    app.include_router(
         agent.router,
         prefix="/api/v1/agent",
         tags=["Agent"],
@@ -821,6 +835,17 @@ def create_app(
         dependencies=admin_auth_dep + [Depends(require_permission("settings"))],
     )
 
+    # Support is an independent delegated role. Keep its established URLs under
+    # /portal-users, but do not make a support agent inherit broad client CRUD.
+    app.include_router(
+        portal_users.support_router,
+        prefix="/api/v1/portal-users",
+        tags=["Support"],
+        dependencies=admin_auth_dep + [Depends(require_permission("support"))]
+    )
+
+    # Keep the generic /{user_id} portal-user routes after the fixed support
+    # paths so FastAPI never interprets "support-messages" as a user id.
     app.include_router(
         portal_users.router,
         prefix="/api/v1/portal-users",
@@ -870,7 +895,7 @@ def create_app(
         health.router,
         prefix="/api/v1/health",
         tags=["Health"],
-        dependencies=admin_auth_dep
+        dependencies=admin_auth_dep + [Depends(require_permission("stats"))]
     )
 
     # Public branding endpoint (no auth — needed by login pages and client portal)

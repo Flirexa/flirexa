@@ -427,6 +427,8 @@ export const backupApi = {
 }
 
 export const systemApi = {
+  getClientPortalSettings: () => api.get('/system/client-portal-settings'),
+  updateClientPortalSettings: (data) => api.post('/system/client-portal-settings', data),
   // Branding
   getBranding: () => api.get('/system/branding'),
   updateBranding: (data) => api.post('/system/branding', data),

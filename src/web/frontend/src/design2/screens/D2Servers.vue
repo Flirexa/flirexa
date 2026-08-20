@@ -372,7 +372,7 @@ import D2Toggle from '../ui/D2Toggle.vue'
 import D2Button from '../ui/D2Button.vue'
 import D2HelpTip from '../ui/D2HelpTip.vue'
 
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k, p) { try { const v = t(k, p || {}); return v === k ? '' : v } catch (_) { return '' } }
 const store = useServersStore()
 const ui = useD2Ui()

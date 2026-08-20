@@ -4,6 +4,36 @@ All notable changes to Flirexa are documented here.
 
 ---
 
+## v2.2.117 — 2026-08-20
+
+### Added
+
+- Added independent Enterprise manager permissions for support, clients,
+  servers, payments, statistics, bots, settings, updates, backups, and logs.
+- Added exact manager attribution for support replies and ticket state changes
+  in the audit log.
+
+### Improved
+
+- Filtered the authenticated admin navigation to the manager's granted
+  responsibilities, with server-side permission checks remaining
+  authoritative for direct API requests.
+- Completed the customer portal's Design 2.0 payment, device, balance, and
+  Corporate VPN presentation across desktop and mobile layouts.
+- Refreshed the public product demo and documentation screenshots from the
+  authentic dark customer portal using synthetic data.
+
+### Fixed
+
+- Support-only employees no longer inherit broad customer-account management
+  access.
+- Statistics and application/audit logs now respect their own delegated
+  permissions instead of the general settings permission.
+- Disabled administrator accounts can no longer renew an old session, and
+  manager-account administration remains owner-only.
+
+---
+
 ## v2.2.112 — 2026-08-16
 
 ### Added

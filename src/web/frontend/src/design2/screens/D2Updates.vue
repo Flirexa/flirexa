@@ -151,7 +151,7 @@ import D2Button from '../ui/D2Button.vue'
 import D2Modal from '../ui/D2Modal.vue'
 import D2HelpTip from '../ui/D2HelpTip.vue'
 
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
 const ui = useD2Ui()
 const status = ref({})

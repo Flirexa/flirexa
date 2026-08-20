@@ -61,7 +61,7 @@ import { systemApi } from '../../api'
 import { formatDate } from '../../utils'
 import { useD2Ui } from '../../stores/d2ui'
 
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
 const ui = useD2Ui()
 

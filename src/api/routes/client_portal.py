@@ -1158,6 +1158,7 @@ async def get_features(
     # Per-operator portal gates. Customer-plan capability alone must never
     # expose a commercial operator feature after a downgrade.
     from ...modules.license.portal_gates import portal_gates
+    from ...modules.client_portal_experience import get_client_portal_mode
     gates = portal_gates()
     corporate_enabled = _operator_has_feature("corporate_vpn")
     return {
@@ -1173,7 +1174,8 @@ async def get_features(
                 _AUTO_RENEWAL_RUNTIME_ENABLED
                 and _operator_has_feature("auto_renewal")
             ),
-        }
+        },
+        "portal_mode": get_client_portal_mode(db),
     }
 
 
@@ -4327,6 +4329,18 @@ def _slot_to_dict(slot, peers, servers_by_id, *, subscription_token=None):
                     or (servers_by_id.get(p.server_id).name
                         if servers_by_id.get(p.server_id) else None)
                 ),
+                # Presentation metadata used by the modern portal.  These are
+                # public server attributes already returned by /servers; keep
+                # them on the slot row too so location flags and protocol
+                # labels do not have to guess from an IP address.
+                "server_location": (
+                    getattr(servers_by_id.get(p.server_id), "location", None)
+                    if servers_by_id.get(p.server_id) else None
+                ),
+                "server_type": (
+                    getattr(servers_by_id.get(p.server_id), "server_type", "wireguard")
+                    if servers_by_id.get(p.server_id) else "wireguard"
+                ),
                 "ipv4": p.ipv4,
                 "enabled": bool(p.enabled),
                 "is_active": (p.server_id == slot.active_server_id),
@@ -4879,6 +4893,61 @@ async def get_slot_config(
     if not cfg:
         raise HTTPException(status_code=500, detail="Failed to render config")
     return cfg
+
+
+@router.get("/devices/{slot_id}/qrcode/{server_id}")
+async def get_slot_qrcode(
+    request: Request,
+    slot_id: int,
+    server_id: int,
+    user_id: int = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Render a QR code for one customer-owned device and location.
+
+    This is a browser convenience over the same peer/config renderer used by
+    the current portal. It does not create a second credential, expose a key in
+    JSON, or alter the native-app device-binding contract.
+    """
+    from ...modules.license.portal_gates import is_gated
+
+    if is_gated("qr"):
+        raise HTTPException(status_code=403, detail="QR code is disabled for this portal.")
+
+    mgr = SlotManager(db)
+    slot = mgr.get_slot(slot_id, user_id)
+    if not slot:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if slot.device_id:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "device_already_bound",
+                "message": (
+                    "Release this device before displaying its setup QR code "
+                    "on another device."
+                ),
+                "slot_id": slot.id,
+            },
+        )
+    peers = mgr.get_slot_peers(slot.id)
+    peer = next((item for item in peers if item.server_id == server_id), None)
+    if not peer:
+        raise HTTPException(status_code=404, detail="Location not available for this device")
+    server = db.query(Server).filter(Server.id == server_id).first()
+    if not server or not _server_visible_to(server, request):
+        raise HTTPException(status_code=404, detail="Location not available")
+
+    api = get_admin_api()
+    qr_bytes = await api.get_client_qrcode(peer.id)
+    if not qr_bytes:
+        raise HTTPException(status_code=500, detail="Failed to render QR code")
+    safe_label = re.sub(r"[^A-Za-z0-9_-]+", "-", slot.label or "device").strip("-")[:48] or "device"
+    return Response(
+        content=qr_bytes,
+        media_type="image/png",
+        headers={"Content-Disposition": f'inline; filename="{safe_label}-qr.png"'},
+    )
 
 
 @router.post("/devices/{slot_id}/release")

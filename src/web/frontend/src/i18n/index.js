@@ -30,9 +30,17 @@ deepMerge(de, d2de)
 deepMerge(fr, d2fr)
 deepMerge(es, d2es)
 
+const supportedLocales = ['en', 'ru', 'de', 'fr', 'es']
+const demoQueryLocale = window.location.pathname.includes('/demo-authentic/')
+  ? new URLSearchParams(window.location.search).get('lang')
+  : ''
+const initialLocale = supportedLocales.includes(demoQueryLocale)
+  ? demoQueryLocale
+  : (localStorage.getItem('sb_lang') || 'en')
+
 const i18n = createI18n({
   legacy: false,
-  locale: localStorage.getItem('sb_lang') || 'en',
+  locale: initialLocale,
   fallbackLocale: 'en',
   messages: { en, ru, de, fr, es },
 })

@@ -1,6 +1,6 @@
 # Roadmap
 
-_Last verified: 2026-08-18_
+_Last verified: 2026-07-30_
 
 What's next for Flirexa, organised by quarter. Items higher in each section are higher priority. Dates are aspirational; items move when reality intervenes.
 
@@ -25,19 +25,15 @@ If you'd like to see something prioritised, [open a discussion](https://github.c
   Reference plugins for Slack/Telegram alert routing and Prometheus metrics — both genuinely useful, both demonstrate the plugin API end-to-end.
 - [ ] **Documentation site**
   MkDocs Material site at `docs.flirexa.biz` built from `docs/` in this repo. Same source, prettier surface.
-- [ ] **Operator guides and comparison methodology**
-  Practical deployment, migration, protocol, and capacity guides. Product
-  comparisons will be date-stamped, sourced from current public releases, and
-  written around use cases rather than unsupported winner claims.
+- [ ] **Comparison content**
+  In-depth blog posts and YouTube walkthroughs comparing Flirexa with Marzban, Hiddify, WG-Easy on real workloads.
 
 ## 2026 Q4 — Apps and ecosystem
 
 - [ ] **iOS client app**
   An iOS companion to the Android, Windows, and Linux apps already distributed to Enterprise customers.
 - [ ] **Localisation expansion**
-  Persian (Farsi), Chinese, Turkish, and Portuguese for LATAM. Driven by where
-  the user base ends up actually being. English, Russian, Ukrainian, German,
-  French, and Spanish already ship.
+  Persian (Farsi), Chinese, Turkish, and Portuguese for LATAM. Driven by where the user base ends up actually being. (English, Русский, Deutsch, Français, and Español already ship.)
 - [ ] **Backup-to-cloud presets**
   S3, Backblaze B2, Hetzner Storage Box — one-click destinations for the `auto-backup` plugin.
 
@@ -58,9 +54,7 @@ Items that are interesting but not committed yet:
 
 To set expectations honestly, these are things Flirexa **will not** become:
 
-- A consumer VPN provider that resells access to a Flirexa-owned network.
-  Flirexa is the operator platform; Enterprise applications connect customers
-  to the operator's own installation.
+- A general-purpose VPN client app for end users (use the WireGuard / AmneziaVPN apps; Flirexa is server-side)
 - A general-purpose V2Ray / Xray panel (Flirexa uses Xray for VLESS-Reality, but does not aim to replace Marzban)
 - A CDN or anti-DDoS service (different problem)
 - A cryptocurrency exchange or payment processor (we *integrate* with NOWPayments, Stripe, etc.; we don't compete with them)
@@ -71,26 +65,10 @@ To set expectations honestly, these are things Flirexa **will not** become:
 
 Wiring up the commercial loop after the repository went public:
 
-- **Licence checkout on flirexa.biz** — paid tiers can be purchased by the
-  available card/fiat checkout or in cryptocurrency. Provider settlement, not
-  a browser redirect, is the authority for issuing an activation code.
+- **Subscription billing on flirexa.biz** — recurring subscriptions for all paid tiers, payable by **card / fiat** (Visa/Mastercard, Apple Pay, Google Pay, bank transfer in USD/EUR via PayLio) *or* in **crypto** via NOWPayments (BTC, USDT, Monero, ETH, and 50+ currencies). Webhooks for renewal / cancellation / past-due, plus email notifications.
 - **Pre-commit hooks** — `detect-secrets`, `ruff`, `mypy` so contributors catch problems locally before CI does.
 - **Public interactive demo** — realistic fake data lets evaluators try the admin and client experiences before installing.
 - **Client apps** — Android, Windows, and Linux apps are available to Enterprise customers.
-
-## Done in 2026 Q3
-
-- **Business customer balances** — provider-confirmed prepaid credit,
-  exact-cent accounting, append-only ledger, atomic purchases, and audited
-  operator adjustments
-- **Business per-device DNS protection** — four configurable resolver modes
-  with optional customer choice for every device
-- **Enterprise DNS policy** — custom profiles and enforced assignments by
-  plan, segment, customer, or device
-- **Payment reliability work** — Stripe Dynamic Payment Methods, PayPal Orders
-  v2 capture verification, idempotent settlement, and provider-status recovery
-- **Mobile administration redesign** — compact operational lists, focused
-  settings views, and touch-sized actions without horizontally squeezed tables
 
 ## Done in 1.5.0 (initial public release)
 

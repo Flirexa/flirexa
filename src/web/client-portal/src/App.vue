@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Layout from './components/Layout.vue'
 import axios from 'axios'
@@ -54,17 +54,6 @@ window.addEventListener('storage', (e) => {
   if (e.key === 'sb_theme') applyTheme(readTheme())
 })
 window.addEventListener('fx:theme', (e) => applyTheme(e.detail || readTheme()))
-
-// Inject Inter Tight + JetBrains Mono webfonts (one-time).
-onMounted(() => {
-  if (!document.querySelector('link[data-fx-fonts]')) {
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = 'https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap'
-    link.setAttribute('data-fx-fonts', '1')
-    document.head.appendChild(link)
-  }
-})
 
 // Load branding from admin panel.
 onMounted(async () => {

@@ -170,12 +170,12 @@
             </button>
           </div>
           <div v-if="subscription.days_remaining != null && subscription.days_remaining < 7"
-               class="fx-card" style="padding:12px 14px; background:var(--warning-soft); border-color:color-mix(in oklab, var(--warning) 30%, var(--border)); margin-bottom:14px">
-            <div style="display:flex; gap:10px; align-items:flex-start; font-size:13px">
-              <FxIcon name="warning" :size="16" style="color:var(--warning); flex-shrink:0; margin-top:2px" />
+               class="fx-subscription-notice">
+            <div class="fx-subscription-notice-row">
+              <FxIcon name="warning" :size="16" />
               <div>
                 <strong>{{ $t('dash.expiresWarning', { days: subscription.days_remaining }) }}</strong>
-                <a href="#" @click.prevent="showUpgradeModal = true" style="color:var(--accent); margin-left:6px">{{ $t('dash.renewNow') }}</a>
+                <button type="button" @click="showUpgradeModal = true">{{ $t('dash.renewNow') }}</button>
               </div>
             </div>
           </div>
@@ -484,9 +484,12 @@
                       :class="{ 'is-active': region.is_active || (region.enabled && region.online) }"
                       :disabled="pickerBusy"
                       @click="onPickRegion(region)">
-                <span class="fx-region-icon">
-                  <FxIcon :name="region.server_type === 'amneziawg' ? 'shield' : 'globe'" :size="14" />
-                </span>
+                <CountryFlag
+                  :code="region.country_code"
+                  :location="region.server_location"
+                  :name="region.server_display_name || region.server_name"
+                  :size="32"
+                />
                 <div class="fx-region-info">
                   <div class="fx-region-name">
                     {{ region.server_display_name || region.server_name || `server-${region.server_id}` }}
@@ -600,6 +603,7 @@ import { portalApi } from '../api'
 import { portalSession } from '../session'
 import PaymentModal from './PaymentModal.vue'
 import FxIcon from '../components/FxIcon.vue'
+import CountryFlag from '../components/CountryFlag.vue'
 import Sparkline from '../components/Sparkline.vue'
 import TrafficChart from '../components/TrafficChart.vue'
 import { useEscapeClose } from '../composables/useEscapeClose.js'
@@ -873,9 +877,13 @@ const subscriptionStartedHint = computed(() => {
   return t('dash.subscriptionStartedUnknown')
 })
 
-const referralLink = computed(() => referral.value.referral_code
-  ? `${window.location.origin}/register?ref=${referral.value.referral_code}`
-  : '')
+const referralLink = computed(() => {
+  if (!referral.value.referral_code) return ''
+  const portalOrigin = window.__FLIREXA_DEMO__
+    ? 'https://account.example.test'
+    : window.location.origin
+  return `${portalOrigin}/register?ref=${referral.value.referral_code}`
+})
 
 const protocolLabel = (serverType) => {
   switch ((serverType || 'wireguard').toLowerCase()) {
@@ -1276,10 +1284,14 @@ onMounted(() => {
 .fx-modal-fade-enter-active, .fx-modal-fade-leave-active { transition: opacity .2s ease; }
 .fx-modal-fade-enter-from, .fx-modal-fade-leave-to { opacity: 0; }
 
-/* Over-limit card — matches the portal's fx-card aesthetic: rounded
-   corners, soft warning tint, accent border-left strip, icon chip on
-   the side. Replaces the older bootstrap-warning look that didn't
-   sit right with the rest of the dashboard. */
+.fx-subscription-notice { padding:12px 14px;border:1px solid color-mix(in oklab,var(--warning) 36%,var(--border));border-left:3px solid var(--warning);border-radius:var(--r-md);background:var(--bg-elev);margin-bottom:14px; }
+.fx-subscription-notice-row { display:flex;gap:10px;align-items:flex-start;font-size:12.5px;line-height:1.45;color:var(--text-2); }
+.fx-subscription-notice-row > svg { color:var(--warning);flex-shrink:0;margin-top:1px; }
+.fx-subscription-notice-row strong { color:var(--text);font-weight:600; }
+.fx-subscription-notice-row button { border:0;background:transparent;color:var(--accent);padding:0;margin-left:6px;font:inherit;font-weight:600;cursor:pointer; }
+
+/* Over-limit state uses a neutral surface plus a semantic edge instead of
+   the translucent warning wash inherited from the legacy portal. */
 .fx-overlimit-card {
   display: flex;
   gap: 14px;
@@ -1289,11 +1301,7 @@ onMounted(() => {
   border: 1px solid color-mix(in oklab, var(--warning) 28%, var(--border));
   border-left: 3px solid var(--warning);
   border-radius: var(--r-md, 10px);
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--warning) 10%, var(--bg-card, var(--bg-2))) 0%,
-    var(--bg-card, var(--bg-2)) 100%
-  );
+  background: var(--bg-elev);
 }
 .fx-overlimit-icon {
   flex-shrink: 0;
@@ -1303,7 +1311,8 @@ onMounted(() => {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: color-mix(in oklab, var(--warning) 18%, transparent);
+  background: var(--bg-elev);
+  border: 1px solid color-mix(in oklab, var(--warning) 40%, var(--border));
   color: var(--warning);
 }
 .fx-overlimit-body { flex: 1; min-width: 0; }
@@ -1325,10 +1334,7 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
-/* Region picker — slot-backed device action chooser. Matches the
-   portal's design language: fx-card shell, accent-soft hover, status
-   chip on the right. Active region gets the success-tinted border so
-   it's obvious which one the customer is on right now. */
+/* Region picker — clean outlined cards with real country flags. */
 .fx-region-grid {
   display: flex;
   flex-direction: column;
@@ -1342,15 +1348,15 @@ onMounted(() => {
   padding: 11px 14px;
   border: 1px solid var(--border);
   border-radius: var(--r-md, 10px);
-  background: var(--bg-card, var(--bg-2));
+  background: var(--bg-elev);
   color: var(--text);
   text-align: left;
   cursor: pointer;
   transition: border-color .12s ease, background .12s ease, transform .08s ease;
 }
 .fx-region-btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 6%, var(--bg-card, var(--bg-2)));
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
 .fx-region-btn:active:not(:disabled) {
   transform: translateY(1px);
@@ -1361,22 +1367,8 @@ onMounted(() => {
 }
 .fx-region-btn.is-active {
   border-color: color-mix(in oklab, var(--success) 50%, var(--border));
-  background: color-mix(in oklab, var(--success) 6%, var(--bg-card, var(--bg-2)));
-}
-.fx-region-icon {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--accent) 14%, transparent);
-  color: var(--accent);
-}
-.fx-region-btn.is-active .fx-region-icon {
-  background: color-mix(in oklab, var(--success) 16%, transparent);
-  color: var(--success);
+  background: var(--bg-elev);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--success) 65%, transparent) inset;
 }
 .fx-region-info {
   flex: 1;

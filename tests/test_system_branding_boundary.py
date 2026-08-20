@@ -53,3 +53,11 @@ def test_legal_text_rejects_nul_bytes():
         system_branding.BrandingUpdateRequest(
             branding_terms_text="terms\x00hidden",
         )
+
+
+def test_enterprise_branding_accepts_explicit_portal_github_visibility():
+    hidden = system_branding.BrandingUpdateRequest(branding_github_card=False)
+    visible = system_branding.BrandingUpdateRequest(branding_github_card=True)
+
+    assert hidden.branding_github_card is False
+    assert visible.branding_github_card is True

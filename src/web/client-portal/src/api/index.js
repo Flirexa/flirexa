@@ -157,6 +157,8 @@ export const portalApi = {
     api.post(`/client-portal/devices/${slotId}/release`),
   getSlotServerConfig: (slotId, serverId) =>
     api.get(`/client-portal/devices/${slotId}/config/${serverId}`),
+  getSlotServerQr: (slotId, serverId) =>
+    api.get(`/client-portal/devices/${slotId}/qrcode/${serverId}`, { responseType: 'blob' }),
   getSlotDns: (slotId) => api.get(`/client-portal/devices/${slotId}/dns`),
   setSlotDns: (slotId, profileId) =>
     api.put(`/client-portal/devices/${slotId}/dns`, { profile_id: profileId }),

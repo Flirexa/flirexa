@@ -231,12 +231,16 @@ def test_paid_panels_hide_donation_automatically():
     assert "setTimeout(() => { donateOpen.value = true }" not in shell
 
 
-def test_enterprise_attribution_toggle_also_controls_admin_github_link():
+def test_enterprise_has_independent_admin_and_portal_github_controls():
     shell = _read("src/web/frontend/src/design2/shell/D2Shell.vue")
     store = _read("src/web/frontend/src/stores/branding.js")
+    settings = _read("src/web/frontend/src/design2/screens/D2Settings.vue")
+    portal = _read("src/web/client-portal/src/components/Layout.vue")
     assert 'v-if="showProjectAttribution" href="https://github.com/Flirexa/flirexa"' in shell
     assert "branding.poweredBy !== false" in shell
     assert "data.branding_powered_by" in store
+    assert "branding_github_card: brand.github_card" in settings
+    assert "branding.branding_github_card" in portal
 
 
 def test_customer_legal_pages_accept_safe_urls_and_plain_text():

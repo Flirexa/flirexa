@@ -30,7 +30,7 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '../../api'
 
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
 const activationCode = ref('')
 const licenseKey = ref('')

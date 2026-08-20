@@ -221,6 +221,34 @@
           <div v-if="msg.apps" style="font-size:12.5px;color:var(--green);margin-top:10px">{{ msg.apps }}</div>
         </div>
 
+        <!-- ================= CLIENT PORTAL EXPERIENCE ================= -->
+        <div v-if="isSetPortal" class="d2-portal-settings">
+          <div class="d2-portal-settings-head">
+            <div>
+              <div>{{ tr('settings.portalExperienceTitle') || 'Client portal experience' }}</div>
+              <p>{{ tr('settings.portalExperienceDesc') || 'Choose how technical the browser portal should feel. Native applications keep the same device API in both modes.' }}</p>
+            </div>
+            <span v-html="ICON.portal"></span>
+          </div>
+          <div class="d2-portal-mode-grid">
+            <button type="button" :class="{ active:portalExperience.mode === 'simple' }" @click="portalExperience.mode = 'simple'">
+              <span class="d2-portal-mode-check"><i></i></span>
+              <strong>{{ tr('settings.portalSimpleTitle') || 'Simple portal' }}</strong>
+              <small>{{ tr('settings.portalSimpleDesc') || 'Customers choose a location and receive a ready QR code or configuration. Technical slots stay hidden.' }}</small>
+            </button>
+            <button type="button" :class="{ active:portalExperience.mode === 'advanced' }" @click="portalExperience.mode = 'advanced'">
+              <span class="d2-portal-mode-check"><i></i></span>
+              <strong>{{ tr('settings.portalAdvancedTitle') || 'Advanced portal' }}</strong>
+              <small>{{ tr('settings.portalAdvancedDesc') || 'Shows slots, every server profile and manual controls for operators whose customers use client applications.' }}</small>
+            </button>
+          </div>
+          <div class="d2-portal-settings-foot">
+            <span>{{ tr('settings.portalCompatibility') || 'This setting changes only the browser interface. Existing keys, devices and applications continue to work.' }}</span>
+            <button type="button" :disabled="busy.portal" @click="savePortalExperience">{{ tr('common.save') || 'Save' }}</button>
+          </div>
+          <div v-if="msg.portal" class="d2-portal-settings-message">{{ msg.portal }}</div>
+        </div>
+
         <!-- ================= LIMITS ================= -->
         <div v-if="isSetLimits" style="background:var(--panel);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);padding:20px 22px">
           <div style="font-weight:650;font-size:15px;margin-bottom:16px">{{ tr('settings.deviceLimitsTitle') || 'Limits' }}</div>
@@ -375,9 +403,18 @@
                 <div style="grid-column:1 / -1"><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.termsText') || 'Terms of Service text' }}</label><textarea v-model="brand.terms_text" maxlength="50000" rows="8" :placeholder="tr('settings.termsTextPlaceholder') || 'Write your Terms of Service here…'" style="width:100%;min-height:150px;resize:vertical;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:11px 12px;font:inherit;font-size:13px;line-height:1.55;outline:none" @focus="onFocus" @blur="onBlur"></textarea></div>
                 <div style="grid-column:1 / -1"><label style="display:block;font-size:12px;font-weight:550;margin-bottom:6px">{{ tr('settings.footerText') || 'Footer' }}</label><input :value="brand.footer_text" @input="brand.footer_text = $event.target.value" style="width:100%;height:40px;border:1px solid var(--border-strong);background:var(--panel-2);color:var(--text);border-radius:10px;padding:0 12px;font:inherit;font-size:13px;outline:none" @focus="onFocus" @blur="onBlur"></div>
               </div>
-              <div style="display:flex;align-items:center;gap:11px;margin-top:14px">
-                <button @click="brand.powered_by = !brand.powered_by" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background:tgBg(brand.powered_by), transition:'background .15s', flex:'none' }"><span :style="{ position:'absolute', top:'2px', left:tgX(brand.powered_by), width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button>
-                <span style="font-size:13px;color:var(--text-2)">{{ tr('settings.brandPowered') || 'Show “Powered by”' }}</span>
+              <div style="display:flex;flex-direction:column;gap:12px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+                <div style="display:flex;align-items:flex-start;gap:11px">
+                  <button type="button" @click="brand.powered_by = !brand.powered_by" :aria-pressed="brand.powered_by" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background:tgBg(brand.powered_by), transition:'background .15s', flex:'none', marginTop:'1px' }"><span :style="{ position:'absolute', top:'2px', left:tgX(brand.powered_by), width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button>
+                  <div style="min-width:0"><div style="font-size:13px;color:var(--text-2)">{{ tr('settings.brandPowered') || 'Show “Powered by”' }}</div></div>
+                </div>
+                <div style="display:flex;align-items:flex-start;gap:11px">
+                  <button type="button" @click="brand.github_card = !brand.github_card" :aria-pressed="brand.github_card" :style="{ position:'relative', width:'38px', height:'22px', borderRadius:'20px', border:'none', cursor:'pointer', background:tgBg(brand.github_card), transition:'background .15s', flex:'none', marginTop:'1px' }"><span :style="{ position:'absolute', top:'2px', left:tgX(brand.github_card), width:'18px', height:'18px', borderRadius:'50%', background:'#fff', transition:'left .15s', boxShadow:'0 1px 2px rgba(0,0,0,.2)' }"></span></button>
+                  <div style="min-width:0">
+                    <div style="font-size:13px;color:var(--text-2)">{{ tr('settings.brandGithubCard') || 'Show GitHub card in the client portal' }}</div>
+                    <div style="font-size:11.5px;color:var(--text-3);margin-top:3px;line-height:1.45">{{ tr('settings.brandGithubCardHint') || 'Turn it off for a fully white-label customer experience.' }}</div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -518,7 +555,7 @@ import D2HelpTip from '../ui/D2HelpTip.vue'
 import D2BrandingPreview from '../ui/D2BrandingPreview.vue'
 import D2MobileSheet from '../ui/D2MobileSheet.vue'
 
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
 
 const system = useSystemStore()
@@ -563,6 +600,7 @@ const isSetPayments = computed(() => active.value === 'payments')
 const isSetSmtp = computed(() => active.value === 'smtp')
 const isSetNotif = computed(() => active.value === 'notif')
 const isSetApps = computed(() => active.value === 'apps')
+const isSetPortal = computed(() => active.value === 'portal')
 const isSetLimits = computed(() => active.value === 'limits')
 const isSetWeb = computed(() => active.value === 'web')
 const isSetTools = computed(() => active.value === 'tools')
@@ -577,6 +615,7 @@ const ICON = {
   smtp: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 7l9 6 9-6"></path></svg>',
   notif: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.7 21a2 2 0 01-3.4 0"></path></svg>',
   apps: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="5" y="2" width="14" height="20" rx="2"></rect><path d="M12 18h.01"></path></svg>',
+  portal: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 9h18M7 6.5h.01M10 6.5h.01"></path></svg>',
   limits: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>',
   web: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"></path></svg>',
   tools: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 005.4-5.4l-2.8 2.8-2.2-.6-.6-2.2z"></path></svg>',
@@ -591,6 +630,7 @@ const settingsTabs = computed(() => [
   { key: 'smtp', label: tr('settings.smtpTitle') || 'Email (SMTP)' },
   { key: 'notif', label: tr('notifications.title') || 'Telegram' },
   { key: 'apps', label: tr('settings.appsTitle') || 'Apps & FCM', feature: 'app_integration', tier: 'enterprise' },
+  { key: 'portal', label: tr('settings.portalExperienceNav') || 'Client portal' },
   { key: 'limits', label: tr('settings.deviceLimitsTitle') || 'Limits' },
   { key: 'web', label: tr('common.webAccessTitle') || 'Web access' },
   { key: 'tools', label: tr('settings.systemTools') || 'System tools' },
@@ -858,6 +898,28 @@ async function loadApps() { try { const r = await systemApi.getNotificationSetti
 async function saveApps() { busy.apps = true; try { const p = { app_integration_enabled: apps.enabled ? 'true' : 'false', push_enabled: apps.push ? 'true' : 'false', app_name: (apps.name || '').trim() }; if (fcm.server_key) p.fcm_server_key = fcm.server_key; await systemApi.updateNotificationSettings(p); fcm.server_key = ''; await loadApps(); flash('apps', tr('common.saved') || 'Saved') } catch (e) { flash('apps', e.response?.data?.detail || 'Error') } finally { busy.apps = false } }
 async function clearFcm() { if (!await d2confirm(tr('settings.clearFcm') || 'Clear FCM key?')) return; try { await systemApi.updateNotificationSettings({ fcm_server_key: '' }); fcm.server_key = ''; await loadApps(); flash('apps', tr('common.done') || 'Cleared') } catch (e) { flash('apps', e.response?.data?.detail || 'Error') } }
 
+// ═══════════════ CLIENT PORTAL EXPERIENCE ═══════════════
+// Presentation only: both choices keep the DeviceSlot and native app API.
+const portalExperience = reactive({ mode: 'simple' })
+async function loadPortalExperience() {
+  try {
+    const { data } = await systemApi.getClientPortalSettings()
+    portalExperience.mode = data?.mode === 'advanced' ? 'advanced' : 'simple'
+  } catch (_) {}
+}
+async function savePortalExperience() {
+  busy.portal = true
+  try {
+    const { data } = await systemApi.updateClientPortalSettings({ mode: portalExperience.mode })
+    portalExperience.mode = data?.mode === 'advanced' ? 'advanced' : 'simple'
+    flash('portal', tr('common.saved') || 'Saved')
+  } catch (e) {
+    flash('portal', errorText(e))
+  } finally {
+    busy.portal = false
+  }
+}
+
 // ═══════════════ LIMITS ═══════════════
 const deviceLimit = ref(0)
 const freeTier = ref(true)
@@ -916,7 +978,7 @@ const msgAdmTone = ref('ok')
 async function createAdmin() { busy.adm = true; msgAdmTone.value = 'ok'; try { await systemApi.createAdmin({ username: newAdmin.username, password: newAdmin.password }); msg.adm = tr('settings.adminCreated') || 'Admin created'; newAdmin.username = ''; newAdmin.password = '' } catch (e) { msgAdmTone.value = 'err'; msg.adm = e.response?.data?.detail || 'Error' } finally { busy.adm = false } }
 
 // ═══════════════ BRANDING ═══════════════
-const brand = reactive({ app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', privacy_url: '', terms_url: '', privacy_text: '', terms_text: '', footer_text: '', powered_by: false, customer_logo_url: '', logo_url: '', favicon_url: '', primary_color: '#6366f1' })
+const brand = reactive({ app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', privacy_url: '', terms_url: '', privacy_text: '', terms_text: '', footer_text: '', powered_by: true, github_card: true, customer_logo_url: '', logo_url: '', favicon_url: '', primary_color: '#6366f1' })
 const BRAND_PRESETS = ['#6366f1', '#2563eb', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6']
 const brandPresets = computed(() => BRAND_PRESETS.map(hex => {
   const on = (brand.primary_color || '').toLowerCase() === hex
@@ -924,7 +986,7 @@ const brandPresets = computed(() => BRAND_PRESETS.map(hex => {
 }))
 async function resetBranding() {
   if (!await d2confirm(tr('settings.brandResetConfirm') || 'Reset branding to defaults?')) return
-  Object.assign(brand, { app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', privacy_url: '', terms_url: '', privacy_text: '', terms_text: '', footer_text: '', powered_by: false, primary_color: '#6366f1' })
+  Object.assign(brand, { app_name: '', customer_app_name: '', brand_name: '', tagline: '', company_name: '', login_title: '', support_email: '', support_url: '', privacy_url: '', terms_url: '', privacy_text: '', terms_text: '', footer_text: '', powered_by: true, github_card: true, primary_color: '#6366f1' })
   flash('brand', tr('common.done') || 'Reset')
 }
 const logoSlots = computed(() => [
@@ -932,8 +994,8 @@ const logoSlots = computed(() => [
   { key: 'customer', label: tr('settings.customerLogo') || 'Customer logo', url: brand.customer_logo_url, onFile: e => uploadSlot(e, 'customer'), onRemove: () => removeSlot('customer') },
   { key: 'favicon', label: tr('settings.favicon') || 'Favicon', url: brand.favicon_url, onFile: e => uploadSlot(e, 'favicon'), onRemove: () => removeSlot('favicon') },
 ])
-async function loadBranding() { try { const r = await systemApi.getBranding(); const d = r.data; brand.app_name = d.branding_app_name || ''; brand.customer_app_name = d.branding_customer_app_name || ''; brand.brand_name = brand.customer_app_name; brand.tagline = d.branding_tagline || ''; brand.company_name = d.branding_company_name || ''; brand.login_title = d.branding_login_title || ''; brand.support_email = d.branding_support_email || ''; brand.support_url = d.branding_support_url || ''; brand.privacy_url = d.branding_privacy_url || ''; brand.terms_url = d.branding_terms_url || ''; brand.privacy_text = d.branding_privacy_text || ''; brand.terms_text = d.branding_terms_text || ''; brand.footer_text = d.branding_footer_text || ''; brand.powered_by = d.branding_powered_by === true || String(d.branding_powered_by).toLowerCase() === 'true'; brand.customer_logo_url = d.branding_customer_logo_url || ''; brand.logo_url = d.branding_logo_url || ''; brand.favicon_url = d.branding_favicon_url || ''; brand.primary_color = d.branding_primary_color || '#6366f1' } catch (_) {} }
-async function saveBranding() { busy.brand = true; try { await systemApi.updateBranding({ branding_app_name: brand.app_name, branding_customer_app_name: brand.brand_name, branding_tagline: brand.tagline, branding_company_name: brand.company_name, branding_login_title: brand.login_title, branding_support_email: brand.support_email, branding_support_url: brand.support_url, branding_privacy_url: brand.privacy_url, branding_terms_url: brand.terms_url, branding_privacy_text: brand.privacy_text, branding_terms_text: brand.terms_text, branding_footer_text: brand.footer_text, branding_powered_by: brand.powered_by, branding_customer_logo_url: brand.customer_logo_url, branding_primary_color: brand.primary_color }); brand.customer_app_name = brand.brand_name; branding.commitAccent(brand.primary_color); flash('brand', tr('common.saved') || 'Saved') } catch (e) { flash('brand', errorText(e)) } finally { busy.brand = false } }
+async function loadBranding() { try { const r = await systemApi.getBranding(); const d = r.data; brand.app_name = d.branding_app_name || ''; brand.customer_app_name = d.branding_customer_app_name || ''; brand.brand_name = brand.customer_app_name; brand.tagline = d.branding_tagline || ''; brand.company_name = d.branding_company_name || ''; brand.login_title = d.branding_login_title || ''; brand.support_email = d.branding_support_email || ''; brand.support_url = d.branding_support_url || ''; brand.privacy_url = d.branding_privacy_url || ''; brand.terms_url = d.branding_terms_url || ''; brand.privacy_text = d.branding_privacy_text || ''; brand.terms_text = d.branding_terms_text || ''; brand.footer_text = d.branding_footer_text || ''; brand.powered_by = d.branding_powered_by === true || String(d.branding_powered_by).toLowerCase() === 'true'; const githubCard = d.branding_github_card; brand.github_card = githubCard === undefined || githubCard === null || githubCard === '' ? brand.powered_by : (githubCard === true || String(githubCard).toLowerCase() === 'true'); brand.customer_logo_url = d.branding_customer_logo_url || ''; brand.logo_url = d.branding_logo_url || ''; brand.favicon_url = d.branding_favicon_url || ''; brand.primary_color = d.branding_primary_color || '#6366f1' } catch (_) {} }
+async function saveBranding() { busy.brand = true; try { await systemApi.updateBranding({ branding_app_name: brand.app_name, branding_customer_app_name: brand.brand_name, branding_tagline: brand.tagline, branding_company_name: brand.company_name, branding_login_title: brand.login_title, branding_support_email: brand.support_email, branding_support_url: brand.support_url, branding_privacy_url: brand.privacy_url, branding_terms_url: brand.terms_url, branding_privacy_text: brand.privacy_text, branding_terms_text: brand.terms_text, branding_footer_text: brand.footer_text, branding_powered_by: brand.powered_by, branding_github_card: brand.github_card, branding_customer_logo_url: brand.customer_logo_url, branding_primary_color: brand.primary_color }); brand.customer_app_name = brand.brand_name; branding.commitAccent(brand.primary_color); flash('brand', tr('common.saved') || 'Saved') } catch (e) { flash('brand', errorText(e)) } finally { busy.brand = false } }
 async function uploadSlot(event, slot) {
   const file = event.target.files && event.target.files[0]; if (!file) return
   if (file.size > 1024 * 1024) { flash('brand', tr('settings.fileTooLarge') || 'File too large (max 1MB)'); return }
@@ -999,7 +1061,7 @@ const themeOptions = computed(() => [
 
 onMounted(() => {
   ui.set({ title: tr('nav.settings') || 'Settings' })
-  loadLicense(); loadLicenseServer(); loadPayments(); loadSmtp(); loadNotif(); loadApps(); loadLimits(); loadWebAccess(); loadBranding(); loadChannel(); loadDonate()
+  loadLicense(); loadLicenseServer(); loadPayments(); loadSmtp(); loadNotif(); loadApps(); loadPortalExperience(); loadLimits(); loadWebAccess(); loadBranding(); loadChannel(); loadDonate()
 })
 // Revert any unsaved live-preview accent back to the saved one when leaving Settings.
 onUnmounted(() => branding.applyBranding())
@@ -1007,6 +1069,26 @@ onUnmounted(() => branding.applyBranding())
 
 <style scoped>
 .d2-settings-mobile-nav,.d2-license-mobile { display:none; }
+.d2-portal-settings { padding:20px 22px;border:1px solid var(--border);border-radius:14px;background:var(--panel);box-shadow:var(--shadow); }
+.d2-portal-settings-head { display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px; }
+.d2-portal-settings-head > div > div { font-size:15px;font-weight:650;color:var(--text); }
+.d2-portal-settings-head p { max-width:680px;margin:5px 0 0;color:var(--text-3);font-size:11.5px;line-height:1.5; }
+.d2-portal-settings-head > span { width:38px;height:38px;display:grid;place-items:center;flex:none;border:1px solid var(--border-strong);border-radius:11px;color:var(--accent); }
+.d2-portal-mode-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px; }
+.d2-portal-mode-grid > button { position:relative;min-height:132px;padding:17px 16px 15px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2);color:var(--text);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,background .15s,transform .15s; }
+.d2-portal-mode-grid > button:hover { border-color:var(--border-strong);transform:translateY(-1px); }
+.d2-portal-mode-grid > button.active { border-color:var(--accent);background:var(--panel);box-shadow:0 0 0 3px var(--accent-ring); }
+.d2-portal-mode-grid strong { display:block;margin:12px 0 5px;font-size:13.5px;font-weight:650; }
+.d2-portal-mode-grid small { display:block;color:var(--text-3);font-size:11.5px;line-height:1.48; }
+.d2-portal-mode-check { width:18px;height:18px;display:grid;place-items:center;border:1px solid var(--border-strong);border-radius:50%; }
+.d2-portal-mode-check i { width:8px;height:8px;border-radius:50%;background:transparent; }
+.d2-portal-mode-grid > button.active .d2-portal-mode-check { border-color:var(--accent); }
+.d2-portal-mode-grid > button.active .d2-portal-mode-check i { background:var(--accent); }
+.d2-portal-settings-foot { display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border); }
+.d2-portal-settings-foot > span { max-width:660px;color:var(--text-3);font-size:11.5px;line-height:1.5; }
+.d2-portal-settings-foot > button { height:38px;padding:0 16px;border:0;border-radius:9px;background:var(--accent);color:#fff;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer; }
+.d2-portal-settings-foot > button:disabled { opacity:.6;cursor:wait; }
+.d2-portal-settings-message { margin-top:10px;color:var(--green);font-size:12px; }
 .d2-settings-picker-list { display:flex;flex-direction:column;gap:5px; }
 .d2-settings-picker-list button { width:100%;min-height:46px;display:grid;grid-template-columns:22px minmax(0,1fr) 18px;align-items:center;gap:10px;padding:0 12px;border:1px solid transparent;border-radius:11px;background:transparent;color:var(--text-2);font:inherit;text-align:left;cursor:pointer; }
 .d2-settings-picker-list button > span { display:flex;color:var(--text-3); }
@@ -1054,6 +1136,10 @@ onUnmounted(() => branding.applyBranding())
 .d2-license-technical dd { margin:0;color:var(--text-2);font:11.5px 'JetBrains Mono',monospace;overflow-wrap:anywhere; }
 .d2-license-technical dd button { float:right;margin-left:8px;border:0;background:transparent;color:var(--accent);font:inherit;font-size:11px;font-weight:600;cursor:pointer; }
 @media (max-width: 900px) {
+  .d2-portal-mode-grid { grid-template-columns:1fr; }
+  .d2-portal-mode-grid > button { min-height:112px; }
+  .d2-portal-settings-foot { align-items:stretch;flex-direction:column; }
+  .d2-portal-settings-foot > button { width:100%; }
   .d2-settings-mobile-nav { width:100%;height:48px;display:grid;grid-template-columns:34px minmax(0,1fr) 18px;align-items:center;gap:10px;margin:0 0 10px;padding:0 12px;border:1px solid var(--border);border-radius:12px;background:var(--panel);color:var(--text);box-shadow:var(--shadow);font:inherit;text-align:left;cursor:pointer; }
   .d2-settings-mobile-nav-icon { width:34px;height:34px;display:grid;place-items:center;border-radius:9px;background:var(--accent-soft);color:var(--accent); }
   .d2-settings-mobile-nav-copy { min-width:0;display:flex;flex-direction:column;gap:1px; }

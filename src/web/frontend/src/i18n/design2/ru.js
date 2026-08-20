@@ -736,6 +736,8 @@ export default {
     "brandIdentity": "Идентичность",
     "branding": "Брендинг",
     "brandNameLabel": "Бренд (для клиентов)",
+    "brandGithubCard": "Показывать карточку GitHub в клиентском портале",
+    "brandGithubCardHint": "Отключите её для полностью брендированного клиентского интерфейса.",
     "brandPowered": "Показывать «Powered by»",
     "brandPreview": "Живой предпросмотр",
     "brandRecommend": "PNG/SVG/WebP, до 1 MB.",

@@ -1,7 +1,5 @@
 /* Flirexa Client Portal — Vuexy-style */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
 /* ── Tokens ─────────────────────────────────────────────── */
 /* Remapped to align with new Flirexa indigo design system.
    Old --vxy-* vars stay so legacy components keep working. */

@@ -19,7 +19,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from ...database.connection import get_db, check_db_connection
-from ...database.models import AuditLog, AuditAction
+from ...database.models import AdminUser, AuditLog, AuditAction
 from ...core.management import ManagementCore
 from ...modules.branding import get_app_name
 from ...modules.operational_mode import (
@@ -37,6 +37,8 @@ from . import system_branding
 
 
 router = APIRouter()
+stats_router = APIRouter()
+logs_router = APIRouter()
 router.include_router(system_branding.router)
 
 # Feature-gated dependencies for paid-tier endpoints in this router.
@@ -73,6 +75,7 @@ class AuditLogResponse(BaseModel):
     id: int
     user_id: Optional[int]
     user_type: str
+    user_name: Optional[str] = None
     action: str
     target_type: Optional[str]
     target_id: Optional[int]
@@ -96,7 +99,7 @@ class OperationalModeResponse(BaseModel):
 # ENDPOINTS
 # ============================================================================
 
-@router.get("/status", response_model=SystemStatusResponse)
+@stats_router.get("/status", response_model=SystemStatusResponse)
 def get_system_status(
     db: Session = Depends(get_db)
 ):
@@ -150,7 +153,7 @@ def get_system_status(
     )
 
 
-@router.get("/dashboard")
+@stats_router.get("/dashboard")
 def get_dashboard_batch(db: Session = Depends(get_db)):
     """
     ONE round-trip for the admin dashboard's initial load.
@@ -220,7 +223,7 @@ async def get_operational_mode(db: Session = Depends(get_db)):
     return payload
 
 
-@router.get("/logs", response_model=List[AuditLogResponse])
+@logs_router.get("/logs", response_model=List[AuditLogResponse])
 def get_audit_logs(
     action: Optional[str] = Query(None, description="Filter by action type"),
     target_type: Optional[str] = Query(None, description="Filter by target type"),
@@ -244,11 +247,30 @@ def get_audit_logs(
         query = query.filter(AuditLog.target_type == target_type)
 
     logs = query.order_by(AuditLog.created_at.desc()).offset(offset).limit(limit).all()
+    admin_ids = {row.user_id for row in logs if row.user_id is not None and row.user_type == "admin"}
+    admin_names = {}
+    if admin_ids:
+        admin_names = dict(
+            db.query(AdminUser.id, AdminUser.username)
+            .filter(AdminUser.id.in_(admin_ids))
+            .all()
+        )
 
-    return logs
+    return [{
+        "id": row.id,
+        "user_id": row.user_id,
+        "user_type": row.user_type,
+        "user_name": admin_names.get(row.user_id),
+        "action": row.action,
+        "target_type": row.target_type,
+        "target_id": row.target_id,
+        "target_name": row.target_name,
+        "details": row.details,
+        "created_at": row.created_at,
+    } for row in logs]
 
 
-@router.get("/logs/actions")
+@logs_router.get("/logs/actions")
 async def get_audit_action_types():
     """
     Get list of available audit action types
@@ -258,7 +280,7 @@ async def get_audit_action_types():
     }
 
 
-@router.get("/app-logs")
+@logs_router.get("/app-logs")
 async def get_app_logs(
     component: Literal["api", "worker", "agent"] = Query("api", description="Log component"),
     lines: int = Query(100, ge=1, le=1000, description="Number of lines to return"),
@@ -273,7 +295,7 @@ async def get_app_logs(
     return {"component": component, "lines": len(entries), "entries": entries}
 
 
-@router.get("/app-logs/errors")
+@logs_router.get("/app-logs/errors")
 async def get_app_logs_errors(
     component: Literal["api", "worker", "agent"] = Query("api", description="Log component"),
     lines: int = Query(100, ge=1, le=1000, description="Number of error entries to return"),
@@ -1121,6 +1143,10 @@ class DeviceLimitsUpdate(BaseModel):
     max_devices_per_customer: int = Field(..., ge=0, le=1000)
 
 
+class ClientPortalExperienceUpdate(BaseModel):
+    mode: Literal["simple", "advanced"]
+
+
 @router.post("/device-limits")
 async def update_device_limits(data: DeviceLimitsUpdate, db: Session = Depends(get_db)):
     """Set the per-customer device cap. ``0`` disables enforcement.
@@ -1144,6 +1170,28 @@ async def update_device_limits(data: DeviceLimitsUpdate, db: Session = Depends(g
         row.value_type = "int"
     db.commit()
     return {"max_devices_per_customer": data.max_devices_per_customer}
+
+
+@router.get("/client-portal-settings")
+async def get_client_portal_settings(db: Session = Depends(get_db)):
+    """Return the browser-portal presentation mode.
+
+    This is deliberately not a licence gate. The switch changes only the web
+    experience; native apps and the DeviceSlot backend keep the same contract.
+    """
+    from ...modules.client_portal_experience import get_client_portal_mode
+
+    return {"mode": get_client_portal_mode(db)}
+
+
+@router.post("/client-portal-settings")
+async def update_client_portal_settings(
+    data: ClientPortalExperienceUpdate,
+    db: Session = Depends(get_db),
+):
+    from ...modules.client_portal_experience import set_client_portal_mode
+
+    return {"mode": set_client_portal_mode(db, data.mode)}
 
 
 # ============================================================================

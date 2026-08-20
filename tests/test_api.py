@@ -134,6 +134,35 @@ class TestSystemEndpoints:
         data = response.json()
         assert data["status"] == "healthy"
 
+    def test_client_portal_mode_defaults_preserve_existing_app_operators(self, client, db_for_test):
+        response = client.get("/api/v1/system/client-portal-settings")
+        assert response.status_code == 200
+        assert response.json() == {"mode": "simple"}
+
+        db_for_test.add(SystemConfig(key="app_integration_enabled", value="true", value_type="bool"))
+        db_for_test.commit()
+        response = client.get("/api/v1/system/client-portal-settings")
+        assert response.status_code == 200
+        assert response.json() == {"mode": "advanced"}
+
+        response = client.post(
+            "/api/v1/system/client-portal-settings",
+            json={"mode": "simple"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"mode": "simple"}
+
+        response = client.get("/api/v1/system/client-portal-settings")
+        assert response.status_code == 200
+        assert response.json() == {"mode": "simple"}
+
+    def test_client_portal_mode_rejects_unknown_values(self, client):
+        response = client.post(
+            "/api/v1/system/client-portal-settings",
+            json={"mode": "technical"},
+        )
+        assert response.status_code == 422
+
     def test_client_portal_features_requires_customer_and_operator_corporate_access(self, client, db_for_test):
         from src.modules.corporate import manager as corporate_manager
 
@@ -176,6 +205,7 @@ class TestSystemEndpoints:
         assert response.status_code == 200
         assert response.json()["features"]["corp_networks"] is False
         assert response.json()["features"]["auto_renewal"] is False
+        assert response.json()["portal_mode"] == "simple"
 
         with patch.object(
             cp_module,

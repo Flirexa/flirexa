@@ -29,7 +29,7 @@ import D2Modal from './ui/D2Modal.vue'
 import D2Button from './ui/D2Button.vue'
 import { confirmState, resolveConfirm } from './ui/confirm'
 const sprite = computed(() => rawSprite.replace(/<\?xml[^>]*\?>/, ''))
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k, p) { try { const s = t(k, p || {}); return s === k ? '' : s } catch (_) { return '' } }
 </script>
 

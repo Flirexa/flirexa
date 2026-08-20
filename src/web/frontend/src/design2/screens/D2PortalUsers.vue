@@ -332,7 +332,7 @@ import D2Button from '../ui/D2Button.vue'
 import D2Field from '../ui/D2Field.vue'
 import D2Select from '../ui/D2Select.vue'
 
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k, p) { try { const v = t(k, p || {}); return v === k ? '' : v } catch (_) { return '' } }
 const ui = useD2Ui()
 

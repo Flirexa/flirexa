@@ -1294,6 +1294,14 @@ export default {
 
   // Settings
   settings: {
+    portalExperienceNav: 'Client portal',
+    portalExperienceTitle: 'Client portal experience',
+    portalExperienceDesc: 'Choose how technical the browser portal should feel. Native applications keep the same device API in both modes.',
+    portalSimpleTitle: 'Simple portal',
+    portalSimpleDesc: 'Customers choose a location and receive a ready QR code or configuration. Technical slots stay hidden.',
+    portalAdvancedTitle: 'Advanced portal',
+    portalAdvancedDesc: 'Shows slots, every server profile and manual controls for operators whose customers use client applications.',
+    portalCompatibility: 'This setting changes only the browser interface. Existing keys, devices and applications continue to work.',
     licenseOwner: 'License owner',
     migration: {
       title: 'Server transfer',

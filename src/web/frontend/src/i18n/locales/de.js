@@ -864,6 +864,14 @@ export default {
     configSaved: 'Konfiguration gespeichert',
   },
   settings: {
+    portalExperienceNav: 'Kundenportal',
+    portalExperienceTitle: 'Darstellung des Kundenportals',
+    portalExperienceDesc: 'Wählen Sie die technische Detailtiefe des Browser-Portals. Native Apps verwenden in beiden Modi dieselbe Geräte-API.',
+    portalSimpleTitle: 'Einfaches Portal',
+    portalSimpleDesc: 'Kunden wählen einen Standort und erhalten einen fertigen QR-Code oder eine Konfiguration. Technische Slots bleiben verborgen.',
+    portalAdvancedTitle: 'Erweitertes Portal',
+    portalAdvancedDesc: 'Zeigt Slots, alle Serverprofile und manuelle Steuerungen für Betreiber mit Client-Apps.',
+    portalCompatibility: 'Diese Einstellung ändert nur die Browser-Oberfläche. Bestehende Schlüssel, Geräte und Apps funktionieren weiter.',
     licenseOwner: 'Lizenzinhaber',
     migration: {
       title: 'Serverumzug',

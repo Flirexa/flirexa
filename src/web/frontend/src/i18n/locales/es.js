@@ -864,6 +864,14 @@ export default {
     configSaved: 'Configuraci\u00f3n guardada',
   },
   settings: {
+    portalExperienceNav: 'Portal de clientes',
+    portalExperienceTitle: 'Experiencia del portal de clientes',
+    portalExperienceDesc: 'Elige el nivel de detalle técnico del portal web. Las aplicaciones nativas mantienen la misma API de dispositivos en ambos modos.',
+    portalSimpleTitle: 'Portal sencillo',
+    portalSimpleDesc: 'El cliente elige una ubicación y recibe un código QR o una configuración lista. Los slots técnicos permanecen ocultos.',
+    portalAdvancedTitle: 'Portal avanzado',
+    portalAdvancedDesc: 'Muestra slots, perfiles de todos los servidores y controles manuales para operadores que usan aplicaciones cliente.',
+    portalCompatibility: 'Este ajuste solo cambia la interfaz web. Las claves, dispositivos y aplicaciones existentes seguirán funcionando.',
     licenseOwner: 'Propietario de la licencia',
     migration: {
       title: 'Transferencia de servidor',

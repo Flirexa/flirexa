@@ -10,8 +10,8 @@
     <!-- SIDEBAR -->
     <aside class="d2-aside" :class="{ open: system.sidebarOpen }">
       <div style="display:flex;align-items:center;gap:11px;padding:18px 16px 16px">
-        <div style="width:32px;height:32px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;box-shadow:0 2px 8px var(--accent-ring)">
-          <img v-if="branding.logoUrl" :src="branding.logoUrl" alt="" style="width:100%;height:100%;object-fit:cover" />
+        <div class="d2-brand-logo" :class="{ 'd2-brand-logo--image': branding.logoUrl }">
+          <img v-if="branding.logoUrl" :src="branding.logoUrl" alt="" />
           <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.2-2.9 7.6-7 8.6C7.9 18.6 5 15.2 5 11V6z"></path></svg>
         </div>
         <div style="line-height:1.15;flex:1;min-width:0">
@@ -38,7 +38,7 @@
           <div style="width:30px;height:30px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:650;flex:none">{{ initials }}</div>
           <div style="flex:1;line-height:1.2;min-width:0">
             <div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ userName }}</div>
-            <div style="font-size:11px;color:var(--text-3)">{{ tr('applications.roleAdmin') || 'Administrator' }}</div>
+            <div style="font-size:11px;color:var(--text-3)">{{ roleLabel }}</div>
           </div>
           <button @click="logout" :title="tr('navbar.logout') || 'Logout'" class="d2-footbtn"><Icon name="logout" :size="16" v-if="hasIcon('logout')" /><svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"></path><path d="M16 17l5-5-5-5M21 12H9"></path></svg></button>
         </div>
@@ -116,7 +116,7 @@
             <div v-if="mobileMenuOpen" class="d2-mobile-menu">
               <div class="d2-mobile-menu-user">
                 <span>{{ initials }}</span>
-                <div><b>{{ userName }}</b><small>{{ tr('applications.roleAdmin') || 'Administrator' }}</small></div>
+                <div><b>{{ userName }}</b><small>{{ roleLabel }}</small></div>
               </div>
               <button v-if="showDonate" type="button" class="d2-mobile-menu-item" @click="donate(); mobileMenuOpen = false">
                 <Icon name="heart" :size="17" /><span>{{ tr('donate.tooltip') || 'Support the author' }}</span>
@@ -157,7 +157,7 @@ import { useD2Ui } from '../../stores/d2ui'
 import { NAV_SECTIONS } from '../nav.js'
 import Icon from '../ui/Icon.vue'
 import DonateModal from './D2DonateModal.vue'
-import api from '../../api'
+import api, { authApi } from '../../api'
 
 const route = useRoute()
 const router = useRouter()
@@ -165,7 +165,32 @@ const system = useSystemStore()
 const branding = useBrandingStore()
 const license = useLicenseStore()
 const ui = useD2Ui()
-const sections = NAV_SECTIONS
+function accessFromToken() {
+  try {
+    const token = localStorage.getItem('sb_token') || ''
+    const payload = JSON.parse(atob(token.split('.')[1] || ''))
+    return {
+      loaded: payload.role !== 'manager',
+      username: payload.username || '',
+      role: payload.role || 'owner',
+      isSuperadmin: !!payload.is_superadmin,
+      permissions: [],
+    }
+  } catch (_) {
+    return { loaded: false, username: '', role: 'manager', isSuperadmin: false, permissions: [] }
+  }
+}
+const access = ref(accessFromToken())
+function canAccess(item) {
+  if (access.value.role !== 'manager' || access.value.isSuperadmin) return true
+  if (item.ownerOnly) return false
+  const granted = new Set(access.value.permissions || [])
+  return (item.permissions || []).every(permission => granted.has(permission))
+}
+const sections = computed(() => NAV_SECTIONS
+  .map(group => ({ ...group, items: group.items.filter(canAccess) }))
+  .filter(group => group.items.length))
+const accessibleItems = computed(() => sections.value.flatMap(group => group.items))
 const acctOpen = ref(false)
 const donateOpen = ref(false)
 const langOpen = ref(false)
@@ -181,7 +206,7 @@ const LOCALES = [
   { code: 'de', label: 'Deutsch' }, { code: 'fr', label: 'Français' }, { code: 'es', label: 'Español' },
 ]
 
-const i18n = useI18n()
+const i18n = useI18n({ useScope: 'global' })
 function tr(k) { try { const v = i18n.t(k); return v === k ? '' : v } catch (_) { return '' } }
 const ICONSET = new Set(['grid', 'activity', 'users', 'layers', 'server', 'pulse', 'heart', 'card', 'receipt', 'trendup', 'wallet', 'crown', 'user', 'tag', 'chat', 'bell', 'bot', 'gauge', 'lock', 'box', 'database', 'download', 'gear', 'list', 'terminal', 'sun', 'moon', 'logout', 'search', 'plus'])
 function hasIcon(n) { return ICONSET.has(n) }
@@ -192,8 +217,11 @@ const pageTitle = computed(() => {
   const hit = all.find(it => isActive(it))
   return hit ? (tr('nav.' + hit.key) || hit.label) : ''
 })
-const userName = computed(() => branding.appName ? (localStorage.getItem('sb_username') || 'Admin') : (localStorage.getItem('sb_username') || 'Admin'))
+const userName = computed(() => access.value.username || localStorage.getItem('sb_username') || 'Admin')
 const initials = computed(() => (userName.value || 'A').trim().slice(0, 2).toUpperCase())
+const roleLabel = computed(() => access.value.role === 'manager'
+  ? (tr('applications.roleManager') || 'Manager')
+  : (tr('applications.roleAdmin') || 'Administrator'))
 const showProjectAttribution = computed(() => branding.poweredBy !== false)
 function toggleTheme() { system.setTheme(system.theme === 'dark' ? 'light' : 'dark') }
 function donate() { donateOpen.value = true }
@@ -212,6 +240,32 @@ function onMobileTableClick(e) {
   const row = head.closest('tr')
   if (!row) return
   row.toggleAttribute('data-mx')
+}
+function routeMatches(item, path = route.path) {
+  return item.path === '/' ? path === '/' : path.startsWith(item.path)
+}
+function ensureAccessibleRoute() {
+  if (!access.value.loaded || access.value.role !== 'manager') return
+  if (accessibleItems.value.some(item => routeMatches(item))) return
+  const fallback = accessibleItems.value[0]?.path
+  if (fallback && route.path !== fallback) router.replace(fallback)
+}
+async function loadAccess() {
+  try {
+    const { data } = await authApi.me()
+    access.value = {
+      loaded: true,
+      username: data.username || '',
+      role: data.role || 'owner',
+      isSuperadmin: !!data.is_superadmin,
+      permissions: Array.isArray(data.permissions) ? data.permissions : [],
+    }
+    try { localStorage.setItem('sb_username', access.value.username) } catch (_) {}
+    ensureAccessibleRoute()
+  } catch (_) {
+    access.value.loaded = true
+    ensureAccessibleRoute()
+  }
 }
 // ── Update-available topbar badge ──────────────────────────────────────────────
 // Polls /updates/status every 60s + on tab focus + on route change, so a newer
@@ -233,13 +287,14 @@ async function refreshUpdateBadge() {
   } catch (_) { /* silent — never block the shell on an update-check failure */ }
 }
 function _updOnFocus() { if (!document.hidden) refreshUpdateBadge() }
-watch(() => route.fullPath, () => { mobileMenuOpen.value = false; mobileLangOpen.value = false; mobileSearchOpen.value = false; refreshUpdateBadge() })
+watch(() => route.fullPath, () => { mobileMenuOpen.value = false; mobileLangOpen.value = false; mobileSearchOpen.value = false; ensureAccessibleRoute(); refreshUpdateBadge() })
 
 onMounted(() => {
   document.addEventListener('click', onDoc)
   document.addEventListener('click', onMobileTableClick, true)
   document.addEventListener('visibilitychange', _updOnFocus)
   if (!license.loaded) license.load()
+  loadAccess()
   refreshUpdateBadge()
   _updTimer = setInterval(refreshUpdateBadge, 60 * 1000)
 })
@@ -256,6 +311,9 @@ onUnmounted(() => {
 
 <style scoped>
 .d2-aside { width: 248px; flex: none; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow: hidden; }
+.d2-brand-logo { width:32px;height:32px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden;box-shadow:0 2px 8px var(--accent-ring) }
+.d2-brand-logo img { width:100%;height:100%;object-fit:contain }
+.d2-brand-logo--image { background:transparent;border-radius:0;box-shadow:none;overflow:visible }
 .d2-navi { display: flex; align-items: center; gap: 11px; width: 100%; padding: 8px 10px; border: none; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; text-align: left; }
 .d2-navi:hover { background: var(--panel-2); text-decoration: none; color: var(--text-2); }
 .d2-navi.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }

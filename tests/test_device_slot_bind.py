@@ -11,7 +11,7 @@ send on every request:
 
   1. same device id  -> same slot (idempotent across logout/login)
   2. different device -> its own slot (up to max_devices)
-  3. an unbound slot  -> adopted, not duplicated
+  3. an unbound slot  -> remains reserved for its original device
   4. at the cap       -> 409 device_limit_reached
 """
 import os
@@ -29,13 +29,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from src.database.models import Base, Server
+from src.database.models import Base, Client, Server
 from src.database.connection import get_db
 from src.api.main import create_app
 from src.api.routes import client_portal as cp
 from src.modules.subscription.slot_manager import SlotManager
 from src.modules.subscription.subscription_models import (
     ClientUser,
+    ClientUserClients,
     DeviceSlot,
     SubscriptionPlan,
     ClientPortalSubscription,
@@ -182,3 +183,64 @@ def test_device_over_cap_gets_409(ctx):
     r = _post(client, DEV_C)                     # cap=2 already used by A+B
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["code"] == "device_limit_reached"
+
+
+def test_slot_qr_requires_ownership_and_uses_existing_peer_renderer(ctx, monkeypatch):
+    client, Session, server_id = ctx
+    db = Session()
+    slot = DeviceSlot(
+        client_user_id=USER_ID,
+        label="Laptop",
+        public_key="u" * 43 + "=",
+        private_key="k" * 43 + "=",
+        active_server_id=server_id,
+    )
+    db.add(slot)
+    db.flush()
+    peer = Client(
+        name="Laptop",
+        server_id=server_id,
+        public_key="c" * 43 + "=",
+        private_key="p" * 43 + "=",
+        ipv4="10.66.66.2",
+        ip_index=2,
+        enabled=True,
+    )
+    db.add(peer)
+    db.flush()
+    db.add(ClientUserClients(client_user_id=USER_ID, client_id=peer.id, slot_id=slot.id))
+    db.commit()
+    slot_id = slot.id
+    peer_id = peer.id
+    db.close()
+
+    seen = []
+
+    class FakeAdminApi:
+        async def get_client_qrcode(self, client_id):
+            seen.append(client_id)
+            return b"\x89PNG\r\n\x1a\nsynthetic"
+
+    monkeypatch.setattr(cp, "admin_api", FakeAdminApi())
+    response = client.get(f"/client-portal/devices/{slot_id}/qrcode/{server_id}")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "image/png"
+    assert response.content.startswith(b"\x89PNG")
+    assert seen == [peer_id]
+
+    db = Session()
+    db.query(DeviceSlot).filter(DeviceSlot.id == slot_id).update(
+        {"device_id": DEV_A}, synchronize_session=False
+    )
+    db.commit()
+    db.close()
+    bound = client.get(f"/client-portal/devices/{slot_id}/qrcode/{server_id}")
+    assert bound.status_code == 409
+    assert bound.json()["detail"]["code"] == "device_already_bound"
+    assert seen == [peer_id]
+
+    app = client.app
+    app.dependency_overrides[cp.get_current_user] = lambda: USER_ID + 1
+    denied = client.get(f"/client-portal/devices/{slot_id}/qrcode/{server_id}")
+    assert denied.status_code == 404

@@ -8,6 +8,7 @@ import subprocess
 import time
 import random
 import asyncio
+import json
 import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -122,6 +123,11 @@ def _make_token_response(user: AdminUser, db: Session) -> dict:
     token = create_access_token(token_data)
     refresh = create_refresh_token(token_data)
 
+    try:
+        permissions = json.loads(user.permissions) if user.permissions else []
+    except (TypeError, ValueError):
+        permissions = []
+
     return {
         "access_token": token,
         "refresh_token": refresh,
@@ -130,6 +136,8 @@ def _make_token_response(user: AdminUser, db: Session) -> dict:
             "id": user.id,
             "username": user.username,
             "is_superadmin": user.is_superadmin,
+            "role": getattr(user, "role", "owner"),
+            "permissions": permissions,
         }
     }
 
@@ -324,6 +332,10 @@ async def login(data: LoginRequest, request: Request, db: Session = Depends(get_
         await asyncio.sleep(random.uniform(0.5, 2.0))
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    if getattr(user, "is_active", True) is False:
+        await asyncio.sleep(random.uniform(0.5, 2.0))
+        raise HTTPException(status_code=401, detail="Account inactive")
+
     # Check account lock (locked_until stored as naive UTC in DB)
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     if user.locked_until:
@@ -367,8 +379,8 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     payload = verify_refresh_token(data.refresh_token)
 
     user = db.query(AdminUser).filter(AdminUser.id == payload["user_id"]).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    if not user or getattr(user, "is_active", True) is False:
+        raise HTTPException(status_code=401, detail="Account inactive or not found")
 
     token_data = {
         "user_id": user.id,
@@ -376,6 +388,11 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
         "is_superadmin": user.is_superadmin,
         "role": getattr(user, 'role', 'owner'),
     }
+
+    try:
+        permissions = json.loads(user.permissions) if user.permissions else []
+    except (TypeError, ValueError):
+        permissions = []
 
     return {
         "access_token": create_access_token(token_data),
@@ -385,6 +402,8 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
             "id": user.id,
             "username": user.username,
             "is_superadmin": user.is_superadmin,
+            "role": getattr(user, "role", "owner"),
+            "permissions": permissions,
         }
     }
 
@@ -402,14 +421,20 @@ def get_me(
 
     user_id = payload.get("user_id")
     user = db.query(AdminUser).filter(AdminUser.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    if not user or getattr(user, "is_active", True) is False:
+        raise HTTPException(status_code=401, detail="Account inactive or not found")
+
+    try:
+        permissions = json.loads(user.permissions) if user.permissions else []
+    except (TypeError, ValueError):
+        permissions = []
 
     return {
         "id": user.id,
         "username": user.username,
         "is_superadmin": user.is_superadmin,
-        "role": "admin",
+        "role": getattr(user, "role", "owner"),
+        "permissions": permissions,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "last_login": user.last_login.isoformat() if user.last_login else None,
     }

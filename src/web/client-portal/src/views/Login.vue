@@ -218,7 +218,11 @@ const isCustomLogo = computed(() => (
 
 // `identifier` accepts either email or username; the backend route
 // disambiguates by presence of "@".
-const form = ref({ identifier: '', password: '' })
+const demoAccount = typeof window !== 'undefined' ? window.__FLIREXA_DEMO_ACCOUNT__ : null
+const form = ref({
+  identifier: String(demoAccount?.identifier || ''),
+  password: String(demoAccount?.password || ''),
+})
 const loading = ref(false)
 const error = ref(null)
 const success = ref(null)

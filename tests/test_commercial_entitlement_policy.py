@@ -190,8 +190,8 @@ def test_portal_promo_decoration_cannot_hide_duration_or_block_checkout_load():
     duration_wrapper = source[source.rfind("<div", 0, duration_pos):duration_pos]
     assert "operatorFeatures.promo_codes" not in duration_wrapper
 
-    promo_pos = source.index("<!-- Promo Code -->")
-    promo_block = source[promo_pos:promo_pos + 180]
+    promo_pos = source.index('class="fx-payment-field"', duration_pos)
+    promo_block = source[source.rfind("<div", duration_pos, promo_pos):promo_pos + 80]
     assert 'v-if="operatorFeatures.promo_codes"' in promo_block
 
     # Plans/providers are the purchase-critical Promise.all. The optional

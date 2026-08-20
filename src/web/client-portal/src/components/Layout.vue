@@ -36,6 +36,16 @@
         <div class="fx-nav-scrim" :class="{ open: menuOpen }" @click="menuOpen = false" aria-hidden="true" />
 
         <div class="fx-header-right">
+          <button
+            v-if="featureFlags.account_balance"
+            type="button"
+            class="fx-balance-pill"
+            :title="$t('nav.addFunds')"
+            @click="openBalance"
+          >
+            <span>{{ $t('nav.balance') }}</span>
+            <strong>{{ balanceLabel }}</strong>
+          </button>
           <button class="fx-icon-btn" @click="toggleTheme" :title="themeTitle">
             <FxIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
           </button>
@@ -145,7 +155,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { portalApi } from '../api/index.js'
-import { clearPortalSession, portalSession } from '../session.js'
+import { clearPortalSession, ensurePortalSession, portalSession } from '../session.js'
 import FxIcon from './FxIcon.vue'
 import bundledLogo from '../assets/flirexa-logo.png'
 import { brandingUrl, isExternalHref, legalDocumentHref } from '../branding.js'
@@ -162,7 +172,8 @@ const accountOpen = ref(false)
 const accountWrap = ref(null)
 // Commercial navigation fails closed until the signed feature response is
 // available. The route itself repeats the backend gate.
-const featureFlags = ref({ corp_networks: false })
+const featureFlags = ref({ corp_networks: false, account_balance: false })
+const balanceMinor = ref(null)
 
 // Close the drawer when navigating or when the viewport widens past mobile.
 watch(() => route.path, () => {
@@ -283,6 +294,15 @@ const userInitials = computed(() => {
   return (parts[0][0] + parts[1][0]).toUpperCase()
 })
 
+const balanceLabel = computed(() => {
+  if (balanceMinor.value == null) return '—'
+  return `$${(Number(balanceMinor.value || 0) / 100).toFixed(2)}`
+})
+
+function openBalance() {
+  router.push({ path: '/payments', query: { topup: '1' } })
+}
+
 async function logout() {
   accountOpen.value = false
   try {
@@ -293,11 +313,18 @@ async function logout() {
   }
 }
 
-// Enterprise branding can hide the Flirexa attribution. The API serializes
-// SystemConfig values as strings, so normalise both old and new shapes.
+function brandingBoolean(value, fallback = true) {
+  if (value === undefined || value === null || value === '') return fallback
+  return value === true || String(value).toLowerCase() === 'true'
+}
+
+// Enterprise branding can control the portal GitHub card independently. For
+// installations saved before this setting existed, preserve the historical
+// behaviour and follow the broader Powered by attribution control.
 const showGithub = computed(() => {
-  const value = window.__branding?.branding_powered_by
-  return value === undefined || value === true || String(value).toLowerCase() === 'true'
+  const branding = window.__branding || {}
+  const poweredBy = brandingBoolean(branding.branding_powered_by, true)
+  return brandingBoolean(branding.branding_github_card, poweredBy)
 })
 
 // Backend's /notifications returns every notification, not just unread —
@@ -326,15 +353,29 @@ async function dismissNotification(id) {
 }
 
 async function loadFeatures() {
-  if (!portalSession.user) return
+  if (!portalSession.user && !await ensurePortalSession()) return
   try {
     const { data } = await portalApi.getFeatures()
-    featureFlags.value = { corp_networks: !!data?.features?.corp_networks }
+    featureFlags.value = {
+      corp_networks: !!data?.features?.corp_networks,
+      account_balance: !!data?.features?.account_balance,
+    }
+    if (featureFlags.value.account_balance) await loadBalance()
   } catch { /* keep defaults */ }
 }
 
+async function loadBalance() {
+  if (!portalSession.user || !featureFlags.value.account_balance) return
+  try {
+    const { data } = await portalApi.getBalance(1)
+    balanceMinor.value = Number(data?.available_minor || 0)
+  } catch {
+    // A balance refresh must not disturb navigation or an active session.
+  }
+}
+
 async function loadNotifications() {
-  if (!portalSession.user) return
+  if (!portalSession.user && !await ensurePortalSession()) return
   try {
     const { data } = await portalApi.getNotifications()
     // Mark-as-read is a dismiss action in this UI. The endpoint also returns
@@ -345,16 +386,20 @@ async function loadNotifications() {
 
 let notifIntervalId = null
 onMounted(() => {
+  const demoLocale = window.__FLIREXA_DEMO_LOCALE__
+  if (languages.some(item => item.code === demoLocale)) setLang(demoLocale)
   loadFeatures()
   loadNotifications()
   notifIntervalId = setInterval(loadNotifications, 60000)
   window.addEventListener('resize', onResize)
+  window.addEventListener('fx:balance-updated', loadBalance)
   document.addEventListener('pointerdown', onOutsidePointer)
   document.addEventListener('keydown', onDocumentKeydown)
 })
 onUnmounted(() => {
   if (notifIntervalId) clearInterval(notifIntervalId)
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('fx:balance-updated', loadBalance)
   document.removeEventListener('pointerdown', onOutsidePointer)
   document.removeEventListener('keydown', onDocumentKeydown)
 })
@@ -378,6 +423,26 @@ onUnmounted(() => {
   height: 18px;
   padding: 0 7px;
 }
+
+.fx-balance-pill {
+  min-width: 92px;
+  height: 36px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-elev);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .12s, background .12s, transform .12s;
+}
+.fx-balance-pill span { color: var(--text-3); font-size: 10.5px; }
+.fx-balance-pill strong { color: var(--accent); font: 650 12px var(--mono); }
+.fx-balance-pill:hover { border-color: var(--accent); background: var(--bg-hover); transform: translateY(-1px); }
 
 .fx-account-wrap { position: relative; }
 .fx-account-menu {
@@ -506,6 +571,8 @@ onUnmounted(() => {
   .fx-notif-panel { top: 56px; right: 12px; }
 }
 @media (max-width: 480px) {
-  .fx-brand-text { max-width: 140px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .fx-brand-text { display: none; }
+  .fx-balance-pill { min-width: 0; width: auto; padding: 0 9px; }
+  .fx-balance-pill span { display: none; }
 }
 </style>

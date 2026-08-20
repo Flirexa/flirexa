@@ -36,6 +36,7 @@ from ..middleware.auth import get_current_admin
 from ..middleware.license_gate import require_license_feature
 
 router = APIRouter()
+support_router = APIRouter()
 
 
 # ============================================================================
@@ -946,7 +947,7 @@ def broadcast_message(data: BroadcastRequest, db: Session = Depends(get_db)):
 
 # --- SUPPORT MESSAGES (Admin side) ---
 
-@router.get("/support-messages")
+@support_router.get("/support-messages")
 def list_support_messages(
     status: Optional[str] = Query(None, description="Filter by status: open, answered, closed"),
     search: Optional[str] = Query(None),
@@ -1003,7 +1004,7 @@ def list_support_messages(
     return {"items": result, "total": total, "page": page, "per_page": per_page}
 
 
-@router.get("/support-messages/unread-count")
+@support_router.get("/support-messages/unread-count")
 def get_support_unread_total(db: Session = Depends(get_db)):
     """Get total unread support messages for admin badge"""
     from ...modules.subscription.subscription_models import SupportMessage
@@ -1016,7 +1017,7 @@ def get_support_unread_total(db: Session = Depends(get_db)):
     return {"unread": count}
 
 
-@router.get("/support-messages/{ticket_id}")
+@support_router.get("/support-messages/{ticket_id}")
 def get_support_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """Get a support ticket with all replies"""
     from ...modules.subscription.subscription_models import SupportMessage
@@ -1064,8 +1065,36 @@ class AdminReplyRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
 
 
-@router.post("/support-messages/{ticket_id}/reply")
-def reply_to_ticket(ticket_id: int, data: AdminReplyRequest, db: Session = Depends(get_db)):
+def _audit_support_action(
+    db: Session,
+    current_admin: dict,
+    ticket: SupportMessage,
+    action: str,
+    *,
+    reply_id: Optional[int] = None,
+) -> None:
+    """Record the exact delegated account that changed a support ticket."""
+    details = {"action": action}
+    if reply_id is not None:
+        details["reply_id"] = reply_id
+    db.add(AuditLog(
+        user_id=current_admin.get("user_id"),
+        user_type="admin",
+        action=AuditAction.CONFIG_CHANGE,
+        target_type="support_ticket",
+        target_id=ticket.id,
+        target_name=ticket.subject,
+        details=details,
+    ))
+
+
+@support_router.post("/support-messages/{ticket_id}/reply")
+def reply_to_ticket(
+    ticket_id: int,
+    data: AdminReplyRequest,
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
     """Admin replies to a support ticket"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -1085,7 +1114,15 @@ def reply_to_ticket(ticket_id: int, data: AdminReplyRequest, db: Session = Depen
         is_read=False,
     )
     db.add(reply)
+    db.flush()
     ticket.status = "answered"
+    _audit_support_action(
+        db,
+        current_admin,
+        ticket,
+        "support_reply",
+        reply_id=reply.id,
+    )
     db.commit()
 
     try:
@@ -1100,8 +1137,12 @@ def reply_to_ticket(ticket_id: int, data: AdminReplyRequest, db: Session = Depen
     return {"id": reply.id, "status": "sent"}
 
 
-@router.post("/support-messages/{ticket_id}/close")
-def close_ticket(ticket_id: int, db: Session = Depends(get_db)):
+@support_router.post("/support-messages/{ticket_id}/close")
+def close_ticket(
+    ticket_id: int,
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
     """Close a support ticket"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -1113,12 +1154,17 @@ def close_ticket(ticket_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Ticket not found")
 
     ticket.status = "closed"
+    _audit_support_action(db, current_admin, ticket, "support_close")
     db.commit()
     return {"ok": True, "status": "closed"}
 
 
-@router.post("/support-messages/{ticket_id}/reopen")
-def reopen_ticket(ticket_id: int, db: Session = Depends(get_db)):
+@support_router.post("/support-messages/{ticket_id}/reopen")
+def reopen_ticket(
+    ticket_id: int,
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
     """Reopen a closed support ticket"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -1130,12 +1176,17 @@ def reopen_ticket(ticket_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Ticket not found")
 
     ticket.status = "open"
+    _audit_support_action(db, current_admin, ticket, "support_reopen")
     db.commit()
     return {"ok": True, "status": "open"}
 
 
-@router.delete("/support-messages/{ticket_id}")
-def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
+@support_router.delete("/support-messages/{ticket_id}")
+def delete_ticket(
+    ticket_id: int,
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
     """Delete a support ticket and all its replies"""
     from ...modules.subscription.subscription_models import SupportMessage
 
@@ -1147,6 +1198,7 @@ def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Ticket not found")
 
     db.query(SupportMessage).filter(SupportMessage.parent_id == ticket_id).delete()
+    _audit_support_action(db, current_admin, ticket, "support_delete")
     db.delete(ticket)
     db.commit()
     return {"ok": True}

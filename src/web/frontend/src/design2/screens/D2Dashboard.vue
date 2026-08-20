@@ -166,7 +166,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import Icon from '../ui/Icon.vue'
 
-const { t } = useI18n()
+const { t } = useI18n({ useScope: 'global' })
 function tr(k) { try { const v = t(k); return v === k ? '' : v } catch (_) { return '' } }
 const ui = useD2Ui()
 
